@@ -119,6 +119,15 @@ pub fn persist(db_path: &Path, track_key: &str, report: &Report) -> Result<()> {
 }
 
 fn insert(conn: &mut Connection, track_key: &str, report: &Report) -> Result<()> {
+    insert_inner(conn, track_key, report, None)
+}
+
+fn insert_inner(
+    conn: &mut Connection,
+    track_key: &str,
+    report: &Report,
+    file_state: Option<(i64, i64)>,
+) -> Result<()> {
     if track_key.is_empty() || track_key.trim() != track_key || track_key.contains('\0') {
         bail!("Invalid track key: use exact non-empty TracksV2.File path");
     }
@@ -165,8 +174,16 @@ fn insert(conn: &mut Connection, track_key: &str, report: &Report) -> Result<()>
             report.patches_analyzed as i64,
         ],
     )?;
-    // A standalone single-file update invalidates any previous scan stat.
+    // Keep result and its provenance snapshot in the *same* SQLite transaction.
+    // A standalone single-file write deliberately invalidates old scan snapshots.
     transaction.execute("DELETE FROM mood_track_state WHERE track_file=?1", [track_key])?;
+    if let Some((file_size, modified_ns)) = file_state {
+        transaction.execute(
+            "INSERT INTO mood_track_state(track_file,file_size,modified_ns,model_key)
+             VALUES(?1,?2,?3,?4)",
+            params![track_key, file_size, modified_ns, model_key],
+        )?;
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -210,26 +227,7 @@ pub fn persist_scanned(
     file_size: i64,
     modified_ns: i64,
 ) -> Result<()> {
-    insert(conn, track_file, report)?;
-    let model_key = model_key_for(
-        report.embedding_model,
-        report.classification_model,
-        &report.models_sha256,
-        report.preprocessing_version,
-        report.aggregation,
-        &report.scores.keys().cloned().collect::<Vec<_>>(),
-        report.validated_against_essentia,
-    )?;
-    conn.execute(
-        "INSERT INTO mood_track_state(track_file, file_size, modified_ns, model_key)
-         VALUES (?1,?2,?3,?4)
-         ON CONFLICT(track_file) DO UPDATE SET
-         file_size=excluded.file_size,
-         modified_ns=excluded.modified_ns,
-         model_key=excluded.model_key",
-        params![track_file, file_size, modified_ns, model_key],
-    )?;
-    Ok(())
+    insert_inner(conn, track_file, report, Some((file_size, modified_ns)))
 }
 
 pub fn is_current(
