@@ -1,7 +1,50 @@
 # bliss-mood-poc
 
-Experimental Rust music mood recognition research for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion, following the [similarity design](https://chrober.github.io/bliss-similarity-design/).
+Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme ONNX models. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
-**Status:** Initial research / unvalidated implementation. The target is offline mood analysis with Essentia's MTG-Jamendo ONNX models, reproducible validation, and optional integration in the existing Bliss mixer. No model weights are distributed here. The model licenses must be reviewed separately.
+**Status:** experimental, not yet reference-validated; compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
-The existing Bliss feature vector and Lyrion production plugins remain unchanged during the proof of concept.
+## Setup (Windows)
+
+Install Rust stable and FFmpeg (available on PATH), then:
+
+```powershell
+.\scripts\download-models.ps1
+cargo test
+cargo run --release -- analyze "D:\Music\song.flac" --models-dir models --threads 1 --json
+```
+
+The PowerShell script downloads the ONNX encoder (~18 MB), Mood/Theme classifier (~2.7 MB), and its JSON class metadata from the official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
+
+## CLI and JSON
+
+```
+bliss-mood analyze SONG [--models-dir models] [--threads 1] [--max-patches 10] [--json]
+```
+
+- `--threads` caps ONNX CPU inference threads, important for a shared Lyrion host.
+- `--max-patches` limits the *inference* to N initial audio patches; decoding and feature extraction still process the entire track.
+- JSON includes all 56 class scores, audio and model SHA-256 hashes, patch count, and separate **decode / DSP / model load / inference / total timings**.
+- `validated_against_essentia: false` explicitly identifies the experimental preprocessing pipeline.
+- Audio files are never modified.
+
+## Model pipeline
+
+FFmpeg decode/resample to 16 kHz mono float PCM; windowed 512-point FFT, 256-hop, 96 Mel bands, log10 transform; 128 × 96 input patches with 62-frame hop; 1280-dim Discogs-EffNet embeddings; 56-dimensional Mood/Theme classification; arithmetic mean of patch probabilities.
+
+**The Rust implementation is currently an approximation**. Exact Essentia parity is mandatory: compare a reference signal and intermediate features, then classification outputs. See `scripts/reference_essentia.py`, which requires Essentia TensorFlow and the separately downloadable `.pb` models.
+
+## Raspberry Pi 4 / Lyrion
+
+See **[Pi 4B and piCorePlayer performance benchmark](docs/raspberry-pi-benchmark.md)**. We have not measured actual throughput on a Pi 4B yet. AArch64 is the primary target, with ONNX Runtime deployment/linker compatibility to be verified. Until then, the safest strategy is offline batch analysis on another computer and cached scores for Lyrion.
+
+## Research gates
+
+1. Rust build, formatting, tests, and CI.
+2. ONNX end-to-end inference on a real file.
+3. Numerical parity against Essentia and stable score semantics.
+4. Mood-quality evaluation (50–100 diverse songs), comparison with Bliss and sonara.
+5. Pi4 CPU/RAM/temperature/per-song benchmarks under Lyrion playback.
+6. Optional versioned sidecar cache and mood-aware re-ranking without changing Bliss's established 23D vector.
+
+No production Lyrion or bliss-rs components are altered by this PoC.
