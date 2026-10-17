@@ -31,10 +31,16 @@ pub struct ScanOptions<'a> {
     pub max_new: Option<usize>,
     pub threads: usize,
     pub dry_run: bool,
+    /// If set, process exactly one matching TracksV2.File key.
+    pub only_track: Option<&'a str>,
 }
 
-/// Convert a stored Bliss path to the analysis host's path.
-/// Without root mapping, the exact Bliss path is used directly.
+/// Resolve an exact Bliss TracksV2.File identity against the analysis machine.
+///
+/// In many LMS configurations TracksV2.File is already relative to the music
+/// directory. In that case only --source-root is needed, e.g.
+/// "\\192.168.1.100\music" for Windows and "/mnt/music" on Linux.
+/// Never let a relative key escape the declared source root.
 fn source_path(
     track_key: &str,
     library_root: Option<&str>,
@@ -42,29 +48,36 @@ fn source_path(
 ) -> Result<PathBuf> {
     match (library_root, source_root) {
         (None, None) => Ok(PathBuf::from(track_key)),
+        (None, Some(root)) => safe_join(root, track_key),
         (Some(prefix), Some(root)) => {
             let prefix = prefix.trim_end_matches(&['/', '\\'][..]);
-            if prefix.is_empty() || root.as_os_str().is_empty() {
-                bail!("Path mapping roots must be non-empty");
+            if prefix.is_empty() {
+                bail!("--library-root must not be empty");
             }
             let relative = track_key.strip_prefix(prefix)
-                .context("Track path does not start with declared library root")?;
-            let relative = relative.strip_prefix(&['/', '\\'][..])
+                .context("Track path does not begin with the configured library root")?
+                .strip_prefix(&['/', '\\'][..])
                 .context("Library prefix must be followed by a path separator")?;
-            if relative.is_empty() {
-                bail!("Track key points to a directory, not a song");
-            }
-            let mut result = root.to_path_buf();
-            for part in relative.split(&['/', '\\'][..]) {
-                if part.is_empty() || part == "." || part == ".." || part.contains(':') {
-                    bail!("Unsafe or ambiguous path component in Bliss track key");
-                }
-                result.push(part);
-            }
-            Ok(result)
+            safe_join(root, relative)
         }
-        _ => bail!("--library-root and --source-root must be provided together"),
+        (Some(_), None) => bail!("--library-root requires --source-root"),
     }
+}
+
+fn safe_join(root: &Path, relative: &str) -> Result<PathBuf> {
+    if root.as_os_str().is_empty() || relative.is_empty() {
+        bail!("Source root and relative Bliss path must be non-empty");
+    }
+    let mut result = root.to_path_buf();
+    // Split both separators explicitly: Bliss stores portable forward slashes,
+    // while Windows UNC roots use backslashes.
+    for part in relative.split(&['/', '\\'][..]) {
+        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
+            bail!("Unsafe/ambiguous component in Bliss track path: {relative}");
+        }
+        result.push(part);
+    }
+    Ok(result)
 }
 
 fn file_stat(file: &Path) -> Result<(i64, i64)> {
@@ -86,11 +99,17 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     if options.threads == 0 || options.max_new == Some(0) {
         bail!("--threads and --max-new must be >= 1");
     }
-    if options.source_root.is_some() != options.library_root.is_some() {
-        bail!("--source-root and --library-root must be passed together");
+    if options.library_root.is_some() && options.source_root.is_none() {
+        bail!("--library-root requires --source-root");
     }
     // The source library is opened read-only and sorted by its canonical File key.
-    let tracks = storage::bliss_files(options.bliss_db)?;
+    let mut tracks = storage::bliss_files(options.bliss_db)?;
+    if let Some(exact) = options.only_track {
+        tracks.retain(|key| key == exact);
+        if tracks.is_empty() {
+            bail!("--only-track was not found as an exact TracksV2.File key: {exact}");
+        }
+    }
     let mut profile = Some(ModelProfile::load(options.models_dir)?);
     let model_key = profile.as_ref().expect("profile").model_key.clone();
     let mut conn = if options.dry_run {
@@ -180,5 +199,16 @@ mod tests {
         assert!(source_path("/mnt/musical/a.flac", Some("/mnt/music"), Some(Path::new("D:/Music"))).is_err());
         assert!(source_path("/mnt/music/../secret", Some("/mnt/music"), Some(Path::new("D:/Music"))).is_err());
         assert!(source_path("/mnt/music/song", Some("/mnt/music"), None).is_err());
+        assert_eq!(
+            source_path("Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3",
+                None, Some(Path::new(r"\\192.168.1.100\music"))).unwrap(),
+            PathBuf::from(r"\\192.168.1.100\music")
+                .join("Acid Mammoth")
+                .join("2024 - Supersonic Megafuana Collision")
+                .join("04 Atomic Shaman.mp3")
+        );
+        assert!(source_path("../outside.flac", None, Some(Path::new("/mnt/music"))).is_err());
+        assert!(source_path("/root/escape.flac", None, Some(Path::new("/mnt/music"))).is_err());
+        assert!(source_path(r"C:\escape.flac", None, Some(Path::new("/mnt/music"))).is_err());
     }
 }
