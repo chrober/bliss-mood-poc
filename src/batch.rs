@@ -91,8 +91,8 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     }
     // The source library is opened read-only and sorted by its canonical File key.
     let tracks = storage::bliss_files(options.bliss_db)?;
-    let profile = ModelProfile::load(options.models_dir)?;
-    let model_key = profile.model_key.clone();
+    let mut profile = Some(ModelProfile::load(options.models_dir)?);
+    let model_key = profile.as_ref().expect("profile").model_key.clone();
     let conn = storage::open_scan_db(options.mood_db)?;
     let mut engine: Option<MoodEngine> = None;
     let mut summary = ScanSummary {
@@ -137,7 +137,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             break;
         }
         if engine.is_none() {
-            engine = Some(MoodEngine::new(profile, options.threads)?);
+            engine = Some(MoodEngine::new(profile.take().expect("profile only loaded once"), options.threads)?);
             summary.model_sessions_initialized = true;
         }
         let result = engine.as_mut().expect("model initialized").analyze(&source, None);
