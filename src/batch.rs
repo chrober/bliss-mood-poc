@@ -93,7 +93,11 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     let tracks = storage::bliss_files(options.bliss_db)?;
     let mut profile = Some(ModelProfile::load(options.models_dir)?);
     let model_key = profile.as_ref().expect("profile").model_key.clone();
-    let conn = storage::open_scan_db(options.mood_db)?;
+    let mut conn = if options.dry_run {
+        storage::open_readonly_scan_db(options.mood_db)?
+    } else {
+        Some(storage::open_scan_db(options.mood_db)?)
+    };
     let mut engine: Option<MoodEngine> = None;
     let mut summary = ScanSummary {
         bliss_tracks: tracks.len(),
@@ -103,7 +107,6 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         model_sessions_initialized: false,
         experimental_results: true,
     };
-    let mut conn = conn;
     for track in tracks {
         summary.checked += 1;
         let source = match source_path(
@@ -124,7 +127,11 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
                 continue;
             }
         };
-        if storage::is_current(&conn, &track, size, modified, &model_key)? {
+        if conn.as_ref()
+            .map(|db| storage::is_current(db, &track, size, modified, &model_key))
+            .transpose()?
+            .unwrap_or(false)
+        {
             summary.up_to_date += 1;
             continue;
         }
@@ -143,7 +150,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         let result = engine.as_mut().expect("model initialized").analyze(&source, None);
         match result.and_then(|report| {
             // New scores are committed only after all model stages succeed.
-            storage::persist_scanned(&mut conn, &track, &report, size, modified)
+            storage::persist_scanned(conn.as_mut().expect("writable db in non-dry-run"), &track, &report, size, modified)
         }) {
             Ok(()) => {
                 summary.analyzed += 1;
