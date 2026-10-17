@@ -1,9 +1,10 @@
 mod preprocess;
 mod storage;
+mod engine;
+mod batch;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use ort::{session::Session, value::TensorRef};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,7 +13,6 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
-    time::Instant,
 };
 
 const ENCODER: &str = "discogs-effnet-bsdynamic-1.onnx";
@@ -54,6 +54,30 @@ enum Action {
         db: PathBuf,
         #[arg(long)]
         bliss_db: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Incrementally analyze Lyrion's Bliss library into mood.db.
+    Scan {
+        #[arg(long)]
+        bliss_db: PathBuf,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        /// The prefix used in Bliss TracksV2.File (normally the Pi's music folder).
+        #[arg(long, requires = "source_root")]
+        library_root: Option<String>,
+        /// Equivalent path prefix to the same audio files on this analysis machine.
+        #[arg(long, requires = "library_root")]
+        source_root: Option<PathBuf>,
+        /// Maximum newly analyzed tracks in this run (useful for Pi/quick tests).
+        #[arg(long)]
+        max_new: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long)]
+        dry_run: bool,
         #[arg(long)]
         json: bool,
     },
@@ -121,128 +145,18 @@ fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
         .collect())
 }
 
-/// This model exposes an auxiliary 1280-dimensional embedding output.
-fn embedding(session: &mut Session, patch: &[f32]) -> Result<Vec<f32>> {
-    let input = TensorRef::from_array_view(([1usize, 128usize, 96usize], patch))?;
-    let outputs = session.run(ort::inputs![input])?;
-    for value in outputs.values() {
-        let (_, tensor) = value.try_extract_tensor::<f32>()?;
-        if tensor.len() == 1280 {
-            return Ok(tensor.to_vec());
-        }
-    }
-    bail!("Embedding model did not expose a 1280-dimensional tensor");
-}
-
-fn mood_scores(session: &mut Session, vector: &[f32]) -> Result<Vec<f32>> {
-    let input = TensorRef::from_array_view(([1usize, 1280usize], vector))?;
-    let outputs = session.run(ort::inputs![input])?;
-    for value in outputs.values() {
-        let (_, tensor) = value.try_extract_tensor::<f32>()?;
-        if tensor.len() == 56 && tensor.iter().all(|x| x.is_finite() && (0.0..=1.0).contains(x)) {
-            return Ok(tensor.to_vec());
-        }
-    }
-    bail!("Mood classifier did not expose 56 finite sigmoid probabilities");
-}
-
 fn analyze(
     path: &Path,
     models_dir: &Path,
     max_patches: Option<usize>,
     threads: usize,
 ) -> Result<Report> {
-    let started = Instant::now();
     if !path.is_file() {
         bail!("Audio file not found: {}", path.display());
     }
-    if max_patches == Some(0) || threads == 0 {
-        bail!("--max-patches and --threads must be >= 1");
-    }
-    let paths = [models_dir.join(ENCODER), models_dir.join(CLASSIFIER)];
-    for model_path in &paths {
-        if !model_path.is_file() {
-            bail!(
-                "Model missing: {}. Run scripts/download-models.ps1 first.",
-                model_path.display()
-            );
-        }
-    }
-    let label_content =
-        std::fs::read(models_dir.join(LABELS)).context("Cannot read model label metadata")?;
-    let meta: serde_json::Value = serde_json::from_slice(&label_content)?;
-    let labels: Vec<String> = meta["classes"]
-        .as_array()
-        .context("Label metadata has no 'classes' array")?
-        .iter()
-        .map(|v| v.as_str().map(ToOwned::to_owned).context("Non-string class label"))
-        .collect::<Result<_>>()?;
-    if labels.len() != 56 {
-        bail!("Expected 56 labels, found {}", labels.len());
-    }
-
-    let decode_started = Instant::now();
-    let samples = ffmpeg_pcm_mono_16k(path)?;
-    let decode_seconds = decode_started.elapsed().as_secs_f64();
-
-    let features_started = Instant::now();
-    let mel = preprocess::mel_spectrogram(&samples)?;
-    let patches = preprocess::patches(&mel, max_patches)?;
-    let features_seconds = features_started.elapsed().as_secs_f64();
-
-    let model_started = Instant::now();
-    let env = ort::init().build()?;
-    let mut encoder = Session::builder(&env)?
-        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
-        .commit_from_file(&paths[0])
-        .context("Cannot initialize Discogs-EffNet ONNX model")?;
-    let mut classifier = Session::builder(&env)?
-        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
-        .commit_from_file(&paths[1])
-        .context("Cannot initialize MTG-Jamendo Mood/Theme ONNX model")?;
-    let model_load_seconds = model_started.elapsed().as_secs_f64();
-
-    let infer_started = Instant::now();
-    let n = patches.len();
-    let mut totals = vec![0.0_f64; 56];
-    for patch in &patches {
-        let vector = embedding(&mut encoder, patch)?;
-        let scores = mood_scores(&mut classifier, &vector)?;
-        for (acc, value) in totals.iter_mut().zip(scores) {
-            *acc += f64::from(value);
-        }
-    }
-    let inference_seconds = infer_started.elapsed().as_secs_f64();
-
-    let scores = labels.into_iter()
-        .zip(totals.into_iter().map(|v| (v / n as f64) as f32))
-        .collect();
-    let models_sha256 = paths.iter()
-        .map(|p| Ok((p.file_name().unwrap().to_string_lossy().to_string(), sha256_file(p)?)))
-        .collect::<Result<_>>()?;
-
-    Ok(Report {
-        schema_version: 1,
-        preprocessing_version: "experimental-slaney-v1-unvalidated",
-        classification_model: CLASSIFIER,
-        embedding_model: ENCODER,
-        audio_path: path.display().to_string(),
-        audio_sha256: sha256_file(path)?,
-        models_sha256,
-        sample_rate: preprocess::RATE,
-        patches_analyzed: n,
-        threads,
-        aggregation: "arithmetic_mean_of_per_patch_sigmoid_scores",
-        validated_against_essentia: false,
-        timings: Timing {
-            decode_seconds,
-            features_seconds,
-            model_load_seconds,
-            inference_seconds,
-            total_seconds: started.elapsed().as_secs_f64(),
-        },
-        scores,
-    })
+    let profile = engine::ModelProfile::load(models_dir)?;
+    let mut engine = engine::MoodEngine::new(profile, threads)?;
+    engine.analyze(path, max_patches)
 }
 
 fn main() -> Result<()> {
@@ -284,6 +198,27 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("{result:#?}");
+            }
+        }
+        Action::Scan {
+            bliss_db, db, models_dir, library_root, source_root, max_new, threads, dry_run, json
+        } => {
+            let summary = batch::scan(batch::ScanOptions {
+                bliss_db: &bliss_db,
+                mood_db: &db,
+                models_dir: &models_dir,
+                source_root: source_root.as_deref(),
+                library_root: library_root.as_deref(),
+                max_new, threads, dry_run,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!("{summary:#?}");
+            }
+            if summary.failures > 0 || summary.missing_files > 0 {
+                bail!("Mood scan completed with {} failures and {} unavailable files",
+                    summary.failures, summary.missing_files);
             }
         }
     }
