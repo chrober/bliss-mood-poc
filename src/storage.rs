@@ -39,6 +39,25 @@ fn schema_version(conn: &Connection) -> Result<i64> {
 }
 
 fn create_schema(conn: &Connection) -> Result<()> {
+    // Never alter an upstream Bliss database, even if passed by mistake.
+    let bliss_tables: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='TracksV2'",
+        [],
+        |row| row.get(0),
+    )?;
+    if bliss_tables != 0 {
+        bail!("Refusing to alter bliss.db: TracksV2 exists in target database");
+    }
+    let other_tables: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table'
+           AND name NOT LIKE 'sqlite_%'
+           AND name NOT IN ('mood_models', 'mood_tracks')",
+        [],
+        |row| row.get(0),
+    )?;
+    if other_tables != 0 {
+        bail!("Refusing to alter unrelated SQLite database");
+    }
     let version = schema_version(conn)?;
     if version != 0 && version != SCHEMA_VERSION {
         bail!("Unsupported mood.db schema version {version} (expected {SCHEMA_VERSION})");
@@ -73,6 +92,7 @@ fn checked_report(report: &Report) -> Result<(String, String, Vec<u8>, String, S
         report.preprocessing_version,
         report.aggregation,
         &classes,
+        report.validated_against_essentia,
     ))?;
     let model_key = format!("{:x}", Sha256::digest(&model_fingerprint));
     let mut score_bytes = Vec::with_capacity(SCORE_COUNT * 4);
@@ -273,6 +293,28 @@ mod tests {
         report.scores.insert("label00".into(), 0.1);
         report.scores.remove("label01");
         assert!(insert(&mut conn, "/music/bad.flac", &report).is_err());
+    }
+
+    #[test]
+    fn never_writes_into_a_bliss_db() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE TracksV2 (File TEXT NOT NULL);").unwrap();
+        assert!(insert(&mut conn, "/music/song.flac", &sample()).is_err());
+        let has_mood: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='mood_tracks'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_mood, 0);
+    }
+
+    #[test]
+    fn refuses_other_sqlite_databases() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE private_data (id INTEGER);").unwrap();
+        assert!(insert(&mut conn, "/music/song.flac", &sample()).is_err());
     }
 
     #[test]
