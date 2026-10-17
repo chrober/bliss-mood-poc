@@ -1,0 +1,49 @@
+name: ONNX model smoke test
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - '.github/workflows/model-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  model-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Download official MTG ONNX files
+        run: |
+          mkdir -p models
+          curl --fail --location --retry 2 --silent --show-error \
+            https://essentia.upf.edu/models/feature-extractors/discogs-effnet/discogs-effnet-bsdynamic-1.onnx \
+            -o models/discogs-effnet-bsdynamic-1.onnx
+          curl --fail --location --retry 2 --silent --show-error \
+            https://essentia.upf.edu/models/classification-heads/mtg_jamendo_moodtheme/mtg_jamendo_moodtheme-discogs-effnet-1.onnx \
+            -o models/mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          curl --fail --location --retry 2 --silent --show-error \
+            https://essentia.upf.edu/models/classification-heads/mtg_jamendo_moodtheme/mtg_jamendo_moodtheme-discogs-effnet-1.json \
+            -o models/mtg_jamendo_moodtheme-discogs-effnet-1.json
+      - name: Generate disposable test audio
+        run: |
+          command -v ffmpeg
+          ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=4 -ac 1 -ar 16000 -y test.wav
+      - name: Run real ONNX inference
+        run: |
+          cargo run --release -- analyze test.wav --models-dir models --max-patches 1 --threads 1 --json > report.json
+      - name: Verify output schema and label count
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path("report.json").read_text())
+          assert result["schema_version"] == 1
+          assert result["patches_analyzed"] == 1
+          assert len(result["scores"]) == 56
+          assert all(0 <= value <= 1 for value in result["scores"].values())
+          assert result["validated_against_essentia"] is False
+          print("ONNX end-to-end smoke test passed (numerical Essentia parity is NOT tested).")
+          PY
