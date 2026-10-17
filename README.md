@@ -4,6 +4,23 @@ Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet 
 
 **Status:** experimental, not yet reference-validated; compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
+## Windows executable without local Rust/Visual Studio
+
+The [Windows x64 binary workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/windows-binary.yml) builds the release executable on a **GitHub-hosted Windows Server 2022 runner**, using MSVC 2022. The job runs Rust tests and verifies that the binary and scan subcommand start before publishing anything.
+
+To download: open the latest **successful** run, scroll to **Artifacts**, and download **bliss-mood-windows-x64**. Extract the GitHub ZIP; it contains bliss-mood.exe, BUILD.txt, SHA256SUMS.txt, a short Windows guide, and any ONNX Runtime DLLs needed by the linked configuration. No local Rust toolchain, Cargo build, or VS Build Tools are necessary.
+
+Run bliss-mood.exe from the project directory with --models-dir pointing at your **separately downloaded** models/ directory. FFmpeg must still be available via PATH. The artifact does **not** include model weights or music, and it is not a Pi binary.
+
+PowerShell example:
+
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $key = 'Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3'
+    $song = Join-Path '\\192.168.1.100\music' ($key -replace '/', '\')
+    .\bliss-mood.exe analyze $song --models-dir .\models --threads 2 --max-patches 10 --db .\mood-test.db --track-key $key --json
+
+This is a build/startup smoke test and experimental model inference, **not** reference validation against Essentia.
+
 ## Real NAS smoke test (relative Bliss paths)
 
 Your Lyrion `TracksV2.File` values may be **relative** to the NAS music root (for example, `Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3`). In that case supply **only** `--source-root` to batch scans, with `--library-root` omitted.
