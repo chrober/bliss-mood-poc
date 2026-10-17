@@ -65,12 +65,15 @@ enum Action {
         db: PathBuf,
         #[arg(long, default_value = "models")]
         models_dir: PathBuf,
-        /// The prefix used in Bliss TracksV2.File (normally the Pi's music folder).
+        /// Optional prefix from absolute Bliss track paths; OMIT when TracksV2.File is relative.
         #[arg(long, requires = "source_root")]
         library_root: Option<String>,
-        /// Equivalent path prefix to the same audio files on this analysis machine.
-        #[arg(long, requires = "library_root")]
+        /// Music directory on this machine; supports UNC paths on Windows.
+        #[arg(long)]
         source_root: Option<PathBuf>,
+        /// Process exactly this TracksV2.File key (useful for a single-song smoke test).
+        #[arg(long)]
+        only_track: Option<String>,
         /// Maximum newly analyzed tracks in this run (useful for Pi/quick tests).
         #[arg(long)]
         max_new: Option<usize>,
@@ -201,7 +204,7 @@ fn main() -> Result<()> {
             }
         }
         Action::Scan {
-            bliss_db, db, models_dir, library_root, source_root, max_new, threads, dry_run, json
+            bliss_db, db, models_dir, library_root, source_root, only_track, max_new, threads, dry_run, json
         } => {
             let summary = batch::scan(batch::ScanOptions {
                 bliss_db: &bliss_db,
@@ -210,6 +213,7 @@ fn main() -> Result<()> {
                 source_root: source_root.as_deref(),
                 library_root: library_root.as_deref(),
                 max_new, threads, dry_run,
+                only_track: only_track.as_deref(),
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
