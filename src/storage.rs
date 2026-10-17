@@ -7,7 +7,7 @@ use std::{path::Path, time::Duration};
 
 use crate::Report;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const SCORE_COUNT: usize = 56;
 
 const SCHEMA: &str = r#"
@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS mood_tracks (
     analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS mood_tracks_model_idx ON mood_tracks(model_key);
+CREATE TABLE IF NOT EXISTS mood_track_state (
+    track_file TEXT PRIMARY KEY REFERENCES mood_tracks(track_file) ON DELETE CASCADE,
+    file_size INTEGER NOT NULL,
+    modified_ns INTEGER NOT NULL,
+    model_key TEXT NOT NULL
+);
 "#;
 
 fn schema_version(conn: &Connection) -> Result<i64> {
@@ -51,7 +57,7 @@ fn create_schema(conn: &Connection) -> Result<()> {
     let other_tables: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table'
            AND name NOT LIKE 'sqlite_%'
-           AND name NOT IN ('mood_models', 'mood_tracks')",
+           AND name NOT IN ('mood_models', 'mood_tracks', 'mood_track_state')",
         [],
         |row| row.get(0),
     )?;
@@ -59,11 +65,13 @@ fn create_schema(conn: &Connection) -> Result<()> {
         bail!("Refusing to alter unrelated SQLite database");
     }
     let version = schema_version(conn)?;
-    if version != 0 && version != SCHEMA_VERSION {
+    if version != 0 && version != 1 && version != SCHEMA_VERSION {
         bail!("Unsupported mood.db schema version {version} (expected {SCHEMA_VERSION})");
     }
     conn.execute_batch(SCHEMA)?;
-    if version == 0 {
+    if version == 0 || version == 1 {
+        // v1 data remains intact; old rows have no scan stat so are
+        // rechecked once by the incremental scanner.
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
@@ -85,16 +93,15 @@ fn checked_report(report: &Report) -> Result<(String, String, Vec<u8>, String, S
     let classes: Vec<&str> = report.scores.keys().map(String::as_str).collect();
     let classes_json = serde_json::to_string(&classes)?;
     let models_json = serde_json::to_string(&report.models_sha256)?;
-    let model_fingerprint = serde_json::to_vec(&(
+    let model_key = model_key_for(
         report.embedding_model,
         report.classification_model,
         &report.models_sha256,
         report.preprocessing_version,
         report.aggregation,
-        &classes,
+        &classes.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
         report.validated_against_essentia,
-    ))?;
-    let model_key = format!("{:x}", Sha256::digest(&model_fingerprint));
+    )?;
     let mut score_bytes = Vec::with_capacity(SCORE_COUNT * 4);
     for score in report.scores.values() {
         score_bytes.extend_from_slice(&score.to_le_bytes());
@@ -158,8 +165,101 @@ fn insert(conn: &mut Connection, track_key: &str, report: &Report) -> Result<()>
             report.patches_analyzed as i64,
         ],
     )?;
+    // A standalone single-file update invalidates any previous scan stat.
+    transaction.execute("DELETE FROM mood_track_state WHERE track_file=?1", [track_key])?;
     transaction.commit()?;
     Ok(())
+}
+
+
+pub fn model_key_for(
+    embedding: &str,
+    classifier: &str,
+    hashes: &std::collections::BTreeMap<String,String>,
+    preprocessing: &str,
+    aggregation: &str,
+    labels: &[String],
+    validated: bool,
+) -> Result<String> {
+    let mut labels_sorted = labels.to_vec();
+    labels_sorted.sort();
+    if labels_sorted.len() != SCORE_COUNT
+        || labels_sorted.windows(2).any(|w| w[0] == w[1]) {
+        bail!("Model requires 56 distinct class labels");
+    }
+    let fingerprint = serde_json::to_vec(&(
+        embedding, classifier, hashes, preprocessing, aggregation, &labels_sorted, validated
+    ))?;
+    Ok(format!("{:x}", Sha256::digest(&fingerprint)))
+}
+
+pub fn open_scan_db(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path)
+        .with_context(|| format!("Cannot open mood database {}", path.display()))?;
+    conn.busy_timeout(Duration::from_secs(10))?;
+    create_schema(&conn)?;
+    Ok(conn)
+}
+
+/// Persist one successful analysis and its corresponding file snapshot.
+/// The scores and scan stat are updated transactionally as one unit.
+pub fn persist_scanned(
+    conn: &mut Connection,
+    track_file: &str,
+    report: &Report,
+    file_size: i64,
+    modified_ns: i64,
+) -> Result<()> {
+    insert(conn, track_file, report)?;
+    let model_key = model_key_for(
+        report.embedding_model,
+        report.classification_model,
+        &report.models_sha256,
+        report.preprocessing_version,
+        report.aggregation,
+        &report.scores.keys().cloned().collect::<Vec<_>>(),
+        report.validated_against_essentia,
+    )?;
+    conn.execute(
+        "INSERT INTO mood_track_state(track_file, file_size, modified_ns, model_key)
+         VALUES (?1,?2,?3,?4)
+         ON CONFLICT(track_file) DO UPDATE SET
+         file_size=excluded.file_size,
+         modified_ns=excluded.modified_ns,
+         model_key=excluded.model_key",
+        params![track_file, file_size, modified_ns, model_key],
+    )?;
+    Ok(())
+}
+
+pub fn is_current(
+    conn: &Connection,
+    track_file: &str,
+    file_size: i64,
+    modified_ns: i64,
+    model_key: &str,
+) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(1) FROM mood_track_state s
+         JOIN mood_tracks t ON s.track_file=t.track_file
+         WHERE s.track_file=?1 AND s.file_size=?2
+           AND s.modified_ns=?3 AND s.model_key=?4
+           AND t.model_key=?4",
+        params![track_file,file_size,modified_ns,model_key],
+        |r| r.get(0),
+    )?;
+    Ok(count == 1)
+}
+
+/// Bliss DB must only ever be opened read-only by the Mood tool.
+pub fn bliss_files(bliss_path: &Path) -> Result<Vec<String>> {
+    let bliss = Connection::open_with_flags(bliss_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("Cannot read Bliss DB {}", bliss_path.display()))?;
+    let mut stmt = bliss.prepare(
+        "SELECT File FROM TracksV2 WHERE Ignore IS NOT 1 ORDER BY File"
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 #[derive(Debug, Serialize)]
@@ -315,6 +415,38 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE private_data (id INTEGER);").unwrap();
         assert!(insert(&mut conn, "/music/song.flac", &sample()).is_err());
+    }
+
+
+    #[test]
+    fn v1_migrates_without_losing_analysis() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        insert(&mut conn, "/music/old.flac", &sample()).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch("DROP TABLE mood_track_state").unwrap();
+        create_schema(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), 2);
+        let count: i64 = conn.query_row("SELECT count(*) FROM mood_tracks",[],|r|r.get(0)).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn scanner_skips_only_same_stat_and_model() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let report = sample();
+        persist_scanned(&mut conn, "/music/a.flac", &report, 1024, 100).unwrap();
+        let key = model_key_for(
+            report.embedding_model, report.classification_model,
+            &report.models_sha256, report.preprocessing_version,
+            report.aggregation, &report.scores.keys().cloned().collect::<Vec<_>>(),
+            false
+        ).unwrap();
+        assert!(is_current(&conn, "/music/a.flac", 1024, 100, &key).unwrap());
+        assert!(!is_current(&conn, "/music/a.flac", 1025, 100, &key).unwrap());
+        assert!(!is_current(&conn, "/music/a.flac", 1024, 101, &key).unwrap());
+        assert!(!is_current(&conn, "/music/a.flac", 1024, 100, "different-model").unwrap());
+        insert(&mut conn, "/music/a.flac", &report).unwrap();
+        assert!(!is_current(&conn, "/music/a.flac", 1024, 100, &key).unwrap());
     }
 
     #[test]
