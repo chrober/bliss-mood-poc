@@ -1,0 +1,10 @@
+/target/
+/models/
+*.wav
+*.mp3
+*.flac
+*.onnx
+*.pb
+*.ckpt
+*.exe
+.DS_Store
