@@ -1,4 +1,4 @@
-# Offline Mood SQLite architecture (proposal v1)
+# Offline Mood SQLite architecture (schema v2)
 
 ## Goal
 
@@ -7,7 +7,7 @@ Mirror the proven *offline analysis, online retrieval* workflow of [Bliss Analys
 1. Analyse a music file on any adequately powerful machine.
 2. Persist scores and exact model/preprocessing provenance in `mood.db` (SQLite).
 3. Transfer the complete portable SQLite file to the Raspberry Pi / Lyrion host.
-4. At playlist generation time, load/lookup cached data only. **No ONNX Runtime, FFmpeg or neural model files are required on the Lyrion host.**
+4. At playlist generation time, load/lookup cached data only. **No ONNX Runtime, FFmpeg or neural model files are required during mix creation.** The Pi can optionally host the native analyzer for post-scan updates.
 
 **Important:** Current classifier / Mel preprocessing implementation is still a prototype, not numerically verified against Essentia. All stored rows retain `validated_against_essentia = 0` until actual reference validation has been performed. Host consumers MUST default to ignoring unvalidated rows.
 
@@ -31,11 +31,11 @@ Example external analysis:
 bliss-mood analyze "D:\Music\Rock\Song.flac" --models-dir models --db mood.db --track-key "/mnt/music/Rock/Song.flac" --json
 ```
 
-The supplied track key must match Bliss exactly. This explicit `--track-key` is deliberate; silent path rewriting causes false joins. A future batch importer can provide audited source/destination root mappings, refusing ambiguous, duplicated, or unmatched paths.
+The supplied track key must match Bliss exactly. This explicit `--track-key` is deliberate; silent path rewriting causes false joins. The implemented `scan` command provides explicit source/library root mappings, refusing ambiguous, duplicated, or unmatched paths.
 
 ## Storage schema
 
-SQLite database `mood.db`, `PRAGMA user_version = 1`:
+SQLite database `mood.db`, `PRAGMA user_version = 2` (v1 migrates without deleting score rows):
 
 ```sql
 CREATE TABLE mood_models (
@@ -56,11 +56,17 @@ CREATE TABLE mood_tracks (
   patches_analyzed INTEGER NOT NULL,
   analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE mood_track_state (
+  track_file TEXT PRIMARY KEY REFERENCES mood_tracks(track_file),
+  file_size INTEGER NOT NULL,
+  modified_ns INTEGER NOT NULL,
+  model_key TEXT NOT NULL
+);
 ```
 
 This avoids duplicating names/metadata and a 56-key JSON object in every song row. The score vector is associated with explicit label order and exact model identity. Prototypes may contain more than one model in the model catalog, but an individual track row always has one current analysis. A model upgrade replaces the affected track's row atomically.
 
-All scores must be finite and in [0,1] and have exactly 56 named labels. The DB reports and comparison always explicitly indicate if the reference validation flag is false.
+The per-track scan snapshot is updated in the same SQLite transaction as its successful Mood scores. On subsequent scans, a matching model key, file size, and modification time avoid recomputing an unchanged song. A standalone single-file reanalysis invalidates its previous scan snapshot. All scores must be finite and in [0,1] and have exactly 56 named labels. The DB reports and comparison always explicitly indicate if the reference validation flag is false.
 
 ## Transfer and lifecycle
 
@@ -80,3 +86,9 @@ All scores must be finite and in [0,1] and have exactly 56 named labels. The DB 
 5. Benchmark the on-demand retrieval RAM and latency on a Pi 4B. Optional Pi-side analysis only after compatible ARM64 builds.
 
 Existing references: [BlissMixerLab](https://github.com/chrober/lms-blissmixer-lab), [Better Call Bliss](https://github.com/chrober/lms-better-call-bliss), [similarity-design](https://chrober.github.io/bliss-similarity-design/).
+
+## Current hybrid implementation
+
+Use `bliss-mood scan --bliss-db ... --db ... --models-dir ...` for the offline batch and on-Pi incremental analysis. The same native binary handles both. Optional `--library-root` and `--source-root` map the Lyrion file identity to the analysis computer's media folder. `--dry-run` opens the current Mood DB read-only (and does not create it), `--max-new N` caps analyzed songs, and `--threads 1` limits ONNX intra-op parallelism. All model sessions are initialized once per batch, on the first pending song. See [hybrid design](lyrion-hybrid-analysis.md).
+
+Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlayer and numerical comparison to Essentia remain outstanding. Do not deploy unvalidated scores as production mix signals.
