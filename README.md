@@ -8,7 +8,7 @@ Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet 
 
 Your Lyrion `TracksV2.File` values may be **relative** to the NAS music root (for example, `Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3`). In that case supply **only** `--source-root` to batch scans, with `--library-root` omitted.
 
-The Windows source root can be a UNC share such as `\\\\192.168.1.100\\music`; the Pi uses its mounted directory as the source root. The Mood database stores the original relative Bliss keys verbatim on either platform. Run the [exact Windows NAS smoke test](docs/windows-nas-smoke-test.md) before scanning the full collection.
+The Windows source root can be a UNC share such as `\\192.168.1.100\music`; the Pi uses its mounted directory as the source root. The Mood database stores the original relative Bliss keys verbatim on either platform. Run the [exact Windows NAS smoke test](docs/windows-nas-smoke-test.md) before scanning the full collection.
 
 ## Setup (Windows)
 
