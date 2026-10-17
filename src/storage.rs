@@ -218,6 +218,21 @@ pub fn open_scan_db(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+
+/// Dry-run must never create or migrate a database; v1 has no scan snapshot.
+pub fn open_readonly_scan_db(path: &Path) -> Result<Option<Connection>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("Cannot read mood.db: {}", path.display()))?;
+    match schema_version(&conn)? {
+        1 => Ok(None),
+        SCHEMA_VERSION => Ok(Some(conn)),
+        other => bail!("Unsupported mood.db schema version {other}"),
+    }
+}
+
 /// Persist one successful analysis and its corresponding file snapshot.
 /// The scores and scan stat are updated transactionally as one unit.
 pub fn persist_scanned(
