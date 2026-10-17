@@ -1,4 +1,5 @@
 mod preprocess;
+mod storage;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -38,6 +39,21 @@ enum Action {
         /// Limit ONNX internal worker threads. Use 1 for a shared Lyrion host.
         #[arg(long, default_value_t = 1)]
         threads: usize,
+        #[arg(long)]
+        json: bool,
+        /// Optional separate SQLite sidecar to store result (never modifies bliss.db).
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Exact TracksV2.File path on the target Lyrion system, required with --db.
+        #[arg(long)]
+        track_key: Option<String>,
+    },
+    /// Compare stored Mood tracks with eligible tracks in an existing Bliss database.
+    DbCoverage {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        bliss_db: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -237,8 +253,16 @@ fn main() -> Result<()> {
             max_patches,
             threads,
             json,
+            db,
+            track_key,
         } => {
+            if db.is_some() != track_key.is_some() {
+                bail!("--db and --track-key must be specified together");
+            }
             let report = analyze(&source, &models_dir, max_patches, threads)?;
+            if let (Some(db_path), Some(key)) = (db.as_deref(), track_key.as_deref()) {
+                storage::persist(db_path, key, &report)?;
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -252,6 +276,14 @@ fn main() -> Result<()> {
                     "Inference: {:.3}s; total: {:.3}s",
                     report.timings.inference_seconds, report.timings.total_seconds
                 );
+            }
+        }
+        Action::DbCoverage { db, bliss_db, json } => {
+            let result = storage::coverage(&db, &bliss_db)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("{result:#?}");
             }
         }
     }
