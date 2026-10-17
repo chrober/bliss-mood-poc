@@ -1,0 +1,284 @@
+//! Versioned offline SQLite sidecar for Mood results. Bliss DB is always read-only.
+use anyhow::{bail, Context, Result};
+use rusqlite::{params, Connection, OpenFlags};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::{path::Path, time::Duration};
+
+use crate::Report;
+
+const SCHEMA_VERSION: i64 = 1;
+const SCORE_COUNT: usize = 56;
+
+const SCHEMA: &str = r#"
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS mood_models (
+    model_key TEXT PRIMARY KEY,
+    embedding_model TEXT NOT NULL,
+    classification_model TEXT NOT NULL,
+    models_sha256_json TEXT NOT NULL,
+    preprocessing_version TEXT NOT NULL,
+    aggregation TEXT NOT NULL,
+    classes_json TEXT NOT NULL,
+    validated_against_essentia INTEGER NOT NULL
+        CHECK (validated_against_essentia IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS mood_tracks (
+    track_file TEXT PRIMARY KEY NOT NULL,
+    audio_sha256 TEXT NOT NULL,
+    model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+    scores_f32_le BLOB NOT NULL CHECK (length(scores_f32_le) = 224),
+    patches_analyzed INTEGER NOT NULL CHECK (patches_analyzed > 0),
+    analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS mood_tracks_model_idx ON mood_tracks(model_key);
+"#;
+
+fn schema_version(conn: &Connection) -> Result<i64> {
+    Ok(conn.pragma_query_value(None, "user_version", |row| row.get(0))?)
+}
+
+fn create_schema(conn: &Connection) -> Result<()> {
+    let version = schema_version(conn)?;
+    if version != 0 && version != SCHEMA_VERSION {
+        bail!("Unsupported mood.db schema version {version} (expected {SCHEMA_VERSION})");
+    }
+    conn.execute_batch(SCHEMA)?;
+    if version == 0 {
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    Ok(())
+}
+
+fn checked_report(report: &Report) -> Result<(String, String, Vec<u8>, String, String)> {
+    if report.scores.len() != SCORE_COUNT || report.patches_analyzed == 0 {
+        bail!("Expected 56 named scores and at least one analysed audio patch");
+    }
+    if report
+        .scores
+        .values()
+        .any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+    {
+        bail!("Mood scores must be finite probabilities in [0,1]");
+    }
+    // BTreeMap sorts labels deterministically; the stored classes_json provides
+    // the exact interpretation of every 4-byte f32 vector position.
+    let classes: Vec<&str> = report.scores.keys().map(String::as_str).collect();
+    let classes_json = serde_json::to_string(&classes)?;
+    let models_json = serde_json::to_string(&report.models_sha256)?;
+    let model_fingerprint = serde_json::to_vec(&(
+        report.embedding_model,
+        report.classification_model,
+        &report.models_sha256,
+        report.preprocessing_version,
+        report.aggregation,
+        &classes,
+    ))?;
+    let model_key = format!("{:x}", Sha256::digest(&model_fingerprint));
+    let mut score_bytes = Vec::with_capacity(SCORE_COUNT * 4);
+    for score in report.scores.values() {
+        score_bytes.extend_from_slice(&score.to_le_bytes());
+    }
+    Ok((model_key, classes_json, score_bytes, models_json, report.audio_sha256.clone()))
+}
+
+/// Writes only to the new mood.db. The track_key MUST equal Bliss TracksV2.File
+/// on the destination server (no implicit prefix conversion or normalization).
+pub fn persist(db_path: &Path, track_key: &str, report: &Report) -> Result<()> {
+    let mut conn = Connection::open(db_path)
+        .with_context(|| format!("Unable to open mood database {}", db_path.display()))?;
+    conn.busy_timeout(Duration::from_secs(5))?;
+    insert(&mut conn, track_key, report)
+}
+
+fn insert(conn: &mut Connection, track_key: &str, report: &Report) -> Result<()> {
+    if track_key.is_empty() || track_key.trim() != track_key || track_key.contains('\0') {
+        bail!("Invalid track key: use exact non-empty TracksV2.File path");
+    }
+    if report.audio_sha256.len() != 64
+        || !report.audio_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        bail!("Audio SHA256 must be a 64-character hex string");
+    }
+    let (model_key, classes_json, scores, models_json, audio_sha256) =
+        checked_report(report)?;
+    create_schema(conn)?;
+    let transaction = conn.transaction()?;
+    transaction.execute(
+        "INSERT INTO mood_models
+            (model_key, embedding_model, classification_model, models_sha256_json,
+             preprocessing_version, aggregation, classes_json, validated_against_essentia)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+          ON CONFLICT(model_key) DO NOTHING",
+        params![
+            model_key,
+            report.embedding_model,
+            report.classification_model,
+            models_json,
+            report.preprocessing_version,
+            report.aggregation,
+            classes_json,
+            report.validated_against_essentia,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO mood_tracks (track_file, audio_sha256, model_key, scores_f32_le, patches_analyzed)
+          VALUES (?1, ?2, ?3, ?4, ?5)
+          ON CONFLICT(track_file) DO UPDATE SET
+            audio_sha256=excluded.audio_sha256,
+            model_key=excluded.model_key,
+            scores_f32_le=excluded.scores_f32_le,
+            patches_analyzed=excluded.patches_analyzed,
+            analyzed_at=CURRENT_TIMESTAMP",
+        params![
+            track_key,
+            audio_sha256,
+            model_key,
+            scores,
+            report.patches_analyzed as i64,
+        ],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct Coverage {
+    schema_version: i64,
+    bliss_eligible_tracks: u64,
+    matched_tracks: u64,
+    validated_tracks: u64,
+    experimental_tracks: u64,
+    missing_tracks: u64,
+    stored_mood_tracks: u64,
+    unmatched_mood_tracks: u64,
+}
+
+/// Does not modify bliss.db or mood.db; exact path matches only.
+pub fn coverage(mood_path: &Path, bliss_path: &Path) -> Result<Coverage> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY;
+    let mood = Connection::open_with_flags(mood_path, flags)
+        .with_context(|| format!("Cannot read mood.db: {}", mood_path.display()))?;
+    let bliss = Connection::open_with_flags(bliss_path, flags)
+        .with_context(|| format!("Cannot read bliss.db: {}", bliss_path.display()))?;
+    let version = schema_version(&mood)?;
+    if version != SCHEMA_VERSION {
+        bail!("Unsupported mood.db schema version {version}");
+    }
+    let stored: u64 = mood.query_row("SELECT count(*) FROM mood_tracks", [], |row| row.get(0))?;
+    let mut bliss_query = bliss.prepare("SELECT File FROM TracksV2 WHERE Ignore IS NOT 1")?;
+    let mut mood_query = mood.prepare(
+        "SELECT m.validated_against_essentia
+           FROM mood_tracks t JOIN mood_models m ON t.model_key=m.model_key
+          WHERE t.track_file=?1",
+    )?;
+    let mut eligible = 0u64;
+    let mut matched = 0u64;
+    let mut validated = 0u64;
+    let mut experimental = 0u64;
+    let rows = bliss_query.query_map([], |row| row.get::<_, String>(0))?;
+    for file in rows {
+        let file = file?;
+        eligible += 1;
+        match mood_query.query_row([file.as_str()], |row| row.get::<_, i64>(0)) {
+            Ok(1) => {
+                matched += 1;
+                validated += 1;
+            }
+            Ok(_) => {
+                matched += 1;
+                experimental += 1;
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(Coverage {
+        schema_version: version,
+        bliss_eligible_tracks: eligible,
+        matched_tracks: matched,
+        validated_tracks: validated,
+        experimental_tracks: experimental,
+        missing_tracks: eligible - matched,
+        stored_mood_tracks: stored,
+        unmatched_mood_tracks: stored.saturating_sub(matched),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn sample() -> Report {
+        Report {
+            schema_version: 1,
+            preprocessing_version: "unvalidated-test-v1",
+            classification_model: "head.onnx",
+            embedding_model: "encoder.onnx",
+            audio_path: "input.flac".into(),
+            audio_sha256: "a".repeat(64),
+            models_sha256: BTreeMap::from([("head.onnx".into(), "b".repeat(64))]),
+            sample_rate: 16000,
+            patches_analyzed: 5,
+            threads: 1,
+            aggregation: "mean",
+            validated_against_essentia: false,
+            timings: crate::Timing {
+                decode_seconds: 0.0,
+                features_seconds: 0.0,
+                model_load_seconds: 0.0,
+                inference_seconds: 0.0,
+                total_seconds: 0.0,
+            },
+            scores: (0..56).map(|n| (format!("label{n:02}"), n as f32 / 100.0)).collect(),
+        }
+    }
+
+    #[test]
+    fn insert_read_back_and_replace_without_duplicate() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let mut report = sample();
+        insert(&mut conn, "/music/abc.flac", &report).unwrap();
+        let (count, len, validated): (i64, i64, i64) = conn
+            .query_row(
+                "SELECT count(*), length(t.scores_f32_le), max(m.validated_against_essentia)
+                   FROM mood_tracks t JOIN mood_models m ON t.model_key=m.model_key",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((count, len, validated), (1, 224, 0));
+        report.scores.insert("label00".into(), 0.99);
+        insert(&mut conn, "/music/abc.flac", &report).unwrap();
+        let (count, score): (i64, Vec<u8>) = conn
+            .query_row(
+                "SELECT count(*), scores_f32_le FROM mood_tracks",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(f32::from_le_bytes(score[..4].try_into().unwrap()), 0.99);
+        assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn invalid_data_not_saved() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let mut report = sample();
+        assert!(insert(&mut conn, "", &report).is_err());
+        report.scores.insert("label00".into(), f32::NAN);
+        assert!(insert(&mut conn, "/music/bad.flac", &report).is_err());
+        report.scores.insert("label00".into(), 0.1);
+        report.scores.remove("label01");
+        assert!(insert(&mut conn, "/music/bad.flac", &report).is_err());
+    }
+
+    #[test]
+    fn refuses_other_schema_versions() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        assert!(insert(&mut conn, "/music/abc.flac", &sample()).is_err());
+    }
+}
