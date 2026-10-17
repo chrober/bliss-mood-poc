@@ -14,6 +14,19 @@ cargo test
 cargo run --release -- analyze "D:\Music\song.flac" --models-dir models --threads 1 --json
 ```
 
+### Optional SQLite sidecar for Lyrion
+
+After the audio inference is working and has been validated against the Essentia reference, write results into a **separate** `mood.db`:
+
+```powershell
+cargo run --release -- analyze "D:\\Music\\Rock\\Song.flac" --models-dir models --db mood.db --track-key "/mnt/music/Rock/Song.flac" --threads 1 --json
+cargo run --release -- db-coverage --db mood.db --bliss-db "D:\\Backup\\bliss.db" --json
+```
+
+`--track-key` is the exact corresponding `TracksV2.File` value on the Lyrion host, not the Windows source path; a future batch mode will automate audited root mappings. `--db` and `--track-key` must be passed together. An accidental `bliss.db` target containing `TracksV2` is rejected. The coverage command opens both databases **read-only**. The current analyzer marks its rows **experimental / not Essentia-validated**; production mix consumers must reject those scores until verification is complete.
+
+Storage uses a versioned SQLite schema, one row per song, a separate model/provenance catalog and 224-byte score vectors. Copy the fully closed database to the Pi via a staged/atomic replacement, then load the cached values at mix time; the Pi needs no ONNX dependency for retrieval. See [offline architecture](docs/offline-mood-database.md).
+
 The PowerShell script downloads the ONNX encoder (~18 MB), Mood/Theme classifier (~2.7 MB), and its JSON class metadata from the official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
 
 ## CLI and JSON
