@@ -4,6 +4,12 @@ Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet 
 
 **Status:** experimental, not yet reference-validated; compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
+## Real NAS smoke test (relative Bliss paths)
+
+Your Lyrion `TracksV2.File` values may be **relative** to the NAS music root (for example, `Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3`). In that case supply **only** `--source-root` to batch scans, with `--library-root` omitted.
+
+The Windows source root can be a UNC share such as `\\\\192.168.1.100\\music`; the Pi uses its mounted directory as the source root. The Mood database stores the original relative Bliss keys verbatim on either platform. Run the [exact Windows NAS smoke test](docs/windows-nas-smoke-test.md) before scanning the full collection.
+
 ## Setup (Windows)
 
 Install Rust stable and FFmpeg (available on PATH), then:
@@ -21,7 +27,7 @@ The *same* Rust binary can create the initial database for ~65,000 songs on a fa
 Desktop bootstrap (use the *actual* paths from your Bliss database, not the example values):
 
 ```powershell
-bliss-mood scan --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --library-root "/mnt/music" --source-root "D:\Music" --threads 4 --json
+bliss-mood scan --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --source-root "\\\\192.168.1.100\music" --threads 4 --json
 ```
 
 Read-only preview of imported database on Pi:
