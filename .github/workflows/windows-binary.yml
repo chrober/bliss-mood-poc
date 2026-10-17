@@ -1,0 +1,83 @@
+name: Windows x64 binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - ".github/workflows/windows-binary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - name: Show compiler
+        run: |
+          rustc --version
+          cargo --version
+          $vswhere = Join-Path ([Environment]::GetFolderPath("ProgramFilesX86")) "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          }
+      - name: Run Rust tests
+        run: cargo test --target x86_64-pc-windows-msvc
+      - name: Build release binary
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Smoke-test executable
+        run: |
+          & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows executable failed to start" }
+          & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe scan --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows scan CLI failed to start" }
+      - name: Stage executable and runtime libraries
+        run: |
+          $release = Join-Path $PWD "target\x86_64-pc-windows-msvc\release"
+          $dist = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item (Join-Path $release "bliss-mood.exe") -Destination $dist
+          # Copy external ONNX Runtime libraries if using a dynamic build.
+          Get-ChildItem -LiteralPath $release -File -Filter "onnxruntime*.dll" |
+            Copy-Item -Destination $dist
+          @'
+          bliss-mood (experimental) - Windows x64
+
+          Extract the GitHub Actions artifact into a directory.
+          FFmpeg must be installed and ffmpeg.exe must be on PATH.
+          Model files are NOT redistributed: download them separately
+          via scripts/download-models.ps1 into a models directory.
+
+          Test command (PowerShell, from project root):
+            $key = 'Acid Mammoth/2024 - Supersonic Megafuana Collision/04 Atomic Shaman.mp3'
+            $song = Join-Path '\\192.168.1.100\music' ($key -replace '/', '\')
+            .\bliss-mood.exe analyze $song --models-dir .\models --threads 2 --max-patches 10 --db .\mood-test.db --track-key $key --json
+
+          Predictions and preprocessing remain experimental and
+          have not been validated against the Essentia reference.
+          '@ | Set-Content -Path (Join-Path $dist "README-WINDOWS.txt") -Encoding utf8
+          "Commit: $env:GITHUB_SHA" | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
+          $checksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-mood.exe") -Algorithm SHA256).Hash
+          "$checksum *bliss-mood.exe" | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          Get-ChildItem -LiteralPath $dist | Select-Object Name,Length
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: bliss-mood-windows-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
