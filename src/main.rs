@@ -100,7 +100,7 @@ fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
     if output.stdout.len() % 4 != 0 || output.stdout.is_empty() {
         bail!("FFmpeg produced empty or malformed f32 PCM");
     }
-    Ok(output.stdout.chunks_exact(4)
+    Ok(output.stdout.as_chunks::<4>().0.iter()
         .map(|four| f32::from_le_bytes([four[0], four[1], four[2], four[3]]))
         .collect())
 }
