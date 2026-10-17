@@ -14,6 +14,30 @@ cargo test
 cargo run --release -- analyze "D:\Music\song.flac" --models-dir models --threads 1 --json
 ```
 
+### Hybrid batch analysis: workstation bootstrap, Pi incremental scan
+
+The *same* Rust binary can create the initial database for ~65,000 songs on a faster host and continue incrementally on the Raspberry Pi 4B after library scans. The future Lyrion plugin post-scan trigger is not installed yet.
+
+Desktop bootstrap (use the *actual* paths from your Bliss database, not the example values):
+
+```powershell
+bliss-mood scan --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --library-root "/mnt/music" --source-root "D:\Music" --threads 4 --json
+```
+
+Read-only preview of imported database on Pi:
+
+```sh
+./bliss-mood scan --bliss-db /path/bliss.db --db /path/mood.db --models-dir /path/models --threads 1 --dry-run --json
+```
+
+Incremental analysis on Pi:
+
+```sh
+nice -n 15 ./bliss-mood scan --bliss-db /path/bliss.db --db /path/mood.db --models-dir /path/models --threads 1 --max-new 20 --json
+```
+
+The batch scanner reuses both ONNX sessions across songs and skips existing entries when path, file size, modification timestamp and model fingerprint match. It never writes to `bliss.db`. SQLite schema v2 migrates previous v1 databases in place. A mismatched Windows/SMB modification timestamp may make the Pi think many imported tracks changed; **run the dry-run before enabling post-scan automation**. See [hybrid Pi/Lyrion architecture](docs/lyrion-hybrid-analysis.md).
+
 ### Optional SQLite sidecar for Lyrion
 
 After the audio inference is working and has been validated against the Essentia reference, write results into a **separate** `mood.db`:
