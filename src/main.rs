@@ -177,11 +177,11 @@ fn analyze(
     let model_started = Instant::now();
     let env = ort::init().build()?;
     let mut encoder = Session::builder(&env)?
-        .with_intra_threads(threads)?
+        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
         .commit_from_file(&paths[0])
         .context("Cannot initialize Discogs-EffNet ONNX model")?;
     let mut classifier = Session::builder(&env)?
-        .with_intra_threads(threads)?
+        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
         .commit_from_file(&paths[1])
         .context("Cannot initialize MTG-Jamendo Mood/Theme ONNX model")?;
     let model_load_seconds = model_started.elapsed().as_secs_f64();
