@@ -236,13 +236,13 @@ impl FeatureEngine {
         }
         let started = Instant::now();
         let env = feature_environment()?;
-        let encoder = Session::builder(&env)?
+        let encoder = Session::builder(env)?
             .with_intra_threads(threads)
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .commit_from_file(&profiles[0].encoder_path)?;
         let mut heads = Vec::new();
         for profile in profiles {
-            let session = Session::builder(&env)?
+            let session = Session::builder(env)?
                 .with_intra_threads(threads)
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .commit_from_file(&profile.head_path)?;
@@ -333,7 +333,7 @@ pub fn classify_embeddings(
         bail!("Need 1..64 finite 1280D embeddings and valid thread count");
     }
     let env = feature_environment()?;
-    let mut head = Session::builder(&env)?
+    let mut head = Session::builder(env)?
         .with_intra_threads(threads)
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .commit_from_file(&profile.head_path)?;
