@@ -28,6 +28,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Classify diagnostic 1280-D embeddings using the ONNX 56-class head.
+    /// This command does not read or modify music or SQLite databases.
+    ClassifyEmbeddings {
+        input_json: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+    },
     /// Export first N 1280-D Discogs-EffNet ONNX embeddings for Essentia comparison.
     /// No classifier needed and no SQLite or audio files modified.
     EmbeddingDump {
@@ -182,6 +191,45 @@ fn analyze(
 
 fn main() -> Result<()> {
     match Cli::parse().action {
+        Action::ClassifyEmbeddings { input_json, models_dir, threads } => {
+            let diagnostic: serde_json::Value =
+                serde_json::from_reader(File::open(&input_json)?)?;
+            let vectors: Vec<Vec<f32>> =
+                serde_json::from_value(diagnostic["embeddings"].clone())?;
+            let scores = engine::classify_embeddings_for_parity(
+                &vectors, &models_dir, threads,
+            )?;
+            let model_metadata: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(models_dir.join(LABELS))?,
+            )?;
+            let classes = model_metadata["classes"].as_array()
+                .context("Classifier metadata has no classes list")?;
+            if classes.len() != 56 || classes.iter().any(|x| !x.is_string()) {
+                bail!("Classifier metadata must contain 56 string class names");
+            }
+            let mut means = vec![0.0_f64; 56];
+            for row in &scores {
+                for (sum, value) in means.iter_mut().zip(row) {
+                    *sum += *value as f64;
+                }
+            }
+            let means: Vec<f32> = means.into_iter()
+                .map(|sum| (sum / scores.len() as f64) as f32).collect();
+            let output = serde_json::json!({
+                "schema_version": 1,
+                "validation_status": "experimental-unvalidated",
+                "classification_model": CLASSIFIER,
+                "classification_model_sha256": sha256_file(&models_dir.join(CLASSIFIER))?,
+                "embedding_model": diagnostic["embedding_model"],
+                "embedding_model_sha256": diagnostic["embedding_model_sha256"],
+                "patches_classified": scores.len(),
+                "classes": classes,
+                "scores_per_patch": scores,
+                "mean_scores": means,
+                "aggregation": "arithmetic_mean_of_per_patch_sigmoid_scores",
+            });
+            println!("{}", serde_json::to_string(&output)?);
+        }
         Action::EmbeddingDump { source, models_dir, max_patches, threads } => {
             let vectors = engine::embeddings_for_parity(
                 &source, &models_dir, max_patches, threads,
