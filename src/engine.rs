@@ -39,7 +39,7 @@ impl ModelProfile {
         hashes.insert(CLASSIFIER.to_owned(), sha256_file(&classifier_path)?);
         let model_key = crate::storage::model_key_for(
             ENCODER, CLASSIFIER, &hashes,
-            "experimental-essentia-framing-v3-unvalidated",
+            "experimental-essentia-audio-v4-unvalidated",
             "arithmetic_mean_of_per_patch_sigmoid_scores",
             &labels,
             false,
@@ -179,7 +179,7 @@ impl MoodEngine {
             .collect();
         Ok(Report {
             schema_version: 1,
-            preprocessing_version: "experimental-essentia-framing-v3-unvalidated",
+            preprocessing_version: "experimental-essentia-audio-v4-unvalidated",
             classification_model: CLASSIFIER,
             embedding_model: ENCODER,
             audio_path: path.display().to_string(),
