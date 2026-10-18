@@ -16,7 +16,7 @@ from essentia.standard import MonoLoader, TensorflowPredictEffnetDiscogs, Tensor
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--audio", type=Path, required=True)
-    p.add_argument("--model", choices=["moodtheme", "genre"], default="moodtheme")
+    p.add_argument("--model", choices=["moodtheme", "genre", "voice"], default="moodtheme")
     p.add_argument("--onnx-json", type=Path, required=True)
     p.add_argument("--models-dir", type=Path, required=True)
     p.add_argument("--report-output", type=Path, required=True)
@@ -25,7 +25,7 @@ def main():
     args = p.parse_args()
 
     report = json.loads(args.onnx_json.read_text(encoding="utf-8-sig"))
-    prefix = "mtg_jamendo_" + args.model
+    prefix = "voice_instrumental" if args.model == "voice" else "mtg_jamendo_" + args.model
     # moodtheme retains the original version-1 JSON report; generic runs
     # expose independent results under classifications.<model-id>.
     result_node = report if "scores" in report else report["classifications"][args.model]
@@ -50,6 +50,7 @@ def main():
         raise ValueError(f"Unexpected Essentia embedding shape: {embeddings.shape}")
     predictions = TensorflowPredict2D(
         graphFilename=str(args.models_dir / (prefix + "-discogs-effnet-1.pb")),
+        **({"output": "model/Softmax"} if args.model == "voice" else {}),
         batchSize=-1,
         patchSize=1,
         patchHopSize=1,
