@@ -154,25 +154,100 @@ fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Match Essentia MonoLoader(resampleQuality=4) rather than FFmpeg's default
+/// downmix and sample-rate converter.  Essentia averages stereo samples at
+/// 0.5/0.5 and its streaming Resample uses libsamplerate SRC_LINEAR (quality 4).
+fn essentia_linear_resample(samples: &[f32], input_rate: usize) -> Vec<f32> {
+    if input_rate == preprocess::RATE {
+        return samples.to_vec();
+    }
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let count = samples.len().saturating_mul(preprocess::RATE).div_ceil(input_rate);
+    let step = input_rate as f64 / preprocess::RATE as f64;
+    let mut result = Vec::with_capacity(count);
+    for n in 0..count {
+        // libsamplerate's streaming SRC_LINEAR: first sample at 0; thereafter
+        // the interpolation phase is (n * inputRate/outputRate) - 1.
+        // The previous sample is retained between input blocks.
+        let p = if n == 0 { 0.0 } else { n as f64 * step - 1.0 };
+        if p <= 0.0 {
+            result.push(samples[0]);
+        } else {
+            let left = (p.floor() as usize).min(samples.len() - 1);
+            let right = (left + 1).min(samples.len() - 1);
+            let fraction = p - left as f64;
+            result.push((samples[left] as f64
+                + fraction * (samples[right] as f64 - samples[left] as f64)) as f32);
+        }
+    }
+    result
+}
+
 fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
+    // FFmpeg only decodes to float PCM at the *native* sample rate.
+    // Probe stream metadata once to avoid FFmpeg's different default
+    // channel weights and its incompatible sample-rate conversion.
+    let probe = ProcessCommand::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "a:0",
+               "-show_entries", "stream=sample_rate,channels", "-of", "json"])
+        .arg(input).output()
+        .context("ffprobe not found; install the full FFmpeg distribution")?;
+    if !probe.status.success() {
+        bail!("ffprobe failed: {}", String::from_utf8_lossy(&probe.stderr));
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&probe.stdout)?;
+    let first = &metadata["streams"][0];
+    let input_rate: usize = first["sample_rate"]
+        .as_str().context("Missing source sample rate")?.parse()?;
+    let channels = first["channels"].as_u64().context("Missing channel count")? as usize;
+    if input_rate == 0 || !(1..=2).contains(&channels) {
+        bail!("Unsupported input audio layout: {channels} channels, {input_rate} Hz");
+    }
     let output = ProcessCommand::new("ffmpeg")
         .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-i"])
         .arg(input)
-        .args([
-            "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000",
-            "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1",
-        ])
+        .args(["-map", "0:a:0", "-vn", "-acodec", "pcm_f32le",
+               "-f", "f32le", "pipe:1"])
         .output()
         .context("FFmpeg not found; install FFmpeg and add it to PATH")?;
     if !output.status.success() {
         bail!("FFmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
     }
-    if output.stdout.len() % 4 != 0 || output.stdout.is_empty() {
+    if output.stdout.len() % (4 * channels) != 0 || output.stdout.is_empty() {
         bail!("FFmpeg produced empty or malformed f32 PCM");
     }
-    Ok(output.stdout.as_chunks::<4>().0.iter()
-        .map(|four| f32::from_le_bytes([four[0], four[1], four[2], four[3]]))
-        .collect())
+    let samples: Vec<f32> = output.stdout.chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+    let mono: Vec<f32> = if channels == 2 {
+        samples.chunks_exact(2).map(|c| 0.5 * (c[0] + c[1])).collect()
+    } else {
+        samples
+    };
+    Ok(essentia_linear_resample(&mono, input_rate))
+}
+
+#[cfg(test)]
+mod pcm_tests {
+    use super::essentia_linear_resample;
+
+    #[test]
+    fn identity_resampling_preserves_pcm() {
+        assert_eq!(essentia_linear_resample(&[0.25, -0.3], 16000), vec![0.25, -0.3]);
+    }
+    #[test]
+    fn streaming_linear_phase_matches_first_sample_rule() {
+        let s = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = essentia_linear_resample(&s, 32000);
+        assert_eq!(y.len(), 3);
+        assert_eq!(y, vec![0.0, 1.0, 3.0]);
+    }
+    #[test]
+    fn stereo_average_remains_unscaled() {
+        let stereo = [0.2f32, 0.6f32];
+        assert!((0.5 * (stereo[0] + stereo[1]) - 0.4).abs() < 1e-6);
+    }
 }
 
 fn analyze(
