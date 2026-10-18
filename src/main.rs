@@ -185,7 +185,7 @@ fn main() -> Result<()> {
                 "hop_size": preprocess::HOP,
                 "mel_bands": preprocess::MEL_BANDS,
                 "total_frames": frame_count,
-                "frames": mel.iter().take(max_frames).collect::<Vec<_>>(),
+                "frames": mel.iter().take(max_frames).map(|frame| frame.as_slice()).collect::<Vec<_>>(),
             });
             println!("{}", serde_json::to_string(&output)?);
         }
