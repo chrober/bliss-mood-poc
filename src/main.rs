@@ -28,6 +28,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Export first N 1280-D Discogs-EffNet ONNX embeddings for Essentia comparison.
+    /// No classifier needed and no SQLite or audio files modified.
+    EmbeddingDump {
+        source: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long, default_value_t = 4)]
+        max_patches: usize,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+    },
     /// Export first N raw Mel feature frames for comparison with Essentia.
     /// Does not require ONNX models and never modifies source audio.
     MelDump {
@@ -171,6 +182,23 @@ fn analyze(
 
 fn main() -> Result<()> {
     match Cli::parse().action {
+        Action::EmbeddingDump { source, models_dir, max_patches, threads } => {
+            let vectors = engine::embeddings_for_parity(
+                &source, &models_dir, max_patches, threads,
+            )?;
+            let output = serde_json::json!({
+                "schema_version": 1,
+                "validation_status": "experimental-unvalidated",
+                "preprocessing_version": "experimental-essentia-hann-v2-unvalidated",
+                "embedding_model": ENCODER,
+                "embedding_model_sha256": sha256_file(&models_dir.join(ENCODER))?,
+                "audio_sha256": sha256_file(&source)?,
+                "patches_analyzed": vectors.len(),
+                "embedding_dimensions": 1280,
+                "embeddings": vectors,
+            });
+            println!("{}", serde_json::to_string(&output)?);
+        }
         Action::MelDump { source, max_frames } => {
             if max_frames == 0 || max_frames > 1024 {
                 bail!("--max-frames must be between 1 and 1024");
