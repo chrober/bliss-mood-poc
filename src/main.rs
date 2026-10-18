@@ -116,8 +116,12 @@ enum Action {
         source_root: Option<PathBuf>,
         #[arg(long)]
         only_track: Option<String>,
+        /// Maximum newly attempted tracks (successful or failed).
         #[arg(long)]
         max_new: Option<usize>,
+        /// Stop a scan after this many errors, instead of walking the whole library.
+        #[arg(long, default_value_t = 5)]
+        max_errors: usize,
         #[arg(long, default_value_t = 1)]
         threads: usize,
         /// Parallel tracks: auto preserves interactive CPU headroom.
@@ -444,7 +448,7 @@ fn main() -> Result<()> {
         }
         Action::ScanFeatures {
             bliss_db, db, models_dir, registry, models, library_root,
-            source_root, only_track, max_new, threads, workers, dry_run, json,
+            source_root, only_track, max_new, max_errors, threads, workers, dry_run, json,
         } => {
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
             if worker_count > 1 && threads > 1 {
@@ -459,7 +463,7 @@ fn main() -> Result<()> {
                 source_root: source_root.as_deref(),
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
-                max_new, threads, workers: worker_count, dry_run,
+                max_new, max_errors, threads, workers: worker_count, dry_run,
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
