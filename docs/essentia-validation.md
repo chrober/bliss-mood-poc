@@ -4,7 +4,10 @@
 
 - Windows ONNX CLI runs end-to-end against an NAS track, with complete-track inference.
 - Incremental scan was verified using a new test database: pending -> analyzed -> skipped.
-- The classifier is NOT numerically validated against Essentia; preserve experimental preprocessing version and false validation flag.
+- Gate 1 PASS (2026-10-18): 32 x 96 = 3,072 log-Mel values compared with Essentia 2.1-beta6-dev on a deterministic synthetic WAV. Mean absolute error 8.71447e-7; max absolute error 1.85370e-5. Successful run: https://github.com/chrober/bliss-mood-poc/actions/runs/39112792580
+- The mismatch was caused by a periodic Hann window (denominator N) in Rust; official Essentia uses symmetric Hann (denominator N-1). Rust now uses the symmetric window and the new experimental preprocessing version, which intentionally invalidates earlier cache model keys.
+- Windows release binary, Rust checks, and ONNX synthetic-audio smoke test are green for the corrected commit 32b4a45613060abc89e392cc029e49c4091e22bd.
+- The classifier is NOT yet numerically validated against Essentia; preserve false validation flag until gates 2 and 3.
 - The earlier Linux model-smoke workflow failed downloading official weights from essentia.upf.edu (curl timeout), not in the ONNX implementation.
 
 ## Gate 1: Deterministic log-Mel parity (automated GitHub Actions)
