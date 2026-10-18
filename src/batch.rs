@@ -41,7 +41,7 @@ pub struct ScanOptions<'a> {
 /// directory. In that case only --source-root is needed, e.g.
 /// "\\192.168.1.100\music" for Windows and "/mnt/music" on Linux.
 /// Never let a relative key escape the declared source root.
-fn source_path(
+pub(crate) fn source_path(
     track_key: &str,
     library_root: Option<&str>,
     source_root: Option<&Path>,
@@ -80,7 +80,7 @@ fn safe_join(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(result)
 }
 
-fn file_stat(file: &Path) -> Result<(i64, i64)> {
+pub(crate) fn file_stat(file: &Path) -> Result<(i64, i64)> {
     let meta = std::fs::metadata(file)
         .with_context(|| format!("Unable to stat {}", file.display()))?;
     if !meta.is_file() {
