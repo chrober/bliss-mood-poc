@@ -81,6 +81,32 @@ fn infer_moods(session: &mut Session, vector: &[f32]) -> Result<Vec<f32>> {
     bail!("Classifier did not output 56 finite sigmoid probabilities")
 }
 
+/// Diagnostic-only embedding export, independent of classifier and SQLite.
+/// No automatic validation/persistence; the caller must compare with Essentia.
+pub fn embeddings_for_parity(
+    path: &Path, models_dir: &Path, max_patches: usize, threads: usize,
+) -> Result<Vec<Vec<f32>>> {
+    if !(1..=64).contains(&max_patches) || threads == 0 {
+        bail!("--max-patches must be 1..64 and --threads must be >= 1");
+    }
+    let encoder_path = models_dir.join(ENCODER);
+    if !encoder_path.is_file() {
+        bail!("Missing ONNX embedding model: {}", encoder_path.display());
+    }
+    let audio = ffmpeg_pcm_mono_16k(path)?;
+    let mel = preprocess::mel_spectrogram(&audio)?;
+    let patches = preprocess::patches(&mel, Some(max_patches))?;
+    let env = ort::init().build()?;
+    let mut encoder = Session::builder(&env)?
+        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&encoder_path)?;
+    let mut vectors = Vec::with_capacity(patches.len());
+    for patch in patches {
+        vectors.push(embedding(&mut encoder, &patch)?);
+    }
+    Ok(vectors)
+}
+
 impl MoodEngine {
     pub fn new(profile: ModelProfile, threads: usize) -> Result<Self> {
         if threads == 0 {
