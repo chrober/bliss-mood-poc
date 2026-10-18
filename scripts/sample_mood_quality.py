@@ -1,7 +1,7 @@
 r"""Read-only deterministic feature-quality sample from a copy of bliss.db.
 
-Default remains legacy Mood-only JSON for compatibility. To evaluate both
-heads in one shared embedding pass use --models moodtheme,genre.
+Default remains legacy Mood-only JSON for compatibility. To evaluate three
+heads in one shared embedding pass use --models moodtheme,genre,voice.
 No command in this script passes --db to the analyzer or changes a source file.
 """
 import argparse
@@ -91,7 +91,7 @@ def main():
     p.add_argument("--models-dir", type=Path, required=True)
     p.add_argument("--registry", type=Path)
     p.add_argument("--models", default="moodtheme",
-                   help="moodtheme (legacy) or moodtheme,genre (shared-embedding analysis)")
+                   help="moodtheme (legacy) or moodtheme,genre,voice (shared-embedding analysis)")
     p.add_argument("--count", type=int, default=12)
     p.add_argument("--seed", type=int, default=20261018)
     p.add_argument("--threads", type=int, default=2)
@@ -143,7 +143,10 @@ def main():
                     command += ["--registry", str(args.registry.resolve())]
             result = subprocess.run(
                 command, check=True, capture_output=True,
-                text=True, encoding="utf-8", timeout=args.timeout_seconds
+                text=True, encoding="utf-8", timeout=args.timeout_seconds,
+                creationflags=(subprocess.BELOW_NORMAL_PRIORITY_CLASS
+                               if sys.platform == "win32" and args.workers.lower() == "auto"
+                               else 0),
             )
             data = json.loads(result.stdout)
             scores = collect_scores(data, classifiers, legacy)
