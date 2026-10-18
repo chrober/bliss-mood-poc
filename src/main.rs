@@ -218,36 +218,14 @@ fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
     if output.stdout.len() % (4 * channels) != 0 || output.stdout.is_empty() {
         bail!("FFmpeg produced empty or malformed f32 PCM");
     }
-    let samples: Vec<f32> = output.stdout.chunks_exact(4)
+    let samples: Vec<f32> = output.stdout.as_chunks::<4>().0.iter()
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
     let mono: Vec<f32> = if channels == 2 {
-        samples.chunks_exact(2).map(|c| 0.5 * (c[0] + c[1])).collect()
+        samples.as_chunks::<2>().0.iter().map(|c| 0.5 * (c[0] + c[1])).collect()
     } else {
         samples
     };
     Ok(essentia_linear_resample(&mono, input_rate))
-}
-
-#[cfg(test)]
-mod pcm_tests {
-    use super::essentia_linear_resample;
-
-    #[test]
-    fn identity_resampling_preserves_pcm() {
-        assert_eq!(essentia_linear_resample(&[0.25, -0.3], 16000), vec![0.25, -0.3]);
-    }
-    #[test]
-    fn streaming_linear_phase_matches_first_sample_rule() {
-        let s = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
-        let y = essentia_linear_resample(&s, 32000);
-        assert_eq!(y.len(), 3);
-        assert_eq!(y, vec![0.0, 1.0, 3.0]);
-    }
-    #[test]
-    fn stereo_average_remains_unscaled() {
-        let stereo = [0.2f32, 0.6f32];
-        assert!((0.5 * (stereo[0] + stereo[1]) - 0.4).abs() < 1e-6);
-    }
 }
 
 fn analyze(
@@ -404,3 +382,26 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod pcm_tests {
+    use super::essentia_linear_resample;
+
+    #[test]
+    fn identity_resampling_preserves_pcm() {
+        assert_eq!(essentia_linear_resample(&[0.25, -0.3], 16000), vec![0.25, -0.3]);
+    }
+    #[test]
+    fn streaming_linear_phase_matches_first_sample_rule() {
+        let s = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = essentia_linear_resample(&s, 32000);
+        assert_eq!(y.len(), 3);
+        assert_eq!(y, vec![0.0, 1.0, 3.0]);
+    }
+    #[test]
+    fn stereo_average_remains_unscaled() {
+        let stereo = [0.2f32, 0.6f32];
+        assert!((0.5 * (stereo[0] + stereo[1]) - 0.4).abs() < 1e-6);
+    }
+}
+
