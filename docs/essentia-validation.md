@@ -5,7 +5,7 @@
 - Windows ONNX CLI runs end-to-end against an NAS track, with complete-track inference.
 - Incremental scan was verified using a new test database: pending -> analyzed -> skipped.
 - Gate 1 PASS (2026-10-18): 32 x 96 = 3,072 log-Mel values compared with Essentia 2.1-beta6-dev on a deterministic synthetic WAV. Mean absolute error 8.71447e-7; max absolute error 1.85370e-5. Successful run: https://github.com/chrober/bliss-mood-poc/actions/runs/39112792580
-- The mismatch was caused by a periodic Hann window (denominator N) in Rust; official Essentia uses symmetric Hann (denominator N-1). Rust now uses the symmetric window and the new experimental preprocessing version, which intentionally invalidates earlier cache model keys.
+- The initial Mel mismatch was caused by a periodic Hann window (denominator N) in Rust; official Essentia uses symmetric Hann (denominator N-1). An additional boundary mismatch affected hop-aligned audio lengths: Rust generated one extra Mel frame and sometimes an extra patch. This was fixed using Essentia's frame-count formula, and preprocessing version v3 intentionally invalidates prior cache model keys.
 - Windows release binary, Rust checks, and ONNX synthetic-audio smoke test are green for the corrected commit 32b4a45613060abc89e392cc029e49c4091e22bd.
 - Gates 1-3 PASSED for deterministic synthetic audio: Mel frontend, 1280-dimensional embeddings, and 56-class head including four-patch means. This is numerical model parity, NOT real-world mood quality validation or a full-track padding/codec check. Keep validated_against_essentia=false until independent real-world validation.
 - The earlier Linux model-smoke workflow failed downloading official weights from essentia.upf.edu (curl timeout), not in the ONNX implementation.
@@ -28,7 +28,9 @@ CI pins Python 3.11, NumPy 1.26.4 and Essentia 2.1b6.dev1389 (non-TensorFlow whe
 ## Gate 2: 1280-dimensional embeddings (PASSED 2026-10-18)
 
 Workflow: .github/workflows/embedding-parity.yml
-Successful run: https://github.com/chrober/bliss-mood-poc/actions/runs/39113628553
+First limited-patch run: https://github.com/chrober/bliss-mood-poc/actions/runs/39113628553
+Full-length synthetic signal and strict patch count parity PASSED: https://github.com/chrober/bliss-mood-poc/actions/runs/39114494745
+Full diagnostic uses --max-patches 64 (nonbinding for this 6-second signal) and --require-full. TensorFlow and ONNX both produce exactly 4 patches, and all 5,120 values agree: MAE=4.52084e-7, maximum absolute error=6.73532e-6, min cosine=0.9999999999626.
 Four x 1280 = 5,120 values; MAE=4.460145135e-7, RMSE=7.178915839e-7, max abs=7.0333480835e-6, minimum per-patch cosine=0.999999999964. Both TensorFlow and ONNX produced four aligned patches.
 
 CLI: bliss-mood embedding-dump AUDIO --models-dir models --max-patches 4 --threads 1
