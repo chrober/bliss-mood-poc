@@ -58,7 +58,11 @@ pub fn mel_spectrogram(samples: &[f32]) -> Result<Vec<[f32; MEL_BANDS]>> {
         bail!("Audio contains no samples");
     }
     let filters = mel_filters();
-    let frames = 1 + samples.len() / HOP;
+    // Essentia TensorflowPredictEffnetDiscogs::padSignal counts valid frames as
+    // 1 + ceil((nSamples - FFT/2) / HOP); with FFT=2*HOP this reduces
+    // to ceil(nSamples/HOP). In particular, do not add an extra frame
+    // when nSamples is an exact multiple of HOP.
+    let frames = samples.len().div_ceil(HOP);
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FFT);
     let mut spectrum = vec![Complex32::new(0.0, 0.0); FFT];
@@ -132,6 +136,15 @@ mod tests {
         let mel = mel_spectrogram(&v).unwrap();
         assert!(mel.iter().flatten().all(|v| v.is_finite() && *v >= 0.0));
         assert!(mel.iter().flatten().any(|x| *x > 0.0));
+    }
+
+    #[test]
+    fn exact_hop_length_does_not_add_spurious_final_patch() {
+        // 6 seconds at 16 kHz is exactly 375 hops of 256 samples.
+        // Official Essentia reports 4 patches for this signal.
+        let mel = mel_spectrogram(&vec![0.0; 6 * RATE]).unwrap();
+        assert_eq!(mel.len(), 375);
+        assert_eq!(patches(&mel, None).unwrap().len(), 4);
     }
 
     #[test]
