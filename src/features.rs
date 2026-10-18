@@ -18,7 +18,7 @@ const SOFTMAX_AGGREGATION: &str = "arithmetic_mean_of_per_patch_softmax_scores";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum OutputType {
+pub enum OutputType {
     #[default]
     Sigmoid,
     Softmax,
