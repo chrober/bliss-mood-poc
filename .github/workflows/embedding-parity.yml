@@ -88,7 +88,8 @@ jobs:
             --audio test-embedding.wav \
             --rust-json onnx-embeddings.json \
             --tf-model models/discogs-effnet-bs64-1.pb \
-            --report-output embedding-parity-report.json
+            --report-output embedding-parity-report.json \
+            --require-full
 
       - name: Upload small diagnostic artifacts on failure
         if: failure()
