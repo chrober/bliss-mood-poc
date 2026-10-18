@@ -14,6 +14,32 @@ use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
 
 const PREPROCESSING: &str = "experimental-essentia-audio-v4-unvalidated";
 const AGGREGATION: &str = "arithmetic_mean_of_per_patch_sigmoid_scores";
+const SOFTMAX_AGGREGATION: &str = "arithmetic_mean_of_per_patch_softmax_scores";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OutputType {
+    #[default]
+    Sigmoid,
+    Softmax,
+}
+
+impl OutputType {
+    fn aggregation(self) -> &'static str {
+        match self {
+            Self::Sigmoid => AGGREGATION,
+            Self::Softmax => SOFTMAX_AGGREGATION,
+        }
+    }
+}
+
+fn valid_head_scores(values: &[f32], count: usize, kind: OutputType) -> bool {
+    if values.len() != count || !values.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) {
+        return false;
+    }
+    kind != OutputType::Softmax
+        || (values.iter().map(|v| f64::from(*v)).sum::<f64>() - 1.0).abs() <= 1e-3
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +51,8 @@ struct Descriptor {
     metadata: String,
     embedding_dimensions: usize,
     expected_classes: usize,
+    #[serde(default)]
+    output_type: OutputType,
 }
 
 #[derive(Deserialize)]
@@ -62,8 +90,8 @@ pub fn load_profiles(
         None => include_str!("../model-registry.json").to_owned(),
     };
     let registry: Registry = serde_json::from_str(&source)?;
-    if registry.schema_version != 1 || registry.models.is_empty() {
-        bail!("Expected nonempty model registry schema_version=1");
+    if ![1, 2].contains(&registry.schema_version) || registry.models.is_empty() {
+        bail!("Expected nonempty model registry schema_version 1 or 2");
     }
     let ids: Vec<_> = selected.split(',').map(str::trim).collect();
     if ids.is_empty() || ids.iter().any(|id| id.is_empty()) {
@@ -119,7 +147,7 @@ pub fn load_profiles(
         ]);
         let model_key = storage::model_key_for(
             &descriptor.embedding_model, &descriptor.classification_model,
-            &hashes, PREPROCESSING, AGGREGATION, &labels, false,
+            &hashes, PREPROCESSING, descriptor.output_type.aggregation(), &labels, false,
         )?;
         profiles.push(Profile {
             descriptor, labels, encoder_path, head_path, hashes, model_key,
@@ -131,6 +159,8 @@ pub fn load_profiles(
 #[derive(Clone, Serialize)]
 pub struct ClassificationResult {
     pub capability: String,
+    pub output_type: OutputType,
+    pub aggregation: &'static str,
     pub embedding_model: String,
     pub classification_model: String,
     pub models_sha256: BTreeMap<String, String>,
@@ -161,18 +191,16 @@ pub struct FeatureEngine {
     threads: usize,
 }
 
-fn classify(session: &mut Session, vector: &[f32], count: usize) -> Result<Vec<f32>> {
+fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
     let input = TensorRef::from_array_view(([1usize, 1280usize], vector))?;
     let outputs = session.run(ort::inputs![input])?;
     for output in outputs.values() {
         let (_, values) = output.try_extract_tensor::<f32>()?;
-        if values.len() == count
-            && values.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-        {
+        if valid_head_scores(values, count, kind) {
             return Ok(values.to_vec());
         }
     }
-    bail!("Classifier did not output {count} finite sigmoid scores")
+    bail!("Classifier did not output {count} valid {kind:?} scores")
 }
 
 impl FeatureEngine {
@@ -227,7 +255,7 @@ impl FeatureEngine {
             }
             let vector = vector.context("EffNet did not output a 1280-dimensional embedding")?;
             for (i, (profile, session)) in self.heads.iter_mut().enumerate() {
-                let scores = classify(session, &vector, profile.labels.len())?;
+                let scores = classify(session, &vector, profile.labels.len(), profile.descriptor.output_type)?;
                 for (sum, value) in sums[i].iter_mut().zip(scores) {
                     *sum += f64::from(value);
                 }
@@ -243,6 +271,8 @@ impl FeatureEngine {
                 .collect();
             classifications.insert(profile.descriptor.id.clone(), ClassificationResult {
                 capability: profile.descriptor.capability.clone(),
+                output_type: profile.descriptor.output_type,
+                aggregation: profile.descriptor.output_type.aggregation(),
                 embedding_model: profile.descriptor.embedding_model.clone(),
                 classification_model: profile.descriptor.classification_model.clone(),
                 models_sha256: profile.hashes.clone(),
@@ -281,7 +311,7 @@ pub fn classify_embeddings(
         .with_intra_threads(threads)
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .commit_from_file(&profile.head_path)?;
-    vectors.iter().map(|v| classify(&mut head, v, profile.labels.len())).collect()
+    vectors.iter().map(|v| classify(&mut head, v, profile.labels.len(), profile.descriptor.output_type)).collect()
 }
 
 pub fn parity_output(
@@ -305,7 +335,8 @@ pub fn parity_output(
         "classes": profile.labels,
         "scores_per_patch": rows,
         "mean_scores": means,
-        "aggregation": AGGREGATION,
+        "aggregation": profile.descriptor.output_type.aggregation(),
+        "output_type": profile.descriptor.output_type,
     }))
 }
 
@@ -335,7 +366,10 @@ fn persist_into(
     for (id, classifier) in &report.classifications {
         if id.is_empty() || classifier.scores.is_empty()
             || classifier.scores.len() > 2048
-            || classifier.scores.values().any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+            || !valid_head_scores(
+                &classifier.scores.values().copied().collect::<Vec<_>>(),
+                classifier.scores.len(), classifier.output_type,
+            )
         {
             bail!("Malformed classification results for {id}");
         }
@@ -343,7 +377,7 @@ fn persist_into(
         let key = storage::model_key_for(
             &classifier.embedding_model, &classifier.classification_model,
             &classifier.models_sha256, report.preprocessing_version,
-            report.aggregation, &labels, classifier.validated_against_essentia,
+            classifier.aggregation, &labels, classifier.validated_against_essentia,
         )?;
         if key != classifier.model_key {
             bail!("Model fingerprint mismatch for {id}");
@@ -355,7 +389,7 @@ fn persist_into(
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             params![key, classifier.embedding_model, classifier.classification_model,
                 serde_json::to_string(&classifier.models_sha256)?,
-                report.preprocessing_version, report.aggregation,
+                report.preprocessing_version, classifier.aggregation,
                 serde_json::to_string(&labels)?, classifier.validated_against_essentia],
         )?;
         let scores: Vec<u8> = classifier.scores.values()
@@ -538,6 +572,7 @@ mod tests {
         ).unwrap();
         ClassificationResult {
             capability: capability.to_owned(),
+            output_type: OutputType::Sigmoid, aggregation: AGGREGATION,
             embedding_model, classification_model, models_sha256: hashes,
             model_key, validated_against_essentia: false, scores,
         }
@@ -637,6 +672,21 @@ mod tests {
     }
 
     #[test]
+    fn output_type_controls_probability_checks_and_model_fingerprint() {
+        assert!(valid_head_scores(&[0.6, 0.4], 2, OutputType::Softmax));
+        assert!(!valid_head_scores(&[0.6, 0.6], 2, OutputType::Softmax));
+        assert!(valid_head_scores(&[0.6, 0.6], 2, OutputType::Sigmoid));
+        assert!(!valid_head_scores(&[f32::NAN, 1.0], 2, OutputType::Softmax));
+        let classes = vec!["instrumental".to_owned(), "voice".to_owned()];
+        let hashes = BTreeMap::from([("head.onnx".to_owned(), "f".repeat(64))]);
+        let sigmoid = storage::model_key_for("effnet", "head.onnx", &hashes,
+            PREPROCESSING, AGGREGATION, &classes, false).unwrap();
+        let softmax = storage::model_key_for("effnet", "head.onnx", &hashes,
+            PREPROCESSING, SOFTMAX_AGGREGATION, &classes, false).unwrap();
+        assert_ne!(sigmoid, softmax);
+    }
+
+    #[test]
     fn rejects_absolute_and_parent_model_paths() {
         for name in ["../head.onnx", "/tmp/head.onnx", r"C:\test.onnx", "foo/bar.onnx"] {
             assert!(!safe_model_name(name));
@@ -647,12 +697,16 @@ mod tests {
     #[test]
     fn registry_has_independent_capabilities() {
         let registry: Registry = serde_json::from_str(include_str!("../model-registry.json")).unwrap();
-        assert_eq!(registry.schema_version, 1);
-        assert_eq!(registry.models.len(), 2);
+        assert_eq!(registry.schema_version, 2);
+        assert_eq!(registry.models.len(), 3);
         assert_eq!(registry.models[0].capability, "mood_theme");
         assert_eq!(registry.models[1].capability, "genre");
         assert_eq!(registry.models[1].expected_classes, 87);
         assert_eq!(registry.models[0].embedding_model, registry.models[1].embedding_model);
+        assert_eq!(registry.models[0].embedding_model, registry.models[2].embedding_model);
+        assert_eq!(registry.models[2].capability, "voice_presence");
+        assert_eq!(registry.models[2].expected_classes, 2);
+        assert_eq!(registry.models[2].output_type, OutputType::Softmax);
     }
 
     #[test]
