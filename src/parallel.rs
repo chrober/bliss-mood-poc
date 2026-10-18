@@ -11,7 +11,7 @@ pub fn worker_count(spec: &str) -> Result<(usize, bool)> {
         // quarter of the reported CPU capacity for interactive applications.
         // Avoid many concurrent ONNX sessions and simultaneous NAS reads.
         let reserve = (available / 4).max(2);
-        let workers = available.saturating_sub(reserve).max(1).min(8);
+        let workers = available.saturating_sub(reserve).clamp(1, 8);
         Ok((workers, true))
     } else {
         let workers: usize = spec.parse().map_err(|_| {
