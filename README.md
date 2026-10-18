@@ -94,6 +94,18 @@ FFmpeg decode/resample to 16 kHz mono float PCM; windowed 512-point FFT, 256-hop
 
 **The Rust implementation is currently an approximation**. Exact Essentia parity is mandatory: compare a reference signal and intermediate features, then classification outputs. See `scripts/reference_essentia.py`, which requires Essentia TensorFlow and the separately downloadable `.pb` models.
 
+## Numerical validation against Essentia
+
+The Mel frontend has passed a numerical parity test against the official Essentia TensorflowInputMusiCNN (32 x 96 values on deterministic synthetic WAV): MAE 8.71e-7, maximum difference 1.85e-5. See [validation gates](docs/essentia-validation.md).
+
+Gate 2 is an independent GitHub Actions [embedding parity workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/embedding-parity.yml). It compares the first four 1280-dimensional Discogs-EffNet embeddings produced by the ONNX model to Essentia's fixed-batch TensorFlow .pb implementation. The model files are downloaded on the runner, not stored in Git. A mismatch fails the job; normal Mood scores remain experimental.
+
+A diagnostic command exports ONNX embeddings without touching any SQLite database:
+
+    bliss-mood embedding-dump some-audio.wav --models-dir models --max-patches 4 --threads 1 > embeddings.json
+
+This diagnostic requires only discogs-effnet-bsdynamic-1.onnx, not the Mood/Theme classifier. Avoid running large library scans until embeddings and all 56 classification outputs have been verified.
+
 ## Raspberry Pi 4 / Lyrion
 
 See **[Pi 4B and piCorePlayer performance benchmark](docs/raspberry-pi-benchmark.md)**. We have not measured actual throughput on a Pi 4B yet. AArch64 is the primary target, with ONNX Runtime deployment/linker compatibility to be verified. Until then, the safest strategy is offline batch analysis on another computer and cached scores for Lyrion.
