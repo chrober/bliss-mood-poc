@@ -190,6 +190,66 @@ jobs:
               assert serial_rows == parallel_rows
           print("PASS: 12 score vectors byte-identical, exact max-new, read-only Bliss DB")
           PY
+      - name: Stress eight ONNX sessions and verify bounded failing scans
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sqlite3
+          Path("stress").mkdir(exist_ok=True)
+          Path("invalid").mkdir(exist_ok=True)
+          for n in range(8):
+              Path(f"stress/track-{n:02}.wav").write_bytes(
+                  Path("fixtures/mono-16k.wav").read_bytes())
+              Path(f"invalid/track-{n:02}.mp3").write_bytes(b"NOT_VALID_AUDIO")
+          for name, ext in (("stress", "wav"), ("invalid", "mp3")):
+              with sqlite3.connect(f"{name}-bliss.db") as db:
+                  db.execute("CREATE TABLE TracksV2 (File TEXT NOT NULL, Ignore INTEGER)")
+                  db.executemany("INSERT INTO TracksV2 VALUES (?, NULL)",
+                                [(f"track-{n:02}.{ext}",) for n in range(8)])
+          PY
+          target/release/bliss-mood scan-features \
+            --bliss-db stress-bliss.db --db stress-output.db \
+            --models-dir models --models moodtheme,genre,voice --source-root stress \
+            --workers 8 --threads 1 --max-new 8 --max-errors 5 --json > stress-summary.json
+          python - <<'PY'
+          import json,sqlite3
+          data=json.load(open("stress-summary.json"))
+          assert data["workers"]==8 and data["analyzed"]==8 and data["failures"]==0,data
+          with sqlite3.connect("stress-output.db") as db:
+              assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0]==24
+          print("PASS: all eight worker sessions initialize in one ONNX Runtime environment")
+          PY
+          # The first three invalid sources must stop the run, even though
+          # --max-new exceeds the number of successfully analyzed songs.
+          set +e
+          target/release/bliss-mood scan-features \
+            --bliss-db invalid-bliss.db --db invalid-output.db \
+            --models-dir models --models moodtheme,genre,voice --source-root invalid \
+            --workers 4 --threads 1 --max-new 3 --max-errors 5 \
+            > invalid-summary.json 2> invalid-errors.txt
+          code=$?
+          set -e
+          test "$code" -ne 0
+          test "$(grep -c '^ANALYSIS FAILED' invalid-errors.txt)" -eq 3
+          python - <<'PY'
+          import sqlite3
+          with sqlite3.connect("invalid-output.db") as db:
+              assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0]==0
+          print("PASS: max-new=3 bounds attempted songs even if all audio fails")
+          PY
+          # A smaller error budget fails fast without exhausting the library.
+          set +e
+          target/release/bliss-mood scan-features \
+            --bliss-db invalid-bliss.db --db invalid-limit-output.db \
+            --models-dir models --models moodtheme,genre,voice --source-root invalid \
+            --workers 4 --threads 1 --max-new 8 --max-errors 2 \
+            > /dev/null 2> invalid-limit-errors.txt
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -q 'Feature scan stopped after 2 errors' invalid-limit-errors.txt
+          test "$(grep -c '^ANALYSIS FAILED' invalid-limit-errors.txt)" -le 4
+          echo "PASS: hard error budget stops bad library scans"
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()
         uses: actions/upload-artifact@v4
