@@ -25,6 +25,19 @@ class SamplingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sample.normalize_track_key(key)
 
+
+    def test_dual_model_output_decoding(self):
+        classifiers = {"moodtheme": ["heavy"], "genre": ["metal"]}
+        payload = {"classifications": {
+            "moodtheme": {"scores": {"heavy": 0.4}},
+            "genre": {"scores": {"metal": 0.7}},
+        }}
+        self.assertEqual(sample.collect_scores(payload, classifiers, False), {
+            "moodtheme": {"heavy": 0.4}, "genre": {"metal": 0.7}
+        })
+        with self.assertRaises(ValueError):
+            sample.collect_scores(payload, {"genre": ["pop"]}, False)
+
     def test_reads_bliss_copy_without_writing_or_including_ignored(self):
         with tempfile.TemporaryDirectory() as temp:
             db_path = Path(temp) / "bliss.db"
