@@ -98,7 +98,7 @@ FFmpeg decode/resample to 16 kHz mono float PCM; windowed 512-point FFT, 256-hop
 
 The Mel frontend has passed a numerical parity test against the official Essentia TensorflowInputMusiCNN (32 x 96 values on deterministic synthetic WAV): MAE 8.71e-7, maximum difference 1.85e-5. See [validation gates](docs/essentia-validation.md).
 
-Gate 2 is an independent GitHub Actions [embedding parity workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/embedding-parity.yml). It compares the first four 1280-dimensional Discogs-EffNet embeddings produced by the ONNX model to Essentia's fixed-batch TensorFlow .pb implementation. The model files are downloaded on the runner, not stored in Git. A mismatch fails the job; normal Mood scores remain experimental.
+Gate 2 has passed the [full-signal embedding parity workflow](https://github.com/chrober/bliss-mood-poc/actions/runs/39114494745): four 1280-dimensional Discogs-EffNet embeddings (5,120 values) matched Essentia's TensorFlow .pb model, with identical patch count. Gate 3 also passed the [56-class classifier parity test](https://github.com/chrober/bliss-mood-poc/actions/runs/39114008062): four patches and all mean Mood/Theme scores matched. These are deterministic synthetic-audio tests, NOT a real-music quality evaluation; normal Mood scores remain experimental. The models are downloaded on runners, never committed to Git.
 
 A diagnostic command exports ONNX embeddings without touching any SQLite database:
 
