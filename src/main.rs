@@ -179,7 +179,7 @@ fn main() -> Result<()> {
             let mel = preprocess::mel_spectrogram(&samples)?;
             let frame_count = mel.len();
             let output = serde_json::json!({
-                "preprocessing_version": "experimental-slaney-v1-unvalidated",
+                "preprocessing_version": "experimental-essentia-hann-v2-unvalidated",
                 "sample_rate": preprocess::RATE,
                 "fft_size": preprocess::FFT,
                 "hop_size": preprocess::HOP,
