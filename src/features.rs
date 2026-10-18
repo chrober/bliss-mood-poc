@@ -448,7 +448,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             bail!("Exact --only-track not found in TracksV2");
         }
     }
-    let conn = if options.dry_run {
+    let mut conn = if options.dry_run {
         storage::open_readonly_scan_db(options.db)?
     } else {
         Some(storage::open_scan_db(options.db)?)
