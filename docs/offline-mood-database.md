@@ -51,7 +51,7 @@ CREATE TABLE mood_models (
 CREATE TABLE mood_tracks (
   track_file TEXT PRIMARY KEY,                  -- exactly TracksV2.File
   audio_sha256 TEXT NOT NULL,
-  model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+  model_key TEXT NOT NULL REFERENCES feature_models(model_key),
   scores_f32_le BLOB NOT NULL,                  -- 56 IEEE-754 floats = 224 bytes
   patches_analyzed INTEGER NOT NULL,
   analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -98,9 +98,19 @@ Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlaye
 
 The original v2 tables (mood_models, mood_tracks, mood_track_state) remain
 unchanged during v2 -> v3 migration, including 56-float legacy rows and
-their existing file snapshots. Two new generic tables are added:
+their existing file snapshots. Three new generic tables are added:
 
 ~~~sql
+CREATE TABLE feature_models (
+    model_key TEXT PRIMARY KEY,
+    embedding_model TEXT NOT NULL,
+    classification_model TEXT NOT NULL,
+    models_sha256_json TEXT NOT NULL,
+    preprocessing_version TEXT NOT NULL,
+    aggregation TEXT NOT NULL,
+    classes_json TEXT NOT NULL,
+    validated_against_essentia INTEGER NOT NULL
+);
 CREATE TABLE feature_tracks (
     track_file TEXT NOT NULL,
     model_id TEXT NOT NULL,
@@ -126,7 +136,7 @@ The implemented SQL additionally validates score vector length and positive
 patch count, and protects feature state with a compound foreign key.
 Before any write, the engine rejects missing labels, wrong model fingerprints,
 NaN/Inf and out-of-range values. Score vectors store little-endian float32
-in **alphabetic class-name order** (documented by mood_models.classes_json).
+in **alphabetic class-name order** (documented by feature_models.classes_json).
 
 A model_key hashes the encoder and head weight hashes, preprocessing version,
 aggregation algorithm, label set and validation flag. Each track can therefore
