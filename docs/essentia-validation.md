@@ -62,10 +62,40 @@ Comparator: scripts/compare_classification_essentia.py
 
 Official reference: https://essentia.upf.edu/reference/std_TensorflowPredict2D.html .
 
-## Gate 4: NAS and Pi operational readiness (not yet implemented)
+## Gate 4: Full audio codec and sample-rate parity (PASSED 2026-10-18)
+
+Workflow: .github/workflows/full-audio-parity.yml
+First diagnostic (intentional failure): https://github.com/chrober/bliss-mood-poc/actions/runs/39115832449
+Resampler/MonoMixer diagnosis: https://github.com/chrober/bliss-mood-poc/actions/runs/39116221791
+Full comparison PASSED after correction: https://github.com/chrober/bliss-mood-poc/actions/runs/39116616406
+
+The workflow creates deterministic, synthetic musical test clips in four formats, then compares every final 56-class track score from two independent paths:
+- Rust: native PCM FFmpeg decode -> Rust 0.5/0.5 stereo downmix -> streaming SRC_LINEAR phase reproduction -> Rust Mel features -> ONNX EffNet -> ONNX classifier -> score means
+- Official Essentia: MonoLoader(16000 Hz, resampleQuality=4) -> TensorflowPredictEffnetDiscogs (fixed-batch 64, proper padding) -> TensorflowPredict2D -> score means.
+
+Scores are aligned **by class name**, never by assumptions about JSON/map iteration order; patch counts must match, and every score must satisfy atol=1e-3, rtol=1e-3.
+
+| Deterministic fixture | Patches | Largest absolute score error |
+| --- | ---: | ---: |
+| mono-16k.wav | 7/7 | 3.7542673e-7 |
+| stereo-44100.wav | 8/8 | 3.6311691e-6 |
+| stereo-44100.flac | 8/8 | 3.6311691e-6 |
+| stereo-44100.mp3 | 8/8 | 1.2959489e-5 |
+
+Root cause: FFmpeg's default stereo downmix used coefficients that were sqrt(2) larger than Essentia's explicit arithmetic average. Additionally, Essentia's streaming libsamplerate SRC_LINEAR converter (quality=4) differs from FFmpeg's default SRC. A PCM-only diagnostic found correct linear sample positions at n*inputRate/outputRate-1, with a special initial-sample rule. The Rust decoder was updated accordingly. This changed the preprocessing identifier to experimental-essentia-audio-v4-unvalidated to invalidate earlier v3 cache records.
+
+FFmpeg and **ffprobe** must both be on PATH at runtime. These tests are limited to the reported fixtures and do not establish all codecs, sample rates, channel layouts, long-track memory/performance or subjective mood quality.
+
+## Gate 5: Controlled real NAS music quality sampling (prepared, not run)
+
+Script: scripts/sample_mood_quality.py. Read-only SQLite selects a deterministic random 12-track subset from a *copy* of bliss.db, then executes the newest Windows analyzer on matching files in the NAS source root and writes a local CSV of 56-class scores and top-five moods. No music or database contents are uploaded by the script. Paths in CSV are private; the default output name is gitignored. After basic QA, review 50-100 musically diverse songs manually. Numerical parity is necessary, but not evidence the model predicts a user's preferred moods.
+
+## Gate 6: NAS/Pi deployment and post-scan automation (not yet implemented)
+
+Check modification-time identity Windows/SMB versus Linux mount, Pi AArch64 ONNX execution and benchmarks under playback, post-library-scan triggering, and plugin isolation. Do not launch the 65,000-track scan before real music quality and Pi stability are understood.
 
 Check modification-time identity Windows/SMB versus Linux mount, Pi AArch64 ONNX execution and benchmarks under playback, post-library-scan triggering, and plugin isolation. Do not launch the 65,000-track scan before preceding gates are satisfied.
 
 ## User tasks
 
-None for Gate 1. The work runs on GitHub Actions. Local models, NAS audio, and Bliss/Mood SQLite files remain untouched.
+CI validation is entirely cloud-hosted. For the next *real music* quality review, run the local sampler against a copy of bliss.db and your NAS share; no Essentia or TensorFlow installation is required on Windows. Only share the CSV if you choose to, as its track keys reveal your music library.
