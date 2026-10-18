@@ -495,6 +495,7 @@ pub struct ScanOptions<'a> {
     pub library_root: Option<&'a str>,
     pub only_track: Option<&'a str>,
     pub max_new: Option<usize>,
+    pub max_errors: usize,
     pub threads: usize,
     pub workers: usize,
     pub dry_run: bool,
@@ -502,8 +503,8 @@ pub struct ScanOptions<'a> {
 
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     let started = Instant::now();
-    if options.threads == 0 || options.max_new == Some(0) {
-        bail!("--threads and --max-new must be positive");
+    if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
+        bail!("--threads, --max-new and --max-errors must be positive");
     }
     let profiles = load_profiles(options.models_dir, options.registry, options.models)?;
     if options.workers == 0 || options.workers > 64 {
@@ -538,6 +539,17 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         experimental_results: true,
     };
     for track in tracks {
+        // Bound attempted songs, not just successful writes. A broken ONNX
+        // configuration cannot silently traverse the entire source library.
+        if options.max_new.is_some_and(|max| summary.pending >= max) {
+            summary.limit_reached = true;
+            break;
+        }
+        if summary.failures + summary.missing_files >= options.max_errors {
+            bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
+                summary.failures + summary.missing_files, options.max_errors,
+                summary.analyzed, summary.pending);
+        }
         summary.checked += 1;
         let path = match crate::batch::source_path(
             &track, options.library_root, options.source_root,
@@ -685,12 +697,26 @@ fn scan_parallel(
         drop(result_tx);
         let mut in_flight = 0usize;
         for track in tracks {
-            // A max-new=12 run commits at most 12 successful tracks even
-            // when some concurrent jobs fail; no in-flight overshoot.
+            // max-new is an attempt limit even when every track fails.
+            if options.max_new.is_some_and(|max| summary.pending >= max) {
+                summary.limit_reached = true;
+                break;
+            }
+            if summary.failures + summary.missing_files >= options.max_errors {
+                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
+                    summary.failures + summary.missing_files, options.max_errors,
+                    summary.analyzed, summary.pending);
+            }
+            // Avoid successful-commit overshoot from in-flight tracks.
             if let Some(max) = options.max_new {
                 while in_flight > 0 && summary.analyzed + in_flight >= max {
                     save_completion(&result_rx, &mut conn, &mut summary)?;
                     in_flight -= 1;
+                    if summary.failures + summary.missing_files >= options.max_errors {
+                        bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
+                            summary.failures + summary.missing_files, options.max_errors,
+                            summary.analyzed, summary.pending);
+                    }
                 }
                 if summary.analyzed >= max {
                     summary.limit_reached = true;
@@ -726,6 +752,11 @@ fn scan_parallel(
             if in_flight >= workers {
                 save_completion(&result_rx, &mut conn, &mut summary)?;
                 in_flight -= 1;
+                if summary.failures + summary.missing_files >= options.max_errors {
+                    bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
+                        summary.failures + summary.missing_files, options.max_errors,
+                        summary.analyzed, summary.pending);
+                }
             }
             task_tx.send(FeatureJob { track, path, state })
                 .context("Feature work queue unexpectedly closed")?;
@@ -736,6 +767,11 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(&result_rx, &mut conn, &mut summary)?;
             in_flight -= 1;
+            if summary.failures + summary.missing_files >= options.max_errors {
+                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
+                    summary.failures + summary.missing_files, options.max_errors,
+                    summary.analyzed, summary.pending);
+            }
         }
         Ok(())
     })?;
