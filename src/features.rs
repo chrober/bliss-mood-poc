@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Component, Path, PathBuf},
-    time::{Instant, UNIX_EPOCH},
+    time::Instant,
 };
 
 use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
@@ -47,7 +47,7 @@ pub struct Profile {
 fn safe_model_name(name: &str) -> bool {
     let path = Path::new(name);
     name.len() <= 180
-        && !name.contains(['/', '\\', ':', '\0'])
+        && !name.chars().any(|c| matches!(c, '/' | '\\' | ':' | '\0'))
         && path.components().count() == 1
         && matches!(path.components().next(), Some(Component::Normal(_)))
         && name != "." && name != ".."
