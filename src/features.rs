@@ -459,6 +459,7 @@ fn is_current(
 #[derive(Debug, Serialize)]
 pub struct ScanSummary {
     model_ids: Vec<String>,
+    workers: usize,
     bliss_tracks: usize,
     checked: usize,
     up_to_date: usize,
@@ -483,6 +484,7 @@ pub struct ScanOptions<'a> {
     pub only_track: Option<&'a str>,
     pub max_new: Option<usize>,
     pub threads: usize,
+    pub workers: usize,
     pub dry_run: bool,
 }
 
@@ -492,6 +494,15 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         bail!("--threads and --max-new must be positive");
     }
     let profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    if options.workers == 0 || options.workers > 64 {
+        bail!("Worker count must be 1..=64");
+    }
+    if options.workers > 1 && options.threads > 1 {
+        bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
+    }
+    if options.workers > 1 && !options.dry_run {
+        return scan_parallel(options, profiles, started);
+    }
     let mut tracks = storage::bliss_files(options.bliss_db)?;
     if let Some(track) = options.only_track {
         tracks.retain(|key| key == track);
@@ -507,6 +518,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     let mut engine = None;
     let mut summary = ScanSummary {
         model_ids: profiles.iter().map(|p| p.descriptor.id.clone()).collect(),
+        workers: if options.dry_run { 0 } else { 1 },
         bliss_tracks: tracks.len(),
         checked: 0, up_to_date: 0, pending: 0, analyzed: 0,
         missing_files: 0, failures: 0, limit_reached: false,
@@ -563,6 +575,158 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             }
         }
     }
+    summary.elapsed_seconds = started.elapsed().as_secs_f64();
+    Ok(summary)
+}
+
+/// One music track and its exact Bliss file identity, never mutable source data.
+struct FeatureJob {
+    track: String,
+    path: PathBuf,
+    state: (i64, i64),
+}
+
+type FeatureCompletion = (FeatureJob, Result<FeatureReport>);
+
+fn save_completion(
+    rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
+    conn: &mut Connection,
+    summary: &mut ScanSummary,
+) -> Result<()> {
+    let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
+    match result.and_then(|report| persist_into(conn, &job.track, &report, Some(job.state))) {
+        Ok(()) => {
+            summary.analyzed += 1;
+            eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, summary.pending);
+        }
+        Err(error) => {
+            summary.failures += 1;
+            eprintln!("ANALYSIS FAILED {}: {error:#}", job.track);
+        }
+    }
+    Ok(())
+}
+
+/// Parallelize across songs, not patches. Each worker lazily loads and reuses
+/// the encoder and all requested heads. Only the coordinator opens SQLite.
+fn scan_parallel(
+    options: ScanOptions<'_>,
+    profiles: Vec<Profile>,
+    started: Instant,
+) -> Result<ScanSummary> {
+    use std::sync::{mpsc, Arc, Mutex};
+    let mut tracks = storage::bliss_files(options.bliss_db)?;
+    if let Some(exact) = options.only_track {
+        tracks.retain(|key| key == exact);
+        if tracks.is_empty() {
+            bail!("Exact --only-track not found in TracksV2");
+        }
+    }
+    let mut conn = storage::open_scan_db(options.db)?;
+    let workers = options.workers.min(tracks.len()).max(1);
+    let mut summary = ScanSummary {
+        model_ids: profiles.iter().map(|p| p.descriptor.id.clone()).collect(),
+        workers, bliss_tracks: tracks.len(),
+        checked: 0, up_to_date: 0, pending: 0, analyzed: 0,
+        missing_files: 0, failures: 0, limit_reached: false,
+        elapsed_seconds: 0.0, model_sessions_initialized: false,
+        experimental_results: true,
+    };
+
+    // Only workers jobs may be in flight; completed reports contain full
+    // score vectors, never whole decoded PCM buffers. This bounds memory.
+    let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(workers);
+    let task_rx = Arc::new(Mutex::new(task_rx));
+    let (result_tx, result_rx) = mpsc::channel::<FeatureCompletion>();
+    std::thread::scope(|scope| -> Result<()> {
+        for _ in 0..workers {
+            let rx = Arc::clone(&task_rx);
+            let tx = result_tx.clone();
+            let profiles = profiles.clone();
+            scope.spawn(move || {
+                let mut engine: Option<FeatureEngine> = None;
+                loop {
+                    // Lock only for receiving the next job, never during inference.
+                    let task = match rx.lock() {
+                        Ok(guard) => match guard.recv() {
+                            Ok(task) => task,
+                            Err(_) => break,
+                        },
+                        Err(_) => break,
+                    };
+                    let report = match engine.as_mut() {
+                        Some(engine) => engine.analyze(&task.path, None),
+                        None => match FeatureEngine::new(profiles.clone(), options.threads) {
+                            Ok(created) => {
+                                engine = Some(created);
+                                engine.as_mut().expect("initialized").analyze(&task.path, None)
+                            }
+                            Err(err) => Err(err),
+                        },
+                    };
+                    if tx.send((task, report)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(result_tx);
+        let mut in_flight = 0usize;
+        for track in tracks {
+            // A max-new=12 run commits at most 12 successful tracks even
+            // when some concurrent jobs fail; no in-flight overshoot.
+            if let Some(max) = options.max_new {
+                while in_flight > 0 && summary.analyzed + in_flight >= max {
+                    save_completion(&result_rx, &mut conn, &mut summary)?;
+                    in_flight -= 1;
+                }
+                if summary.analyzed >= max {
+                    summary.limit_reached = true;
+                    break;
+                }
+            }
+            summary.checked += 1;
+            let path = match crate::batch::source_path(
+                &track, options.library_root, options.source_root,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    summary.failures += 1;
+                    eprintln!("MAPPING ERROR {track}: {err:#}");
+                    continue;
+                }
+            };
+            let state = match crate::batch::file_stat(&path) {
+                Ok(state) => state,
+                Err(err) => {
+                    summary.missing_files += 1;
+                    eprintln!("SOURCE UNAVAILABLE {}: {err:#}", path.display());
+                    continue;
+                }
+            };
+            if is_current(&conn, &track, &profiles, state)? {
+                summary.up_to_date += 1;
+                continue;
+            }
+            summary.pending += 1;
+            // At most one outstanding task per worker. The coordinator
+            // is also the only SQLite writer; no connection crosses threads.
+            if in_flight >= workers {
+                save_completion(&result_rx, &mut conn, &mut summary)?;
+                in_flight -= 1;
+            }
+            task_tx.send(FeatureJob { track, path, state })
+                .context("Feature work queue unexpectedly closed")?;
+            summary.model_sessions_initialized = true;
+            in_flight += 1;
+        }
+        drop(task_tx);
+        while in_flight > 0 {
+            save_completion(&result_rx, &mut conn, &mut summary)?;
+            in_flight -= 1;
+        }
+        Ok(())
+    })?;
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
     Ok(summary)
 }

@@ -86,6 +86,59 @@ The new scores remain experimental and unvalidated for production playlist
 generation; adding the Genre analyzer does **not** modify BlissMixerLab,
 the existing Guidance SPI, or any production mixing strategy.
 
+## Parallel offline analysis with interactive CPU headroom
+
+Parallelism is opt-in and currently implemented for generic
+scan-features (Mood, Genre, Voice) and the read-only quality sampler.
+Legacy Mood-only scan stays unchanged.
+
+The options have different meanings:
+
+- **--workers auto** parallelizes **across songs**. For scan-features, auto
+  reserves at least two logical CPUs when possible and about 25% of logical
+  capacity, with a maximum of eight workers. On Windows, automatic mode also
+  sets the analysis process to the BelowNormal priority class. Explicit
+  workers 1..64 are supported, with no automatic priority adjustment.
+- **--threads 1** sets the ONNX intra-op threads per worker. For parallel
+  analysis, threads > 1 are intentionally rejected to avoid oversubscription.
+- **--max-new 12** limits successful writes to 12 tracks, including when
+  tasks fail or finish out of order. **--dry-run** makes no SQLite writes
+  and does not start analysis sessions.
+
+A separate set of ONNX sessions is reused by each worker. The dispatcher
+keeps at most one in-flight song per worker, bounding decoded-audio memory.
+A single coordinator writes SQLite; the source Bliss DB and audio are
+read-only. The auto policy is a **heuristic**, not real-time CPU/RAM monitoring.
+If interactive response, NAS throughput, or laptop temperature are inadequate,
+try an explicit smaller worker count (2 or 3). Use a local SSD sidecar; back
+up mood.db before any first writable analysis.
+
+PowerShell trial (replace the executable path with your downloaded current
+Windows artifact; the model registry must contain all three models):
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $exe = '.\bin\windows-x64\LATEST-RUN-ID\bliss-mood.exe'
+    & $exe scan-features --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --models moodtheme,genre,voice --source-root '\\192.168.1.100\music' --workers auto --threads 1 --max-new 12 --dry-run --json
+    # Remove --dry-run only after checking the result and backing up mood.db.
+}
+~~~
+
+The read-only sample tool also supports --workers auto, but limits itself to
+four child processes because each process loads separate ONNX models.
+On Windows, the child processes use BelowNormal priority. Output CSV rows
+remain deterministically ordered and are written by one parent process.
+For parallel sampling use --workers auto --threads 1; default --workers 1
+keeps previous CLI behavior.
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    python .\scripts\sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe .\bliss-mood.exe --models-dir .\models --models moodtheme,genre,voice --count 12 --workers auto --threads 1 --output .\mood-quality-parallel.csv
+}
+~~~
+
 ## Windows executable without local Rust/Visual Studio
 
 The [Windows x64 binary workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/windows-binary.yml) builds the release executable on a **GitHub-hosted Windows Server 2022 runner**, using MSVC 2022. The job runs Rust tests and verifies that the binary and scan subcommand start before publishing anything.
