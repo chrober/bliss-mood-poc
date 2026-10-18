@@ -7,7 +7,7 @@ use std::{path::Path, time::Duration};
 
 use crate::Report;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const SCORE_COUNT: usize = 56;
 
 const SCHEMA: &str = r#"
@@ -38,6 +38,27 @@ CREATE TABLE IF NOT EXISTS mood_track_state (
     modified_ns INTEGER NOT NULL,
     model_key TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feature_tracks (
+    track_file TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    audio_sha256 TEXT NOT NULL,
+    model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+    scores_f32_le BLOB NOT NULL CHECK (length(scores_f32_le) > 0 AND length(scores_f32_le) % 4 = 0),
+    patches_analyzed INTEGER NOT NULL CHECK (patches_analyzed > 0),
+    analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (track_file, model_id)
+);
+CREATE INDEX IF NOT EXISTS feature_tracks_model_key_idx ON feature_tracks(model_key);
+CREATE TABLE IF NOT EXISTS feature_track_state (
+    track_file TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_ns INTEGER NOT NULL,
+    model_key TEXT NOT NULL,
+    PRIMARY KEY (track_file, model_id),
+    FOREIGN KEY (track_file, model_id) REFERENCES feature_tracks(track_file, model_id) ON DELETE CASCADE
+);
 "#;
 
 fn schema_version(conn: &Connection) -> Result<i64> {
@@ -57,7 +78,7 @@ fn create_schema(conn: &Connection) -> Result<()> {
     let other_tables: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table'
            AND name NOT LIKE 'sqlite_%'
-           AND name NOT IN ('mood_models', 'mood_tracks', 'mood_track_state')",
+           AND name NOT IN ('mood_models', 'mood_tracks', 'mood_track_state', 'feature_tracks', 'feature_track_state')",
         [],
         |row| row.get(0),
     )?;
@@ -65,13 +86,13 @@ fn create_schema(conn: &Connection) -> Result<()> {
         bail!("Refusing to alter unrelated SQLite database");
     }
     let version = schema_version(conn)?;
-    if version != 0 && version != 1 && version != SCHEMA_VERSION {
+    if ![0, 1, 2, SCHEMA_VERSION].contains(&version) {
         bail!("Unsupported mood.db schema version {version} (expected {SCHEMA_VERSION})");
     }
     conn.execute_batch(SCHEMA)?;
-    if version == 0 || version == 1 {
-        // v1 data remains intact; old rows have no scan stat so are
-        // rechecked once by the incremental scanner.
+    if version < SCHEMA_VERSION {
+        // All legacy Mood rows and their scan snapshots remain unchanged.
+        // The feature tables are additive and keep independent model rows.
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
@@ -200,9 +221,10 @@ pub fn model_key_for(
 ) -> Result<String> {
     let mut labels_sorted = labels.to_vec();
     labels_sorted.sort();
-    if labels_sorted.len() != SCORE_COUNT
+    if labels_sorted.is_empty() || labels_sorted.len() > 2048
+        || labels_sorted.iter().any(|label| label.is_empty())
         || labels_sorted.windows(2).any(|w| w[0] == w[1]) {
-        bail!("Model requires 56 distinct class labels");
+        bail!("Model requires 1..2048 unique, nonempty class labels");
     }
     let fingerprint = serde_json::to_vec(&(
         embedding, classifier, hashes, preprocessing, aggregation, &labels_sorted, validated
@@ -228,7 +250,7 @@ pub fn open_readonly_scan_db(path: &Path) -> Result<Option<Connection>> {
         .with_context(|| format!("Cannot read mood.db: {}", path.display()))?;
     match schema_version(&conn)? {
         1 => Ok(None),
-        SCHEMA_VERSION => Ok(Some(conn)),
+        2 | SCHEMA_VERSION => Ok(Some(conn)),
         other => bail!("Unsupported mood.db schema version {other}"),
     }
 }
@@ -295,7 +317,7 @@ pub fn coverage(mood_path: &Path, bliss_path: &Path) -> Result<Coverage> {
     let bliss = Connection::open_with_flags(bliss_path, flags)
         .with_context(|| format!("Cannot read bliss.db: {}", bliss_path.display()))?;
     let version = schema_version(&mood)?;
-    if version != SCHEMA_VERSION {
+    if version != 2 && version != SCHEMA_VERSION {
         bail!("Unsupported mood.db schema version {version}");
     }
     let stored: u64 = mood.query_row("SELECT count(*) FROM mood_tracks", [], |row| row.get(0))?;
@@ -438,7 +460,7 @@ mod tests {
         conn.pragma_update(None, "user_version", 1).unwrap();
         conn.execute_batch("DROP TABLE mood_track_state").unwrap();
         create_schema(&conn).unwrap();
-        assert_eq!(schema_version(&conn).unwrap(), 2);
+        assert_eq!(schema_version(&conn).unwrap(), 3);
         let count: i64 = conn.query_row("SELECT count(*) FROM mood_tracks",[],|r|r.get(0)).unwrap();
         assert_eq!(count, 1);
     }
@@ -460,6 +482,34 @@ mod tests {
         assert!(!is_current(&conn, "/music/a.flac", 1024, 100, "different-model").unwrap());
         insert(&mut conn, "/music/a.flac", &report).unwrap();
         assert!(!is_current(&conn, "/music/a.flac", 1024, 100, &key).unwrap());
+    }
+
+
+    #[test]
+    fn v2_migrates_without_losing_mood_and_scan_snapshots() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let report = sample();
+        persist_scanned(&mut conn, "/music/song.flac", &report, 1200, 99).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch("DROP TABLE feature_track_state; DROP TABLE feature_tracks;").unwrap();
+        create_schema(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), 3);
+        let model_key = model_key_for(
+            report.embedding_model, report.classification_model, &report.models_sha256,
+            report.preprocessing_version, report.aggregation,
+            &report.scores.keys().cloned().collect::<Vec<_>>(), false
+        ).unwrap();
+        assert!(is_current(&conn, "/music/song.flac", 1200, 99, &model_key).unwrap());
+    }
+
+    #[test]
+    fn allows_distinct_label_counts_for_new_model_fingerprints() {
+        let hashes = BTreeMap::from([("genre.onnx".to_owned(), "1".repeat(64))]);
+        let mood = (0..56).map(|i| format!("label{i}")).collect::<Vec<_>>();
+        let genre = (0..87).map(|i| format!("label{i}")).collect::<Vec<_>>();
+        let a = model_key_for("encoder", "mood", &hashes, "v4", "mean", &mood, false).unwrap();
+        let b = model_key_for("encoder", "genre", &hashes, "v4", "mean", &genre, false).unwrap();
+        assert_ne!(a, b);
     }
 
     #[test]
