@@ -4,6 +4,78 @@ Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet 
 
 **Status:** experimental, not yet reference-validated; compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
+
+## Generic feature models (opt-in)
+
+The **feature analyzer** is separate from the legacy Mood-only commands.
+The capability-based registry in [model-registry.json](model-registry.json)
+defines model IDs, semantic capabilities, shared encoder, ONNX heads,
+class metadata, and expected class counts. It currently declares:
+
+- **moodtheme**: MTG-Jamendo Mood/Theme, 56 labels, capability mood_theme.
+- **genre**: MTG-Jamendo Genre, 87 labels, capability genre.
+
+Both use **one** Discogs-EffNet 1280D embedding pass per song. Classifier
+scores are independent multi-label values, **not** directly comparable
+probabilities. Further compatible 1280D ONNX heads can be registered without
+hardcoding their labels in the inference engine. Different encoder families
+require additional feature-extractor support.
+
+Download the five official runtime files (encoder, both heads and their
+metadata) using the existing PowerShell download script. Model weights
+and music are not committed to Git.
+
+Read-only analysis without any SQLite modification:
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    .\bliss-mood.exe analyze-features 'D:\Music\track.flac' --models-dir .\models --models moodtheme,genre --threads 2 --json
+}
+~~~
+
+Optional generic write: add --db .\mood.db and --track-key with the
+**exact** TracksV2.File value. Back up mood.db before the first write.
+An additive migration to SQLite schema v3 preserves all legacy Mood score
+and scanner-state rows. New classifier scores go into feature_tracks and
+feature_track_state, each keyed by (track_file, model_id). A successful
+multi-model write is committed in one transaction. The old analyze and scan
+commands remain Mood-only. The old db-coverage command reports the legacy
+Mood table, not the new generic feature coverage.
+
+Example read-only incremental preview:
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    .\bliss-mood.exe scan-features --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --models moodtheme,genre --source-root '\\192.168.1.100\music' --max-new 12 --dry-run --json
+    # Remove --dry-run only after checking the output and backing up mood.db.
+}
+~~~
+
+Read-only real-song quality sampling without any SQLite writes:
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    python .\scripts\sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe .\bliss-mood.exe --models-dir .\models --models moodtheme,genre --count 12 --output .\mood-quality-sample-dual.csv
+    Import-Csv .\mood-quality-sample-dual.csv |
+        Select-Object track_key, status, top5, genre_top5, total_seconds |
+        Format-List
+}
+~~~
+
+The Mood top5 field and its original unprefixed 56 score columns are retained.
+Additional genre_top5 and genre:<class> columns cover the 87 Genre scores.
+The diagnostic CSV is gitignored. A separate
+[genre parity workflow](.github/workflows/genre-parity.yml) compares the
+new head and all end-to-end Genre scores against official Essentia TensorFlow
+reference weights without storing weights or user music in Git.
+
+The new scores remain experimental and unvalidated for production playlist
+generation; adding the Genre analyzer does **not** modify BlissMixerLab,
+the existing Guidance SPI, or any production mixing strategy.
+
 ## Windows executable without local Rust/Visual Studio
 
 The [Windows x64 binary workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/windows-binary.yml) builds the release executable on a **GitHub-hosted Windows Server 2022 runner**, using MSVC 2022. The job runs Rust tests and verifies that the binary and scan subcommand start before publishing anything.
