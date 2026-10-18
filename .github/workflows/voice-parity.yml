@@ -137,6 +137,59 @@ jobs:
               assert db.execute("SELECT count(*) FROM mood_tracks").fetchone()[0] == 0
           print("PASS: dry-run untouched, Bliss DB byte-identical, three heads cached and skipped")
           PY
+      - name: Verify serial/parallel score parity, exact max-new, and read-only inputs
+        run: |
+          python - <<'PY'
+          import sqlite3, hashlib
+          from pathlib import Path
+          with sqlite3.connect("parallel-bliss.db") as db:
+              db.execute("CREATE TABLE TracksV2 (File TEXT NOT NULL, Ignore INTEGER)")
+              db.executemany("INSERT INTO TracksV2(File, Ignore) VALUES (?, NULL)",
+                             [(name,) for name in (
+                                 "mono-16k.wav", "stereo-44100.wav",
+                                 "stereo-44100.flac", "stereo-44100.mp3")])
+          Path("parallel-bliss.sha256").write_text(hashlib.sha256(
+              Path("parallel-bliss.db").read_bytes()).hexdigest())
+          PY
+          target/release/bliss-mood scan-features \
+            --bliss-db parallel-bliss.db --db serial-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --workers 1 --threads 1 --json > serial.json
+          target/release/bliss-mood scan-features \
+            --bliss-db parallel-bliss.db --db parallel-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --workers 2 --threads 1 --max-new 2 --json > parallel-first.json
+          target/release/bliss-mood scan-features \
+            --bliss-db parallel-bliss.db --db parallel-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --workers 2 --threads 1 --max-new 2 --json > parallel-second.json
+          target/release/bliss-mood scan-features \
+            --bliss-db parallel-bliss.db --db parallel-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --workers auto --threads 1 --dry-run --json > parallel-dryrun.json
+          python - <<'PY'
+          import hashlib, json, sqlite3
+          from pathlib import Path
+          assert hashlib.sha256(Path("parallel-bliss.db").read_bytes()).hexdigest() == \
+              Path("parallel-bliss.sha256").read_text()
+          serial=json.loads(Path("serial.json").read_text())
+          first=json.loads(Path("parallel-first.json").read_text())
+          second=json.loads(Path("parallel-second.json").read_text())
+          preview=json.loads(Path("parallel-dryrun.json").read_text())
+          assert serial["analyzed"] == 4 and serial["workers"] == 1, serial
+          assert first["analyzed"] == 2 and first["workers"] == 2, first
+          assert second["analyzed"] == 2 and second["failures"] == 0, second
+          assert preview["pending"] == 0 and preview["workers"] == 0, preview
+          with sqlite3.connect("serial-feature.db") as a, \
+               sqlite3.connect("parallel-feature.db") as b:
+              sql=("SELECT track_file, model_id, model_key, scores_f32_le, patches_analyzed "
+                   "FROM feature_tracks ORDER BY track_file, model_id")
+              serial_rows=a.execute(sql).fetchall()
+              parallel_rows=b.execute(sql).fetchall()
+              assert len(serial_rows) == 12
+              assert serial_rows == parallel_rows
+          print("PASS: 12 score vectors byte-identical, exact max-new, read-only Bliss DB")
+          PY
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()
         uses: actions/upload-artifact@v4
