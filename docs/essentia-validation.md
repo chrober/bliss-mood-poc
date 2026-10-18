@@ -43,9 +43,19 @@ Comparator: scripts/compare_embedding_essentia.py
 
 Official sources: https://essentia.upf.edu/reference/std_TensorflowPredictEffnetDiscogs.html and https://essentia.upf.edu/models.html .
 
-## Gate 3: 56 Mood/Theme classes (not yet implemented)
+## Gate 3: 56 Mood/Theme classification heads (automated CI implemented)
 
-Compare official TensorFlow classification-head probabilities and ONNX probabilities for the same embeddings. Require class-name alignment, per-patch tolerance, and full-track aggregation tolerance. Use a small diverse test corpus including synthetic signals and licensed/public-domain tracks.
+Workflow: .github/workflows/classification-parity.yml
+CLI: bliss-mood classify-embeddings onnx-embeddings.json --models-dir models --threads 1
+Comparator: scripts/compare_classification_essentia.py
+
+- Generate a deterministic 6-second 16-kHz WAV and export the first four ONNX Discogs-EffNet embeddings (using the validated upstream preprocessing).
+- Use those *exact same* 4 x 1280 float32 embeddings for both the official TensorFlow classification-head .pb through Essentia TensorflowPredict2D and our ONNX Mood/Theme classifier. This eliminates Mel/encoder differences from the classifier comparison.
+- Verify 4 x 56=224 per-patch sigmoid probabilities and 56 arithmetic means with allclose rtol=1e-3, atol=1e-3; report worst class, worst patch, MAE and maximum error.
+- Require the official 56-class metadata to be present and valid; no database changes, no user music, and no committed model weights.
+- An initial synthetically generated signal is not sufficient to validate classification on real-world genres; a diverse corpus and complete-track patch and padding checks follow before production use.
+
+Official reference: https://essentia.upf.edu/reference/std_TensorflowPredict2D.html .
 
 ## Gate 4: NAS and Pi operational readiness (not yet implemented)
 
