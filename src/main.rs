@@ -237,7 +237,7 @@ fn main() -> Result<()> {
             let output = serde_json::json!({
                 "schema_version": 1,
                 "validation_status": "experimental-unvalidated",
-                "preprocessing_version": "experimental-essentia-hann-v2-unvalidated",
+                "preprocessing_version": "experimental-essentia-framing-v3-unvalidated",
                 "embedding_model": ENCODER,
                 "embedding_model_sha256": sha256_file(&models_dir.join(ENCODER))?,
                 "audio_sha256": sha256_file(&source)?,
@@ -255,7 +255,7 @@ fn main() -> Result<()> {
             let mel = preprocess::mel_spectrogram(&samples)?;
             let frame_count = mel.len();
             let output = serde_json::json!({
-                "preprocessing_version": "experimental-essentia-hann-v2-unvalidated",
+                "preprocessing_version": "experimental-essentia-framing-v3-unvalidated",
                 "sample_rate": preprocess::RATE,
                 "fft_size": preprocess::FFT,
                 "hop_size": preprocess::HOP,
