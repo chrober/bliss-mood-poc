@@ -10,7 +10,7 @@ The [Windows x64 binary workflow](https://github.com/chrober/bliss-mood-poc/acti
 
 To download: open the latest **successful** run, scroll to **Artifacts**, and download **bliss-mood-windows-x64**. Extract the GitHub ZIP; it contains bliss-mood.exe, BUILD.txt, SHA256SUMS.txt, a short Windows guide, and any ONNX Runtime DLLs needed by the linked configuration. No local Rust toolchain, Cargo build, or VS Build Tools are necessary.
 
-Run bliss-mood.exe from the project directory with --models-dir pointing at your **separately downloaded** models/ directory. FFmpeg must still be available via PATH. The artifact does **not** include model weights or music, and it is not a Pi binary.
+Run bliss-mood.exe from the project directory with --models-dir pointing at your **separately downloaded** models/ directory. FFmpeg **and ffprobe** must still be available via PATH (both ship with typical full FFmpeg distributions). The artifact does **not** include model weights or music, and it is not a Pi binary.
 
 PowerShell example:
 
@@ -92,7 +92,7 @@ bliss-mood analyze SONG [--models-dir models] [--threads 1] [--max-patches 10] [
 
 FFmpeg decode/resample to 16 kHz mono float PCM; windowed 512-point FFT, 256-hop, 96 Mel bands, log10 transform; 128 × 96 input patches with 62-frame hop; 1280-dim Discogs-EffNet embeddings; 56-dimensional Mood/Theme classification; arithmetic mean of patch probabilities.
 
-**The Rust implementation is currently an approximation**. Exact Essentia parity is mandatory: compare a reference signal and intermediate features, then classification outputs. See `scripts/reference_essentia.py`, which requires Essentia TensorFlow and the separately downloadable `.pb` models.
+**Numerical parity has passed for the test fixtures** (Mel features, EffNet embeddings, 56-class head, and full tracks in 16 kHz mono WAV and 44.1 kHz stereo WAV/FLAC/MP3). Rust decodes native float PCM using FFmpeg, explicitly averages stereo at 0.5/0.5 and reproduces Essentia's streaming SRC_LINEAR resampling phase in Rust. These are synthetic, music-like signals, **not** real-world genre/mood quality evidence; the stored validation flag remains false. See [Essentia validation details](docs/essentia-validation.md).
 
 ## Numerical validation against Essentia
 
@@ -105,6 +105,17 @@ A diagnostic command exports ONNX embeddings without touching any SQLite databas
     bliss-mood embedding-dump some-audio.wav --models-dir models --max-patches 4 --threads 1 > embeddings.json
 
 This diagnostic requires only discogs-effnet-bsdynamic-1.onnx, not the Mood/Theme classifier. Avoid running large library scans until embeddings and all 56 classification outputs have been verified.
+
+## Local quality review using real NAS songs
+
+The read-only sample runner selects an unbiased seeded random subset from a **local copy** of bliss.db and calls the current Windows binary's analyze command with NO --db option. It only writes a local CSV file; neither bliss.db nor the existing mood.db is altered. The CSV can contain your artist/album/file names, so it is excluded from Git.
+
+In PowerShell, after downloading the latest successful Windows binary through GitHub Actions:
+
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    python .\scripts\sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe $exe --models-dir .\models --count 12 --output .\mood-quality-sample.csv
+
+When reviewing results, compare the top five classes to the songs you know, especially heavy, energetic, dark, mellow/relaxing and melancholic material. Sample selection is deterministic with seed 20261018; increase --count to 50 or 100 for a broad exploratory review, but quality assessment is subjective and cannot be inferred from numeric model parity alone. Do not commit or upload the private CSV or your music files automatically.
 
 ## Raspberry Pi 4 / Lyrion
 
