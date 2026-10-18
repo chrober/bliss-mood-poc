@@ -19,6 +19,17 @@ def decode_with_ffmpeg(path, rate):
     return np.frombuffer(pcm, dtype="<f4").astype(np.float64)
 
 
+def decode_with_explicit_pan(path, rate):
+    pcm = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(path),
+         "-map", "0:a:0", "-vn",
+         "-af", "pan=mono|c0=0.5*c0+0.5*c1",
+         "-ar", str(rate), "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1"],
+        capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(pcm, dtype="<f4").astype(np.float64)
+
+
 def diffs(a, b):
     n = min(len(a), len(b))
     a = a[:n]
@@ -51,7 +62,25 @@ for path in [Path("fixtures/stereo-44100.wav"), Path("fixtures/stereo-44100.flac
     x = np.arange(len(ffmpeg_native), dtype=np.float64)
     pos = np.arange(len(essence_16k), dtype=np.float64) * in_rate / 16000
     linear = np.interp(pos, x, ffmpeg_native, left=0., right=0.)
+    if in_rate == 44100:
+        ffmpeg_pan_native = decode_with_explicit_pan(path, 44100)
+        ffmpeg_pan_16k = decode_with_explicit_pan(path, 16000)
+        pan_native = diffs(ffmpeg_pan_native, essence_native)
+        pan_16k = diffs(ffmpeg_pan_16k, essence_16k)
+        pan_linear = np.interp(
+            np.arange(len(essence_16k), dtype=np.float64) * in_rate / 16000,
+            np.arange(len(ffmpeg_pan_native), dtype=np.float64),
+            ffmpeg_pan_native, left=0, right=0)
+        pan_interp = diffs(pan_linear, essence_16k)
+        fit = float(np.dot(ffmpeg_native, essence_native) / np.dot(ffmpeg_native, ffmpeg_native))
+    else:
+        pan_native = pan_16k = pan_interp = None
+        fit = 1.0
     report = {
+        "ffmpeg_default_to_essentia_gain": fit,
+        "explicit_pan_native": pan_native,
+        "explicit_pan_16k": pan_16k,
+        "explicit_pan_linear_16k": pan_interp,
         "file": path.name,
         "input_rate": in_rate,
         "lengths": dict(ffmpeg_native=len(ffmpeg_native),essentia_native=len(essence_native),
