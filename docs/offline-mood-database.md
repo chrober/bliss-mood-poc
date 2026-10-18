@@ -1,4 +1,4 @@
-# Offline Mood SQLite architecture (schema v2)
+# Offline Mood SQLite architecture (legacy v2, generic feature v3)
 
 ## Goal
 
@@ -9,7 +9,7 @@ Mirror the proven *offline analysis, online retrieval* workflow of [Bliss Analys
 3. Transfer the complete portable SQLite file to the Raspberry Pi / Lyrion host.
 4. At playlist generation time, load/lookup cached data only. **No ONNX Runtime, FFmpeg or neural model files are required during mix creation.** The Pi can optionally host the native analyzer for post-scan updates.
 
-**Important:** Current classifier / Mel preprocessing implementation is still a prototype, not numerically verified against Essentia. All stored rows retain `validated_against_essentia = 0` until actual reference validation has been performed. Host consumers MUST default to ignoring unvalidated rows.
+**Important:** Synthetic-audio numerical parity is verified against Essentia for Mood and Genre, but real-song quality and production suitability remain experimental. All stored rows retain `validated_against_essentia = 0` until actual reference validation has been performed. Host consumers MUST default to ignoring unvalidated rows.
 
 ## Existing Bliss key contract
 
@@ -91,7 +91,7 @@ Existing references: [BlissMixerLab](https://github.com/chrober/lms-blissmixer-l
 
 Use `bliss-mood scan --bliss-db ... --db ... --models-dir ...` for the offline batch and on-Pi incremental analysis. The same native binary handles both. Optional `--library-root` and `--source-root` map the Lyrion file identity to the analysis computer's media folder. `--dry-run` opens the current Mood DB read-only (and does not create it), `--max-new N` caps analyzed songs, and `--threads 1` limits ONNX intra-op parallelism. All model sessions are initialized once per batch, on the first pending song. See [hybrid design](lyrion-hybrid-analysis.md).
 
-Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlayer and numerical comparison to Essentia remain outstanding. Do not deploy unvalidated scores as production mix signals.
+Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlayer, and large-scale real-music quality assessment remain outstanding. Numerical parity on deterministic reference fixtures has passed. Do not deploy unvalidated scores as production mix signals.
 
 
 ## Generic classifier tables (additive schema v3)
