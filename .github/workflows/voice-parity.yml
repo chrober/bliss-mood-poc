@@ -75,6 +75,7 @@ jobs:
             --embeddings embeddings.json \
             --onnx-json voice-head-onnx.json \
             --tf-model models/voice_instrumental-discogs-effnet-1.pb \
+            --tf-output model/Softmax \
             --report-output voice-head-parity.json
       - name: Validate full audio decoding and both Voice Softmax scores
         shell: bash
