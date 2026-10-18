@@ -217,13 +217,25 @@ fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputTyp
     bail!("Classifier did not output {count} valid {kind:?} scores")
 }
 
+/// ONNX Runtime permits only one Environment per process (even with
+/// multiple independent Sessions). Hold it for process lifetime so workers
+/// cannot race the ort::init().build() singleton check.
+fn feature_environment() -> Result<&'static ort::environment::Environment> {
+    static ENV: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
+        std::sync::OnceLock::new();
+    let initialized = ENV.get_or_init(|| ort::init().build().map_err(|err| err.to_string()));
+    initialized.as_ref().map_err(|err| anyhow::anyhow!(
+        "ONNX Runtime process-wide initialization failed: {err}"
+    ))
+}
+
 impl FeatureEngine {
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
         }
         let started = Instant::now();
-        let env = ort::init().build()?;
+        let env = feature_environment()?;
         let encoder = Session::builder(&env)?
             .with_intra_threads(threads)
             .map_err(|e| anyhow::anyhow!("{e}"))?
@@ -320,7 +332,7 @@ pub fn classify_embeddings(
     {
         bail!("Need 1..64 finite 1280D embeddings and valid thread count");
     }
-    let env = ort::init().build()?;
+    let env = feature_environment()?;
     let mut head = Session::builder(&env)?
         .with_intra_threads(threads)
         .map_err(|e| anyhow::anyhow!("{e}"))?
