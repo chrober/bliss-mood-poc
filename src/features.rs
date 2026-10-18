@@ -654,6 +654,49 @@ mod tests {
     }
 
     #[test]
+    fn voice_softmax_persists_without_changing_mood_or_genre() {
+        let db = std::env::temp_dir().join(format!(
+            "bliss-mood-voice-{}-{}.db", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let track = "Artist/Album/voice.flac";
+        let original = fake_report();
+        persist(&db, track, &original, Some((1200, 44))).unwrap();
+        let mut voice = fake_result("voice", "voice_presence", 2);
+        voice.output_type = OutputType::Softmax;
+        voice.aggregation = SOFTMAX_AGGREGATION;
+        voice.scores = BTreeMap::from([
+            ("instrumental".to_owned(), 0.25),
+            ("voice".to_owned(), 0.75),
+        ]);
+        voice.model_key = storage::model_key_for(
+            &voice.embedding_model, &voice.classification_model,
+            &voice.models_sha256, PREPROCESSING, voice.aggregation,
+            &voice.scores.keys().cloned().collect::<Vec<_>>(), false,
+        ).unwrap();
+        let report = FeatureReport { classifications: BTreeMap::from([
+            ("voice".to_owned(), voice)
+        ]), ..fake_report() };
+        persist(&db, track, &report, Some((1200, 44))).unwrap();
+        let conn = Connection::open(&db).unwrap();
+        let rows = conn.prepare(
+            "SELECT t.model_id, length(t.scores_f32_le), m.aggregation
+             FROM feature_tracks t JOIN feature_models m ON m.model_key=t.model_key
+             ORDER BY t.model_id"
+        ).unwrap().query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?))
+        }).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert_eq!(rows, [
+            ("genre".to_owned(), 348, AGGREGATION.to_owned()),
+            ("moodtheme".to_owned(), 224, AGGREGATION.to_owned()),
+            ("voice".to_owned(), 8, SOFTMAX_AGGREGATION.to_owned())
+        ]);
+        drop(conn);
+        std::fs::remove_file(db).unwrap();
+    }
+
+    #[test]
     fn invalid_second_head_rolls_back_entire_feature_transaction() {
         let db = std::env::temp_dir().join(format!(
             "bliss-mood-feature-rollback-{}-{}.db", std::process::id(),
