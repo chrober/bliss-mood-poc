@@ -95,6 +95,47 @@ jobs:
             fi
           done
           exit "$failed"
+      - name: Verify read-only Bliss input and incremental dual-model SQLite scan
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          with sqlite3.connect("synthetic-bliss.db") as db:
+              db.execute("CREATE TABLE TracksV2 (File TEXT NOT NULL, Ignore INTEGER)")
+              db.execute("INSERT INTO TracksV2(File, Ignore) VALUES (?, NULL)", ("mono-16k.wav",))
+          Path("synthetic-bliss.sha256").write_text(__import__("hashlib").sha256(
+              Path("synthetic-bliss.db").read_bytes()).hexdigest())
+          PY
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre --source-root fixtures \
+            --max-new 1 --threads 1 --dry-run --json > scan-dryrun.json
+          test ! -e synthetic-feature.db
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre --source-root fixtures \
+            --max-new 1 --threads 1 --json > scan-first.json
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre --source-root fixtures \
+            --max-new 1 --threads 1 --dry-run --json > scan-second.json
+          python - <<'PY'
+          import hashlib, json, sqlite3
+          from pathlib import Path
+          assert hashlib.sha256(Path("synthetic-bliss.db").read_bytes()).hexdigest() == \
+              Path("synthetic-bliss.sha256").read_text()
+          first=json.loads(Path("scan-first.json").read_text())
+          second=json.loads(Path("scan-second.json").read_text())
+          assert first["analyzed"] == 1 and first["failures"] == 0, first
+          assert second["up_to_date"] == 1 and second["pending"] == 0, second
+          with sqlite3.connect("synthetic-feature.db") as db:
+              assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+              assert db.execute("SELECT count(*) FROM feature_models").fetchone()[0] == 2
+              assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0] == 2
+              assert db.execute("SELECT count(*) FROM feature_track_state").fetchone()[0] == 2
+              assert db.execute("SELECT count(*) FROM mood_tracks").fetchone()[0] == 0
+          print("PASS: dry-run untouched, Bliss DB byte-identical, two heads cached and skipped")
+          PY
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()
         uses: actions/upload-artifact@v4
