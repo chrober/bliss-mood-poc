@@ -1,6 +1,6 @@
 # bliss-mood-poc
 
-Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme ONNX models. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
+Experimental Rust CLI for capability-based music feature analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme and Genre ONNX classification heads. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
@@ -146,7 +146,7 @@ cargo run --release -- db-coverage --db mood.db --bliss-db "D:\\Backup\\bliss.db
 
 Storage uses a versioned SQLite schema, one row per song, a separate model/provenance catalog and 224-byte score vectors. Copy the fully closed database to the Pi via a staged/atomic replacement, then load the cached values at mix time; the Pi needs no ONNX dependency for retrieval. See [offline architecture](docs/offline-mood-database.md).
 
-The PowerShell script downloads the ONNX encoder (~18 MB), Mood/Theme classifier (~2.7 MB), and its JSON class metadata from the official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
+The PowerShell script downloads the ONNX encoder (~18 MB), the Mood/Theme and Genre classification heads, and both class-metadata JSON files from official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
 
 ## CLI and JSON
 
