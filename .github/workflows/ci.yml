@@ -16,3 +16,6 @@ jobs:
       - run: cargo fmt --all
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
+
+      - name: Validate read-only quality sampling
+        run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
