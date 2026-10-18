@@ -72,15 +72,31 @@ for path in [Path("fixtures/stereo-44100.wav"), Path("fixtures/stereo-44100.flac
             np.arange(len(ffmpeg_pan_native), dtype=np.float64),
             ffmpeg_pan_native, left=0, right=0)
         pan_interp = diffs(pan_linear, essence_16k)
+        lag_pan = best_lag(ffmpeg_pan_16k, essence_16k)
+        lag_pan_linear = best_lag(pan_linear, essence_16k)
+        # Search phase offset in units of source samples (44.1 kHz).
+        # Sample up to 30k points to keep this fast on CI.
+        step = in_rate / 16000
+        count = min(30000, len(essence_16k))
+        shifts = np.arange(-8, 8.01, 0.125)
+        fits = [(float(np.mean(np.abs(
+                    np.interp(np.arange(count) * step + shift,
+                              np.arange(len(ffmpeg_pan_native)), ffmpeg_pan_native,
+                              left=0, right=0) - essence_16k[:count]))),float(shift))
+                for shift in shifts]
+        optimal_src_shift = dict(zip(("mae", "input_samples_shift"), min(fits)))
         fit = float(np.dot(ffmpeg_native, essence_native) / np.dot(ffmpeg_native, ffmpeg_native))
     else:
-        pan_native = pan_16k = pan_interp = None
+        pan_native = pan_16k = pan_interp = lag_pan = lag_pan_linear = optimal_src_shift = None
         fit = 1.0
     report = {
         "ffmpeg_default_to_essentia_gain": fit,
         "explicit_pan_native": pan_native,
         "explicit_pan_16k": pan_16k,
         "explicit_pan_linear_16k": pan_interp,
+        "explicit_pan_lag": lag_pan,
+        "explicit_pan_linear_lag": lag_pan_linear,
+        "best_fractional_input_shift": optimal_src_shift,
         "file": path.name,
         "input_rate": in_rate,
         "lengths": dict(ffmpeg_native=len(ffmpeg_native),essentia_native=len(essence_native),
