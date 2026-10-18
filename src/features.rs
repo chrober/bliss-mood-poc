@@ -217,11 +217,15 @@ impl FeatureEngine {
         for patch in &patches {
             let input = TensorRef::from_array_view(([1usize, 128usize, 96usize], patch.as_slice()))?;
             let outputs = self.encoder.run(ort::inputs![input])?;
-            let vector = outputs.values()
-                .filter_map(|x| x.try_extract_tensor::<f32>().ok())
-                .find(|(_, values)| values.len() == 1280)
-                .map(|(_, values)| values.to_vec())
-                .context("EffNet did not output a 1280-dimensional embedding")?;
+            let mut vector = None;
+            for output in outputs.values() {
+                let (_, tensor) = output.try_extract_tensor::<f32>()?;
+                if tensor.len() == 1280 {
+                    vector = Some(tensor.to_vec());
+                    break;
+                }
+            }
+            let vector = vector.context("EffNet did not output a 1280-dimensional embedding")?;
             for (i, (profile, session)) in self.heads.iter_mut().enumerate() {
                 let scores = classify(session, &vector, profile.labels.len())?;
                 for (sum, value) in sums[i].iter_mut().zip(scores) {
