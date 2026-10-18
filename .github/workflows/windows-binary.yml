@@ -7,6 +7,7 @@ on:
     paths:
       - "src/**"
       - "Cargo.toml"
+      - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
 
 permissions:
@@ -45,6 +46,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows executable failed to start" }
           & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe scan --help
           if ($LASTEXITCODE -ne 0) { throw "Windows scan CLI failed to start" }
+          & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe analyze-features --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows feature CLI failed to start" }
+          & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe scan-features --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows generic scan CLI failed to start" }
       - name: Stage executable and runtime libraries
         run: |
           $release = Join-Path $PWD "target\x86_64-pc-windows-msvc\release"
@@ -58,8 +63,9 @@ jobs:
           bliss-mood (experimental) - Windows x64
 
           Extract the GitHub Actions artifact into a directory.
-          FFmpeg must be installed and ffmpeg.exe must be on PATH.
-          Model files are NOT redistributed: download them separately
+          FFmpeg and ffprobe must both be on PATH.
+          Model files are NOT redistributed: download the EffNet encoder,
+          Mood/Theme and Genre ONNX heads plus JSON metadata separately
           via scripts/download-models.ps1 into a models directory.
 
           Test command (PowerShell, from project root):
@@ -67,8 +73,8 @@ jobs:
             $song = Join-Path '\\192.168.1.100\music' ($key -replace '/', '\')
             .\bliss-mood.exe analyze $song --models-dir .\models --threads 2 --max-patches 10 --db .\mood-test.db --track-key $key --json
 
-          Predictions and preprocessing remain experimental and
-          have not been validated against the Essentia reference.
+          Numerical reference parity has passed for synthetic fixtures.
+          Real-music quality and production use remain unvalidated.
           '@ | Set-Content -Path (Join-Path $dist "README-WINDOWS.txt") -Encoding utf8
           "Commit: $env:GITHUB_SHA" | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
           $checksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-mood.exe") -Algorithm SHA256).Hash
