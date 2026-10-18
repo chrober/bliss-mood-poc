@@ -1,0 +1,92 @@
+# Model-independent features and future mixing strategies
+
+## Current implementation (experimental)
+
+The Rust proof of concept [bliss-mood-poc](../README.md) implements an
+opt-in capability registry, one Discogs-EffNet audio/embedding pass, and
+independent sigmoid classification heads for two registered models:
+
+| Registry model ID | Capability | Classes | Encoder |
+| --- | --- | --- | --- |
+| moodtheme | mood_theme | 56 | Discogs-EffNet 1280D |
+| genre | genre | 87 | Discogs-EffNet 1280D |
+
+A descriptor maps the model ID to a capability, trusted local weight filenames,
+metadata and dimensional constraints. The generic scanner stores independent
+vectors with exact model/preprocessing fingerprints; no model names or class
+lists are hard-coded in the feature storage format. This is *head-agnostic
+within a compatible encoder family*, not arbitrary support for MusicNN, VGGish,
+regressors, or models whose output cannot be interpreted as a multi-label
+0..1 sigmoid vector.
+
+Genre and Mood/Theme remain different score spaces. The system does not imply
+that a score of 0.8 has the same probabilistic meaning for both models.
+
+## Planned separation of responsibilities
+
+Three distinct concepts must not be merged in the user-facing application:
+
+1. **Feature source**: performs offline analysis and exposes versioned numeric
+   descriptors for a local track (e.g. Bliss 23D, 87D Genre, 56D Mood/Theme).
+   Providers declare *capabilities*, not hard-coded model names.
+2. **Candidate source**: determines which eligible tracks are proposed for
+   mixing (e.g. Bliss similarity, Genre/Mood proximity, or a union of both).
+3. **Guidance/scoring source**: contributes bounded scores or preferences for
+   candidates the selected strategy is considering (e.g. Bliss transition
+   similarity, Mood/Theme anchor distance, Last.fm relationships, local
+   listening statistics).
+
+An overall **mixing strategy** decides candidate source(s), normalization,
+soft/hard constraints, reranking, and variation. Common Lyrion membership,
+repeat-window and playlist integrity rules remain in the host regardless
+of the chosen strategy. Unavailable or unvalidated features must lead to
+explicit, predictable fallback, not silently alter the candidate pool.
+
+## Proposed strategies (not implemented)
+
+- **Bliss-first**: Bliss admits candidates based on acoustic similarity;
+  compatible Genre/Mood signals may rerank only that candidate pool. This is
+  feasible with today's Bliss Guidance SPI v2 after adding an opt-in feature
+  provider. The existing SPI forbids external providers from admitting tracks.
+- **Feature-first** (initially Essentia-first): Genre/Mood descriptors generate
+  candidates; Bliss provides transition similarity in the final scoring.
+  This requires a new candidate-selection host contract. It must **not**
+  silently reinterpret the existing Bliss-only eligibility semantics.
+- **Hybrid**: candidate sources union or otherwise combine their proposals,
+  then a coherent strategy evaluates transition quality, musical identity,
+  preference, and diversity. Feature score scales must be normalized and
+  calibrated rather than directly summed.
+
+Model selection and mixing strategy are separate user settings. A model can
+declare capability genre without the UI needing to display its ONNX filename.
+Capability alone does not make score semantics or taxonomies interchangeable;
+mapping and calibration may be needed when another model is substituted.
+
+## Drift protection as an orthogonal policy
+
+Drift control should be available across strategies. It compares future
+candidates to a frozen source identity (single or multi-track anchor), recent
+mix history, and a selectable target preference. Genre consistency, mood
+consistency and acoustic transition quality are distinct objectives; a
+user-requested style transition should not be accidentally defeated by a
+hardcoded starting-genre rule.
+
+Compare four experimental conditions with fixed seeds and identical LMS hard
+constraints: original Bliss, Bliss with existing dynamic/adaptive weighting,
+Bliss with model-based guidance, and Bliss with both. Feature-first and Hybrid
+should be evaluated separately once their candidate-selection contracts exist.
+
+## Compatibility and boundaries
+
+- Keep the original Bliss database read-only; never rewrite source audio.
+- Preserve the legacy Mood-only CLI and sidecar rows while the feature path is
+  evaluated. Writable schema v3 must not be used with v2-only binaries.
+- Keep [Bliss Guidance SPI v2](https://github.com/chrober/bliss-playlist-guidance-spi/blob/main/SPI.md)
+  unchanged and Bliss-first. A future strategy host must introduce its own
+  candidate-source abstraction rather than mislabel a provider as a candidate
+  generator.
+- No modifications to production BlissMixer, BlissMixerLab or Better Call Bliss
+  are part of this pull request.
+- Numerical parity on synthetic files is **not** proof of useful predictions
+  on music. Experimental/unvalidated flags remain false for production and
+  users must evaluate real tracks before enabling automated playlists.
