@@ -2,7 +2,7 @@
 
 Experimental Rust CLI for music mood analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme ONNX models. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
-**Status:** experimental, not yet reference-validated; compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
+**Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
 ## Generic feature models (opt-in)
