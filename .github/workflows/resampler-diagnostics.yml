@@ -1,0 +1,42 @@
+name: Essentia PCM resampler diagnosis
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/diagnose_resampling.py"
+      - "scripts/generate_audio_fixtures.py"
+      - ".github/workflows/resampler-diagnostics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pcm-diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/requirements-mel-parity.txt
+      - name: Install Essentia and FFmpeg
+        run: |
+          python -m pip install -r scripts/requirements-mel-parity.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Generate WAV FLAC MP3 fixtures
+        run: python scripts/generate_audio_fixtures.py
+      - name: Analyze downmix and resampler differences
+        run: python scripts/diagnose_resampling.py | tee resampling-report.jsonl
+      - name: Upload diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcm-resampling-diagnostics
+          path: resampling-report.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
