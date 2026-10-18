@@ -1,8 +1,8 @@
-"""Read-only deterministic Mood-quality sample from a copy of bliss.db.
+r"""Read-only deterministic feature-quality sample from a copy of bliss.db.
 
-Calls bliss-mood analyze --json, WITHOUT any SQLite write options.
-Windows:
-  python scripts/sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe .\bliss-mood.exe --models-dir .\models --count 12
+Default remains legacy Mood-only JSON for compatibility. To evaluate both
+heads in one shared embedding pass use --models moodtheme,genre.
+No command in this script passes --db to the analyzer or changes a source file.
 """
 import argparse
 import csv
@@ -34,12 +34,46 @@ def select_keys(bliss_db, count, seed):
     return random.Random(seed).sample(keys, min(count, len(keys))), len(keys)
 
 
+def load_classifiers(registry_file, models_dir, model_ids):
+    registry = json.loads(registry_file.read_text(encoding="utf-8"))
+    catalog = {desc["id"]: desc for desc in registry["models"]}
+    result = {}
+    for model_id in model_ids:
+        if model_id not in catalog or model_id in result:
+            raise ValueError(f"Unknown or duplicate classifier: {model_id}")
+        descriptor = catalog[model_id]
+        classes = json.loads(
+            (models_dir / descriptor["metadata"]).read_text(encoding="utf-8")
+        )["classes"]
+        if len(classes) != descriptor["expected_classes"] or len(set(classes)) != len(classes):
+            raise ValueError(f"Invalid label metadata for {model_id}")
+        result[model_id] = classes
+    return result
+
+
+def collect_scores(data, classifiers, legacy):
+    if legacy:
+        scores = {"moodtheme": data["scores"]}
+    else:
+        scores = {
+            model_id: data["classifications"][model_id]["scores"]
+            for model_id in classifiers
+        }
+    for model_id, labels in classifiers.items():
+        if set(scores[model_id]) != set(labels):
+            raise ValueError(f"Label mismatch for {model_id}")
+    return scores
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--bliss-db", type=Path, required=True)
     p.add_argument("--source-root", type=Path, required=True)
     p.add_argument("--exe", type=Path, required=True)
     p.add_argument("--models-dir", type=Path, required=True)
+    p.add_argument("--registry", type=Path)
+    p.add_argument("--models", default="moodtheme",
+                   help="moodtheme (legacy) or moodtheme,genre (shared-embedding analysis)")
     p.add_argument("--count", type=int, default=12)
     p.add_argument("--seed", type=int, default=20261018)
     p.add_argument("--threads", type=int, default=2)
@@ -50,17 +84,23 @@ def main():
         p.error("--count must be 1..100 and --threads must be positive")
     if not args.exe.is_file():
         p.error(f"Executable missing: {args.exe}")
-    metadata = json.loads(
-        (args.models_dir / "mtg_jamendo_moodtheme-discogs-effnet-1.json").read_text(encoding="utf-8")
-    )
-    classes = metadata["classes"]
-    if len(classes) != 56 or len(set(classes)) != 56:
-        p.error("Expected 56 unique classifier labels")
+
+    selected = [part.strip() for part in args.models.split(",")]
+    legacy = selected == ["moodtheme"]
+    registry_file = args.registry or Path(__file__).resolve().parents[1] / "model-registry.json"
+    classifiers = load_classifiers(registry_file, args.models_dir, selected)
 
     keys, total = select_keys(args.bliss_db, args.count, args.seed)
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    mood_columns = tuple(classifiers.get("moodtheme", ()))
+    other_columns = tuple(
+        name
+        for model_id, labels in classifiers.items()
+        if model_id != "moodtheme"
+        for name in (f"{model_id}_top5", *(f"{model_id}:{label}" for label in labels))
+    )
     columns = ("track_key", "status", "error", "total_seconds", "patches",
-               "preprocessing_version", "top5") + tuple(classes)
+               "preprocessing_version", "top5") + mood_columns + other_columns
     success = 0
     with args.output.open("w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=columns)
@@ -72,27 +112,38 @@ def main():
                 if not path.is_file():
                     raise FileNotFoundError(str(path))
                 command = [
-                    str(args.exe.resolve()), "analyze", str(path),
-                    "--models-dir", str(args.models_dir.resolve()),
+                    str(args.exe.resolve()), "analyze" if legacy else "analyze-features",
+                    str(path), "--models-dir", str(args.models_dir.resolve()),
                     "--threads", str(args.threads), "--json",
                 ]
+                if not legacy:
+                    command += ["--models", ",".join(selected)]
+                    if args.registry:
+                        command += ["--registry", str(args.registry.resolve())]
                 result = subprocess.run(
                     command, check=True, capture_output=True,
                     text=True, encoding="utf-8", timeout=args.timeout_seconds
                 )
                 data = json.loads(result.stdout)
-                if set(data["scores"]) != set(classes):
-                    raise ValueError("Classifier labels don't match model metadata")
+                scores = collect_scores(data, classifiers, legacy)
                 row.update({
                     "status": "ok",
                     "total_seconds": round(data["timings"]["total_seconds"], 3),
                     "patches": data["patches_analyzed"],
                     "preprocessing_version": data["preprocessing_version"],
-                    "top5": ", ".join(f"{k}={v:.3f}" for k, v in sorted(
-                        data["scores"].items(), key=lambda pair: -pair[1]
-                    )[:5]),
-                    **data["scores"],
                 })
+                for model_id, values in scores.items():
+                    top = ", ".join(
+                        f"{name}={score:.3f}"
+                        for name, score in sorted(values.items(), key=lambda pair: -pair[1])[:5]
+                    )
+                    if model_id == "moodtheme":
+                        row["top5"] = top
+                        row.update(values)
+                    else:
+                        row[f"{model_id}_top5"] = top
+                        row.update({f"{model_id}:{name}": score
+                                    for name, score in values.items()})
                 success += 1
             except (OSError, ValueError, KeyError,
                     subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
