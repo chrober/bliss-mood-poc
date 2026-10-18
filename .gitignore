@@ -13,3 +13,6 @@
 /*.db
 /*.db-shm
 /*.db-wal
+
+# Local Mood QA reports: may contain private music-library paths
+/mood-quality-sample*.csv
