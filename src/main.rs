@@ -28,6 +28,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Export first N raw Mel feature frames for comparison with Essentia.
+    /// Does not require ONNX models and never modifies source audio.
+    MelDump {
+        source: PathBuf,
+        #[arg(long, default_value_t = 32)]
+        max_frames: usize,
+    },
     Analyze {
         /// Source audio file (never modified).
         source: PathBuf,
@@ -164,6 +171,24 @@ fn analyze(
 
 fn main() -> Result<()> {
     match Cli::parse().action {
+        Action::MelDump { source, max_frames } => {
+            if max_frames == 0 || max_frames > 1024 {
+                bail!("--max-frames must be between 1 and 1024");
+            }
+            let samples = ffmpeg_pcm_mono_16k(&source)?;
+            let mel = preprocess::mel_spectrogram(&samples)?;
+            let frame_count = mel.len();
+            let output = serde_json::json!({
+                "preprocessing_version": "experimental-slaney-v1-unvalidated",
+                "sample_rate": preprocess::RATE,
+                "fft_size": preprocess::FFT,
+                "hop_size": preprocess::HOP,
+                "mel_bands": preprocess::MEL_BANDS,
+                "total_frames": frame_count,
+                "frames": mel.iter().take(max_frames).collect::<Vec<_>>(),
+            });
+            println!("{}", serde_json::to_string(&output)?);
+        }
         Action::Analyze {
             source,
             models_dir,
