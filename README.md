@@ -101,9 +101,21 @@ The options have different meanings:
   workers 1..64 are supported, with no automatic priority adjustment.
 - **--threads 1** sets the ONNX intra-op threads per worker. For parallel
   analysis, threads > 1 are intentionally rejected to avoid oversubscription.
-- **--max-new 12** limits successful writes to 12 tracks, including when
-  tasks fail or finish out of order. **--dry-run** makes no SQLite writes
-  and does not start analysis sessions.
+- **--max-new 12** now limits **new analysis attempts** (whether they
+  succeed or fail), not just successful commits. A benchmark limited to 12
+  songs will never analyze 13 because a model is broken. Existing up-to-date
+  entries do not consume this budget.
+- **--max-errors 5** (default) stops a faulty scan after five encountered
+  source, mapping, decoding or inference errors. This prevents a misconfigured
+  model or a disconnected music share from traversing the entire library.
+  Tune only when deliberately tolerating many faulty files. **--dry-run**
+  makes no SQLite writes and does not start analysis sessions.
+
+All workers share exactly **one process-wide ONNX Runtime environment**;
+each worker owns and reuses its own ONNX sessions. Earlier Windows builds
+could fail with "only one environment is allowed per process" when many
+workers initialized at once. Do not use those builds for parallel scanning.
+The fixed implementation is covered by an eight-worker initialization test.
 
 A separate set of ONNX sessions is reused by each worker. The dispatcher
 keeps at most one in-flight song per worker, bounding decoded-audio memory.
