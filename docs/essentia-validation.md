@@ -25,9 +25,12 @@ Upstream TensorflowInputMusiCNN source configures 512 FFT frame samples, non-nor
 
 CI pins Python 3.11, NumPy 1.26.4 and Essentia 2.1b6.dev1389 (non-TensorFlow wheel) on GitHub-hosted Linux. No user music, trained models or local Python installations required for Gate 1.
 
-## Gate 2: 1280-dimensional embeddings (numerical CI running)
+## Gate 2: 1280-dimensional embeddings (PASSED 2026-10-18)
 
 Workflow: .github/workflows/embedding-parity.yml
+Successful run: https://github.com/chrober/bliss-mood-poc/actions/runs/39113628553
+Four x 1280 = 5,120 values; MAE=4.460145135e-7, RMSE=7.178915839e-7, max abs=7.0333480835e-6, minimum per-patch cosine=0.999999999964. Both TensorFlow and ONNX produced four aligned patches.
+
 CLI: bliss-mood embedding-dump AUDIO --models-dir models --max-patches 4 --threads 1
 Comparator: scripts/compare_embedding_essentia.py
 
