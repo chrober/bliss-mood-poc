@@ -141,6 +141,20 @@ pub fn load_profiles(
         {
             bail!("Invalid number of unique labels for '{id}'");
         }
+        // Cross-check declared semantics with official JSON metadata when present.
+        if let Some(outputs) = metadata["schema"]["outputs"].as_array() {
+            for output in outputs {
+                if output["output_purpose"].as_str() == Some("predictions") {
+                    let expected = match descriptor.output_type {
+                        OutputType::Sigmoid => "Sigmoid",
+                        OutputType::Softmax => "Softmax",
+                    };
+                    if output["op"].as_str() != Some(expected) {
+                        bail!("Output type/metadata mismatch for '{id}': expected {expected}");
+                    }
+                }
+            }
+        }
         let hashes = BTreeMap::from([
             (descriptor.embedding_model.clone(), sha256_file(&encoder_path)?),
             (descriptor.classification_model.clone(), sha256_file(&head_path)?),
@@ -364,6 +378,9 @@ fn persist_into(
     }
     let tx = conn.transaction()?;
     for (id, classifier) in &report.classifications {
+        if classifier.aggregation != classifier.output_type.aggregation() {
+            bail!("Output type/aggregation mismatch for {id}");
+        }
         if id.is_empty() || classifier.scores.is_empty()
             || classifier.scores.len() > 2048
             || !valid_head_scores(
