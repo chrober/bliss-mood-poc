@@ -143,6 +143,14 @@ aggregation algorithm, label set and validation flag. Each track can therefore
 hold many independent model rows. Re-analysis replaces only rows for
 selected model IDs; data from unselected models are not deleted.
 
+Feature models now declare an output type in the registry: independent
+Sigmoid scores for Mood/Theme and Genre, versus a normalized two-class
+Softmax distribution for Voice/Instrumental. Each model saves an explicit
+aggregation string in feature_models; these strings are part of its
+provenance fingerprint. Earlier Mood and Genre model keys remain unchanged.
+The voice result indicates whether a recording sounds predominantly vocal
+or instrumental, **not** a vocal style or the percentage of vocal time.
+
 The new scan-features command checks the model fingerprint together with file
 size and modification timestamp for **every requested model**. If any selected
 head needs refresh, all requested heads run during the same audio pass. Caching

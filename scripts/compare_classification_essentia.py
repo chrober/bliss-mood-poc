@@ -16,6 +16,7 @@ def main():
     p.add_argument("--embeddings", type=Path, required=True)
     p.add_argument("--onnx-json", type=Path, required=True)
     p.add_argument("--tf-model", type=Path, required=True)
+    p.add_argument("--tf-output", help="Explicit TensorFlow output node, e.g. model/Softmax")
     p.add_argument("--report-output", type=Path, default=Path("classification-parity-report.json"))
     p.add_argument("--absolute-tolerance", type=float, default=1e-3)
     p.add_argument("--relative-tolerance", type=float, default=1e-3)
@@ -37,6 +38,7 @@ def main():
 
     classifier = TensorflowPredict2D(
         graphFilename=str(args.tf_model),
+        **({"output": args.tf_output} if args.tf_output else {}),
         batchSize=-1,
         patchSize=1,
         patchHopSize=1,

@@ -4,22 +4,27 @@
 
 The Rust proof of concept [bliss-mood-poc](../README.md) implements an
 opt-in capability registry, one Discogs-EffNet audio/embedding pass, and
-independent sigmoid classification heads for two registered models:
+independent Sigmoid and Softmax classification heads for three registered models:
 
 | Registry model ID | Capability | Classes | Encoder |
 | --- | --- | --- | --- |
 | moodtheme | mood_theme | 56 | Discogs-EffNet 1280D |
 | genre | genre | 87 | Discogs-EffNet 1280D |
+| voice | voice_presence | 2 (Softmax) | Discogs-EffNet 1280D |
 
 A descriptor maps the model ID to a capability, trusted local weight filenames,
 metadata and dimensional constraints. The generic scanner stores independent
 vectors with exact model/preprocessing fingerprints; no model names or class
 lists are hard-coded in the feature storage format. This is *head-agnostic
 within a compatible encoder family*, not arbitrary support for MusicNN, VGGish,
-regressors, or models whose output cannot be interpreted as a multi-label
-0..1 sigmoid vector.
+regressors, or models whose output is not a supported Sigmoid/Softmax vector.
 
-Genre and Mood/Theme remain different score spaces. The system does not imply
+Genre, Mood/Theme and Voice/Instrumental remain different score spaces.
+The per-head `output_type` controls validity checks and per-model aggregation
+provenance: Sigmoid allows independent 0..1 labels, whereas Softmax requires
+a normalized sum of approximately one across mutually exclusive classes.
+The registry schema v2 makes this explicit; older v1 registries still default
+to Sigmoid so existing custom model configurations remain readable. The system does not imply
 that a score of 0.8 has the same probabilistic meaning for both models.
 
 ## Planned separation of responsibilities
@@ -90,3 +95,17 @@ should be evaluated separately once their candidate-selection contracts exist.
 - Numerical parity on synthetic files is **not** proof of useful predictions
   on music. Experimental/unvalidated flags remain false for production and
   users must evaluate real tracks before enabling automated playlists.
+
+## Vocal characteristics and finer genres
+
+`voice` currently distinguishes predominantly voice vs instrumental music.
+It does **not** classify clean vocals, screams, growls, rap techniques or
+singer timbre; those require models trained on the corresponding labels.
+Song-wide average Softmax scores also cannot be interpreted as the proportion
+of time containing voice.
+
+The 400-label Discogs taxonomy would offer Black Metal, Post-Metal and
+Psychedelic Rock categories for improved style matching. However, the
+Discogs-EffNet head is officially hosted as a TensorFlow `.pb` without an
+ONNX file in the official directory. This enhancement remains out of scope
+until an independent conversion and TensorFlow-vs-ONNX parity gate pass.

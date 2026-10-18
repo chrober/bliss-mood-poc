@@ -38,6 +38,21 @@ class SamplingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sample.collect_scores(payload, {"genre": ["pop"]}, False)
 
+    def test_three_model_score_extraction_keeps_all_labels(self):
+        classifiers = {
+            "moodtheme": ["heavy"], "genre": ["metal"],
+            "voice": ["voice", "instrumental"]
+        }
+        payload = {"classifications": {
+            "moodtheme": {"scores": {"heavy": 0.5}},
+            "genre": {"scores": {"metal": 0.8}},
+            "voice": {"scores": {"voice": 0.75, "instrumental": 0.25}}
+        }}
+        scores = sample.collect_scores(payload, classifiers, False)
+        self.assertEqual(scores["voice"]["voice"], 0.75)
+        self.assertEqual(scores["voice"]["instrumental"], 0.25)
+        self.assertEqual(len(scores), 3)
+
     def test_reads_bliss_copy_without_writing_or_including_ignored(self):
         with tempfile.TemporaryDirectory() as temp:
             db_path = Path(temp) / "bliss.db"

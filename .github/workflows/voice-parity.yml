@@ -1,0 +1,149 @@
+name: Essentia Voice vs Instrumental ONNX parity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "model-registry.json"
+      - "Cargo.toml"
+      - "scripts/compare_full_essentia.py"
+      - "scripts/compare_classification_essentia.py"
+      - "scripts/generate_audio_fixtures.py"
+      - ".github/workflows/voice-parity.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "model-registry.json"
+      - "Cargo.toml"
+      - "scripts/compare_full_essentia.py"
+      - "scripts/compare_classification_essentia.py"
+      - ".github/workflows/voice-parity.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare-voice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/requirements-embedding-parity.txt
+      - name: Install reference Essentia and audio decoder
+        run: |
+          python -m pip install -r scripts/requirements-embedding-parity.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Generate reproducible WAV FLAC MP3 inputs
+        run: python scripts/generate_audio_fixtures.py
+      - name: Download official models; never commit weights
+        run: |
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 2 --retry-delay 3 \
+              --connect-timeout 15 --max-time 180 \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          fetch feature-extractors/discogs-effnet discogs-effnet-bs64-1.pb
+          for kind in mtg_jamendo_moodtheme mtg_jamendo_genre voice_instrumental; do
+            for ext in onnx json pb; do
+              fetch "classification-heads/$kind" "$kind-discogs-effnet-1.$ext"
+            done
+          done
+          test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
+          sha256sum models/*
+      - name: Build native feature analyzer
+        run: cargo build --release
+      - name: Validate both Softmax voice classes on identical embeddings
+        run: |
+          target/release/bliss-mood embedding-dump fixtures/mono-16k.wav \
+            --models-dir models --max-patches 4 --threads 1 > embeddings.json
+          target/release/bliss-mood classify-feature-embeddings embeddings.json \
+            --models-dir models --model voice --threads 1 > voice-head-onnx.json
+          python scripts/compare_classification_essentia.py \
+            --embeddings embeddings.json \
+            --onnx-json voice-head-onnx.json \
+            --tf-model models/voice_instrumental-discogs-effnet-1.pb \
+            --tf-output model/Softmax \
+            --report-output voice-head-parity.json
+      - name: Validate full audio decoding and both Voice Softmax scores
+        shell: bash
+        run: |
+          mkdir -p results
+          failed=0
+          for audio in fixtures/mono-16k.wav fixtures/stereo-44100.wav fixtures/stereo-44100.flac fixtures/stereo-44100.mp3; do
+            name=$(basename "$audio")
+            target/release/bliss-mood analyze-features "$audio" \
+              --models-dir models --models moodtheme,genre,voice --threads 1 --json \
+              > "results/$name.onnx.json"
+            if ! python scripts/compare_full_essentia.py \
+                --audio "$audio" --model voice \
+                --onnx-json "results/$name.onnx.json" \
+                --models-dir models \
+                --report-output "results/$name.parity.json"; then
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - name: Verify read-only Bliss input and incremental three-model SQLite scan
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          with sqlite3.connect("synthetic-bliss.db") as db:
+              db.execute("CREATE TABLE TracksV2 (File TEXT NOT NULL, Ignore INTEGER)")
+              db.execute("INSERT INTO TracksV2(File, Ignore) VALUES (?, NULL)", ("mono-16k.wav",))
+          Path("synthetic-bliss.sha256").write_text(__import__("hashlib").sha256(
+              Path("synthetic-bliss.db").read_bytes()).hexdigest())
+          PY
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --max-new 1 --threads 1 --dry-run --json > scan-dryrun.json
+          test ! -e synthetic-feature.db
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --max-new 1 --threads 1 --json > scan-first.json
+          target/release/bliss-mood scan-features \
+            --bliss-db synthetic-bliss.db --db synthetic-feature.db \
+            --models-dir models --models moodtheme,genre,voice --source-root fixtures \
+            --max-new 1 --threads 1 --dry-run --json > scan-second.json
+          python - <<'PY'
+          import hashlib, json, sqlite3
+          from pathlib import Path
+          assert hashlib.sha256(Path("synthetic-bliss.db").read_bytes()).hexdigest() == \
+              Path("synthetic-bliss.sha256").read_text()
+          first=json.loads(Path("scan-first.json").read_text())
+          second=json.loads(Path("scan-second.json").read_text())
+          assert first["analyzed"] == 1 and first["failures"] == 0, first
+          assert second["up_to_date"] == 1 and second["pending"] == 0, second
+          with sqlite3.connect("synthetic-feature.db") as db:
+              assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+              assert db.execute("SELECT count(*) FROM feature_models").fetchone()[0] == 3
+              assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0] == 3
+              assert db.execute("SELECT count(*) FROM feature_track_state").fetchone()[0] == 3
+              assert db.execute("SELECT count(*) FROM mood_tracks").fetchone()[0] == 0
+          print("PASS: dry-run untouched, Bliss DB byte-identical, three heads cached and skipped")
+          PY
+      - name: Upload numerical parity summaries (no weights or user music)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-parity-reports
+          path: |
+            voice-head-parity.json
+            results/*.parity.json
+          if-no-files-found: warn
+          retention-days: 14

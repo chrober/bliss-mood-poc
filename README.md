@@ -1,6 +1,6 @@
 # bliss-mood-poc
 
-Experimental Rust CLI for capability-based music feature analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme and Genre ONNX classification heads. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
+Experimental Rust CLI for capability-based music feature analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme and Genre plus Voice/Instrumental ONNX classification heads. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
@@ -14,14 +14,19 @@ class metadata, and expected class counts. It currently declares:
 
 - **moodtheme**: MTG-Jamendo Mood/Theme, 56 labels, capability mood_theme.
 - **genre**: MTG-Jamendo Genre, 87 labels, capability genre.
+- **voice**: Voice/Instrumental, 2 labels, capability voice_presence, Softmax.
 
-Both use **one** Discogs-EffNet 1280D embedding pass per song. Classifier
-scores are independent multi-label values, **not** directly comparable
-probabilities. Further compatible 1280D ONNX heads can be registered without
+All three use **one** Discogs-EffNet 1280D embedding pass per song.
+The registry declares an output type per head: Mood/Theme and Genre are
+independent Sigmoid multi-label outputs; Voice/Instrumental is a **two-class
+Softmax distribution**. Each output type has a separate aggregation identity
+and per-head model fingerprint, so the existing Mood/Genre cache keys remain
+unchanged. Scores across different models must **not** be directly added or
+interpreted as calibrated probabilities. Further compatible 1280D ONNX heads can be registered without
 hardcoding their labels in the inference engine. Different encoder families
 require additional feature-extractor support.
 
-Download the five official runtime files (encoder, both heads and their
+Download the seven official runtime files (encoder, three heads and their
 metadata) using the existing PowerShell download script. Model weights
 and music are not committed to Git.
 
@@ -30,7 +35,7 @@ Read-only analysis without any SQLite modification:
 ~~~powershell
 & {
     Set-Location 'D:\LMS\bliss-mood-poc'
-    .\bliss-mood.exe analyze-features 'D:\Music\track.flac' --models-dir .\models --models moodtheme,genre --threads 2 --json
+    .\bliss-mood.exe analyze-features 'D:\Music\track.flac' --models-dir .\models --models moodtheme,genre,voice --threads 2 --json
 }
 ~~~
 
@@ -48,7 +53,7 @@ Example read-only incremental preview:
 ~~~powershell
 & {
     Set-Location 'D:\LMS\bliss-mood-poc'
-    .\bliss-mood.exe scan-features --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --models moodtheme,genre --source-root '\\192.168.1.100\music' --max-new 12 --dry-run --json
+    .\bliss-mood.exe scan-features --bliss-db .\bliss.db --db .\mood.db --models-dir .\models --models moodtheme,genre,voice --source-root '\\192.168.1.100\music' --max-new 12 --dry-run --json
     # Remove --dry-run only after checking the output and backing up mood.db.
 }
 ~~~
@@ -58,19 +63,24 @@ Read-only real-song quality sampling without any SQLite writes:
 ~~~powershell
 & {
     Set-Location 'D:\LMS\bliss-mood-poc'
-    python .\scripts\sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe .\bliss-mood.exe --models-dir .\models --models moodtheme,genre --count 12 --output .\mood-quality-sample-dual.csv
+    python .\scripts\sample_mood_quality.py --bliss-db .\bliss.db --source-root '\\192.168.1.100\music' --exe .\bliss-mood.exe --models-dir .\models --models moodtheme,genre,voice --count 12 --output .\mood-quality-sample-dual.csv
     Import-Csv .\mood-quality-sample-dual.csv |
-        Select-Object track_key, status, top5, genre_top5, total_seconds |
+        Select-Object track_key, status, top5, genre_top5, voice_top5, total_seconds |
         Format-List
 }
 ~~~
 
 The Mood top5 field and its original unprefixed 56 score columns are retained.
-Additional genre_top5 and genre:<class> columns cover the 87 Genre scores.
+Additional genre_top5 and genre:<class> columns cover the 87 Genre scores;
+voice_top5, voice:voice and voice:instrumental cover the Softmax output.
+The Voice model does **not** identify vocal techniques such as growling,
+screaming or clean singing, and a whole-song score is not a temporal measure
+of the amount of singing.
 The diagnostic CSV is gitignored. A separate
 [genre parity workflow](.github/workflows/genre-parity.yml) compares the
 new head and all end-to-end Genre scores against official Essentia TensorFlow
-reference weights without storing weights or user music in Git.
+reference weights. A corresponding [Voice parity workflow](.github/workflows/voice-parity.yml)
+validates the new Softmax head against the official TensorFlow reference without storing weights or user music in Git.
 
 The new scores remain experimental and unvalidated for production playlist
 generation; adding the Genre analyzer does **not** modify BlissMixerLab,
@@ -146,7 +156,7 @@ cargo run --release -- db-coverage --db mood.db --bliss-db "D:\\Backup\\bliss.db
 
 Storage uses a versioned SQLite schema, one row per song, a separate model/provenance catalog and 224-byte score vectors. Copy the fully closed database to the Pi via a staged/atomic replacement, then load the cached values at mix time; the Pi needs no ONNX dependency for retrieval. See [offline architecture](docs/offline-mood-database.md).
 
-The PowerShell script downloads the ONNX encoder (~18 MB), the Mood/Theme and Genre classification heads, and both class-metadata JSON files from official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
+The PowerShell script downloads the ONNX encoder (~18 MB), the Mood/Theme, Genre and Voice classification heads, and all three class-metadata JSON files from official Essentia hosting. The model weights have **separate non-commercial licensing restrictions**, which must be reviewed before redistribution or commercial use. The source code in this repository is MIT.
 
 ## CLI and JSON
 
@@ -203,3 +213,15 @@ See **[Pi 4B and piCorePlayer performance benchmark](docs/raspberry-pi-benchmark
 6. Optional versioned sidecar cache and mood-aware re-ranking without changing Bliss's established 23D vector.
 
 No production Lyrion or bliss-rs components are altered by this PoC.
+
+### Detailed Discogs400 genres
+
+The official [Discogs400 model directory](https://essentia.upf.edu/models/classification-heads/genre_discogs400/)
+currently provides the Discogs-EffNet classification head as TensorFlow
+`genre_discogs400-discogs-effnet-1.pb`, plus class metadata, but not an
+ONNX head. It contains fine-grained genres such as Black Metal, Post-Metal,
+Atmospheric Black Metal and Psychedelic Rock. It is **not enabled** by this
+extension: an explicit, reproducible TF-to-ONNX conversion, numerical parity
+check and model provenance verification would be required first. The current
+Mood, Genre and Voice ONNX pipeline must not silently try to load a
+non-existent official Discogs400 ONNX file.
