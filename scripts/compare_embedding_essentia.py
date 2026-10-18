@@ -41,15 +41,23 @@ def main():
         lastBatchMode="same",
         lastPatchMode="discard",
     )
-    reference = np.asarray(tf(audio), dtype=np.float64)
-    if reference.shape != onnx.shape:
+    all_reference = np.asarray(tf(audio), dtype=np.float64)
+    # The diagnostic ONNX CLI intentionally limits processing to the first N
+    # patches, whereas Essentia computes the entire short test signal.
+    # Compare aligned prefixes, but NEVER silently pad or invent missing output.
+    if (
+        all_reference.ndim != 2
+        or all_reference.shape[1] != 1280
+        or all_reference.shape[0] < onnx.shape[0]
+    ):
         report = {
             "passed": False,
-            "reason": "patch count or dimension mismatch",
+            "reason": "TensorFlow returned too few patches or wrong dimensions",
             "onnx_shape": list(onnx.shape),
-            "tensorflow_shape": list(reference.shape),
+            "tensorflow_shape": list(all_reference.shape),
         }
     else:
+        reference = all_reference[:onnx.shape[0]]
         assert np.isfinite(reference).all(), "TensorFlow embedding contains NaN or infinity"
         delta = np.abs(onnx - reference)
         scale = np.linalg.norm(onnx, axis=1) * np.linalg.norm(reference, axis=1)
@@ -67,6 +75,7 @@ def main():
                 atol=args.absolute_tolerance,
             )),
             "patches_compared": int(onnx.shape[0]),
+            "tensorflow_total_patches": int(all_reference.shape[0]),
             "embedding_dimensions": 1280,
             "values_compared": int(onnx.size),
             "mean_absolute_error": float(delta.mean()),
