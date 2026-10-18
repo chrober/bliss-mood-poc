@@ -16,6 +16,7 @@ from essentia.standard import MonoLoader, TensorflowPredictEffnetDiscogs, Tensor
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--audio", type=Path, required=True)
+    p.add_argument("--model", choices=["moodtheme", "genre"], default="moodtheme")
     p.add_argument("--onnx-json", type=Path, required=True)
     p.add_argument("--models-dir", type=Path, required=True)
     p.add_argument("--report-output", type=Path, required=True)
@@ -24,11 +25,16 @@ def main():
     args = p.parse_args()
 
     report = json.loads(args.onnx_json.read_text(encoding="utf-8-sig"))
-    labels = json.loads((args.models_dir / "mtg_jamendo_moodtheme-discogs-effnet-1.json").read_text())["classes"]
-    if set(labels) != set(report["scores"]) or len(labels) != 56:
+    prefix = "mtg_jamendo_" + args.model
+    # moodtheme retains the original version-1 JSON report; generic runs
+    # expose independent results under classifications.<model-id>.
+    result_node = report if "scores" in report else report["classifications"][args.model]
+    scores = result_node["scores"]
+    labels = json.loads((args.models_dir / (prefix + "-discogs-effnet-1.json")).read_text())["classes"]
+    if set(labels) != set(scores) or len(labels) == 0:
         raise ValueError("Class name/label mismatch: do NOT compare by unknown order")
 
-    rust_scores = np.asarray([report["scores"][label] for label in labels], dtype=np.float64)
+    rust_scores = np.asarray([scores[label] for label in labels], dtype=np.float64)
     audio = MonoLoader(filename=str(args.audio), sampleRate=16000, resampleQuality=4)()
     embeddings = TensorflowPredictEffnetDiscogs(
         graphFilename=str(args.models_dir / "discogs-effnet-bs64-1.pb"),
@@ -43,13 +49,13 @@ def main():
     if embeddings.ndim != 2 or embeddings.shape[1] != 1280:
         raise ValueError(f"Unexpected Essentia embedding shape: {embeddings.shape}")
     predictions = TensorflowPredict2D(
-        graphFilename=str(args.models_dir / "mtg_jamendo_moodtheme-discogs-effnet-1.pb"),
+        graphFilename=str(args.models_dir / (prefix + "-discogs-effnet-1.pb")),
         batchSize=-1,
         patchSize=1,
         patchHopSize=1,
     )(embeddings)
     predictions = np.asarray(predictions, dtype=np.float64)
-    if predictions.shape != (len(embeddings), 56):
+    if predictions.shape != (len(embeddings), len(labels)):
         raise ValueError(f"Unexpected Essentia classifier shape {predictions.shape}")
     reference = np.mean(predictions, axis=0)
     delta = np.abs(rust_scores - reference)
@@ -69,15 +75,16 @@ def main():
         "worst_class": labels[worst_index],
         "onnx_value_at_worst": float(rust_scores[worst_index]),
         "essentia_value_at_worst": float(reference[worst_index]),
-        "onnx_top_five": [label for label in sorted(labels, key=lambda x: -report["scores"][x])[:5]],
+        "onnx_top_five": [label for label in sorted(labels, key=lambda x: -scores[x])[:5]],
         "essentia_top_five": [labels[i] for i in np.argsort(-reference)[:5]],
         "atol": args.atol,
         "rtol": args.rtol,
         "essentia_version": __import__("essentia").__version__,
         "preprocessing_version": report["preprocessing_version"],
         "audio_sha256": report["audio_sha256"],
-        "model_sha256": report["models_sha256"],
-        "validated_against_essentia_in_db": report["validated_against_essentia"],
+        "model_sha256": result_node["models_sha256"],
+        "validated_against_essentia_in_db": result_node["validated_against_essentia"],
+        "model_id": args.model,
     }
     args.report_output.parent.mkdir(parents=True, exist_ok=True)
     args.report_output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

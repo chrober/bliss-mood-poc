@@ -1,4 +1,4 @@
-"""Compare 56-class ONNX and TensorFlow Mood/Theme heads on identical embeddings.
+"""Compare any registered ONNX and TensorFlow heads on identical embeddings.
 
 This isolates the classification head from Mel/FFmpeg/Discogs-EffNet
 differences. Its input is a diagnostic, synthetic-audio ONNX embedding dump.
@@ -27,9 +27,11 @@ def main():
     onnx = np.asarray(onnx_report["scores_per_patch"], dtype=np.float64)
     onnx_means = np.asarray(onnx_report["mean_scores"], dtype=np.float64)
     assert embeddings.ndim == 2 and embeddings.shape[1] == 1280
-    assert onnx.shape == (embeddings.shape[0], 56)
-    assert onnx_means.shape == (56,)
-    assert len(onnx_report["classes"]) == 56
+    classes = onnx_report["classes"]
+    num_classes = len(classes)
+    assert num_classes > 0
+    assert onnx.shape == (embeddings.shape[0], num_classes)
+    assert onnx_means.shape == (num_classes,)
     assert all(isinstance(label, str) for label in onnx_report["classes"])
     assert onnx_report["validation_status"] == "experimental-unvalidated"
 
@@ -68,7 +70,7 @@ def main():
             "per_patch_passed": pass_patches,
             "aggregate_passed": pass_means,
             "patches_compared": int(onnx.shape[0]),
-            "classes_compared": 56,
+            "classes_compared": num_classes,
             "values_compared": int(onnx.size),
             "mean_absolute_error": float(delta.mean()),
             "maximum_absolute_error": float(delta.max()),
@@ -88,7 +90,7 @@ def main():
     args.report_output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
     if not report["passed"]:
-        raise SystemExit("Mood/Theme head parity failed; keep all scores experimental")
+        raise SystemExit("Classifier head parity failed; keep all scores experimental")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Offline Mood SQLite architecture (schema v2)
+# Offline Mood SQLite architecture (legacy v2, generic feature v3)
 
 ## Goal
 
@@ -9,7 +9,7 @@ Mirror the proven *offline analysis, online retrieval* workflow of [Bliss Analys
 3. Transfer the complete portable SQLite file to the Raspberry Pi / Lyrion host.
 4. At playlist generation time, load/lookup cached data only. **No ONNX Runtime, FFmpeg or neural model files are required during mix creation.** The Pi can optionally host the native analyzer for post-scan updates.
 
-**Important:** Current classifier / Mel preprocessing implementation is still a prototype, not numerically verified against Essentia. All stored rows retain `validated_against_essentia = 0` until actual reference validation has been performed. Host consumers MUST default to ignoring unvalidated rows.
+**Important:** Synthetic-audio numerical parity is verified against Essentia for Mood and Genre, but real-song quality and production suitability remain experimental. All stored rows retain `validated_against_essentia = 0` until actual reference validation has been performed. Host consumers MUST default to ignoring unvalidated rows.
 
 ## Existing Bliss key contract
 
@@ -51,7 +51,7 @@ CREATE TABLE mood_models (
 CREATE TABLE mood_tracks (
   track_file TEXT PRIMARY KEY,                  -- exactly TracksV2.File
   audio_sha256 TEXT NOT NULL,
-  model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+  model_key TEXT NOT NULL REFERENCES feature_models(model_key),
   scores_f32_le BLOB NOT NULL,                  -- 56 IEEE-754 floats = 224 bytes
   patches_analyzed INTEGER NOT NULL,
   analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -91,4 +91,70 @@ Existing references: [BlissMixerLab](https://github.com/chrober/lms-blissmixer-l
 
 Use `bliss-mood scan --bliss-db ... --db ... --models-dir ...` for the offline batch and on-Pi incremental analysis. The same native binary handles both. Optional `--library-root` and `--source-root` map the Lyrion file identity to the analysis computer's media folder. `--dry-run` opens the current Mood DB read-only (and does not create it), `--max-new N` caps analyzed songs, and `--threads 1` limits ONNX intra-op parallelism. All model sessions are initialized once per batch, on the first pending song. See [hybrid design](lyrion-hybrid-analysis.md).
 
-Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlayer and numerical comparison to Essentia remain outstanding. Do not deploy unvalidated scores as production mix signals.
+Automatic *Lyrion* post-scan triggering, native binary packaging for piCorePlayer, and large-scale real-music quality assessment remain outstanding. Numerical parity on deterministic reference fixtures has passed. Do not deploy unvalidated scores as production mix signals.
+
+
+## Generic classifier tables (additive schema v3)
+
+The original v2 tables (mood_models, mood_tracks, mood_track_state) remain
+unchanged during v2 -> v3 migration, including 56-float legacy rows and
+their existing file snapshots. Three new generic tables are added:
+
+~~~sql
+CREATE TABLE feature_models (
+    model_key TEXT PRIMARY KEY,
+    embedding_model TEXT NOT NULL,
+    classification_model TEXT NOT NULL,
+    models_sha256_json TEXT NOT NULL,
+    preprocessing_version TEXT NOT NULL,
+    aggregation TEXT NOT NULL,
+    classes_json TEXT NOT NULL,
+    validated_against_essentia INTEGER NOT NULL
+);
+CREATE TABLE feature_tracks (
+    track_file TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    audio_sha256 TEXT NOT NULL,
+    model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+    scores_f32_le BLOB NOT NULL,
+    patches_analyzed INTEGER NOT NULL,
+    analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (track_file, model_id)
+);
+CREATE TABLE feature_track_state (
+    track_file TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_ns INTEGER NOT NULL,
+    model_key TEXT NOT NULL,
+    PRIMARY KEY (track_file, model_id)
+);
+~~~
+
+The implemented SQL additionally validates score vector length and positive
+patch count, and protects feature state with a compound foreign key.
+Before any write, the engine rejects missing labels, wrong model fingerprints,
+NaN/Inf and out-of-range values. Score vectors store little-endian float32
+in **alphabetic class-name order** (documented by feature_models.classes_json).
+
+A model_key hashes the encoder and head weight hashes, preprocessing version,
+aggregation algorithm, label set and validation flag. Each track can therefore
+hold many independent model rows. Re-analysis replaces only rows for
+selected model IDs; data from unselected models are not deleted.
+
+The new scan-features command checks the model fingerprint together with file
+size and modification timestamp for **every requested model**. If any selected
+head needs refresh, all requested heads run during the same audio pass. Caching
+per-head partial recomputation is a possible later optimization. Existing
+Mood-only v2 rows are **not silently imported** into the generic feature
+tables; the first generic scan creates new generic rows.
+
+The legacy db-coverage command still reports only the legacy Mood table,
+so it should not be interpreted as combined per-model coverage. Feature-specific
+coverage reporting and downstream consumers are future tasks.
+
+Writable feature calls upgrade v2 to v3, but --dry-run never changes a database.
+Back up mood.db before the first write; older binaries expecting schema v2
+must not be used on an upgraded database. Until full parity and subjective
+music review, consumers MUST reject unvalidated results.

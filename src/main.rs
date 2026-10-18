@@ -2,6 +2,7 @@ mod preprocess;
 mod storage;
 mod engine;
 mod batch;
+mod features;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -74,6 +75,66 @@ enum Action {
         /// Exact TracksV2.File path on the target Lyrion system, required with --db.
         #[arg(long)]
         track_key: Option<String>,
+    },
+    /// Generic, opt-in classifier inference. All heads share the same 1280D EffNet embeddings.
+    AnalyzeFeatures {
+        source: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Comma-separated registry model IDs (e.g. moodtheme,genre).
+        #[arg(long, default_value = "moodtheme,genre")]
+        models: String,
+        #[arg(long)]
+        max_patches: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        db: Option<PathBuf>,
+        #[arg(long)]
+        track_key: Option<String>,
+    },
+    /// Incremental, model-independent sidecar analysis; legacy mood_tracks remain untouched.
+    ScanFeatures {
+        #[arg(long)]
+        bliss_db: PathBuf,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, default_value = "moodtheme,genre")]
+        models: String,
+        #[arg(long, requires = "source_root")]
+        library_root: Option<String>,
+        #[arg(long)]
+        source_root: Option<PathBuf>,
+        #[arg(long)]
+        only_track: Option<String>,
+        #[arg(long)]
+        max_new: Option<usize>,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare an arbitrary registered classifier against a reference TF head.
+    ClassifyFeatureEmbeddings {
+        input_json: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, default_value = "genre")]
+        model: String,
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
     },
     /// Compare stored Mood tracks with eligible tracks in an existing Bliss database.
     DbCoverage {
@@ -348,6 +409,70 @@ fn main() -> Result<()> {
                     report.timings.inference_seconds, report.timings.total_seconds
                 );
             }
+        }
+        Action::AnalyzeFeatures {
+            source, models_dir, registry, models, max_patches,
+            threads, json, db, track_key,
+        } => {
+            if db.is_some() != track_key.is_some() {
+                bail!("--db and --track-key must be specified together");
+            }
+            let profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
+            let mut engine = features::FeatureEngine::new(profiles, threads)?;
+            let report = engine.analyze(&source, max_patches)?;
+            if let (Some(db), Some(key)) = (db.as_deref(), track_key.as_deref()) {
+                features::persist(db, key, &report, None)?;
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{} patches: {}", report.patches_analyzed, report.audio_path);
+                for (id, result) in &report.classifications {
+                    println!("[{id}] {}", result.capability);
+                    let mut sorted: Vec<_> = result.scores.iter().collect();
+                    sorted.sort_by(|a, b| b.1.total_cmp(a.1));
+                    for (name, score) in sorted.into_iter().take(10) {
+                        println!("  {name:22} {score:.4}");
+                    }
+                }
+                println!("Total: {:.3}s", report.timings.total_seconds);
+            }
+        }
+        Action::ScanFeatures {
+            bliss_db, db, models_dir, registry, models, library_root,
+            source_root, only_track, max_new, threads, dry_run, json,
+        } => {
+            let summary = features::scan(features::ScanOptions {
+                bliss_db: &bliss_db, db: &db, models_dir: &models_dir,
+                registry: registry.as_deref(), models: &models,
+                source_root: source_root.as_deref(),
+                library_root: library_root.as_deref(),
+                only_track: only_track.as_deref(),
+                max_new, threads, dry_run,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!("{summary:#?}");
+            }
+            // Same nonzero exit contract as the legacy scanner.
+            let result = serde_json::to_value(&summary)?;
+            if result["failures"].as_u64().unwrap_or(0) > 0
+                || result["missing_files"].as_u64().unwrap_or(0) > 0
+            {
+                bail!("Feature scan completed with failed or unavailable songs");
+            }
+        }
+        Action::ClassifyFeatureEmbeddings {
+            input_json, models_dir, registry, model, threads,
+        } => {
+            let diagnostic: serde_json::Value =
+                serde_json::from_reader(File::open(&input_json)?)?;
+            let vectors: Vec<Vec<f32>> =
+                serde_json::from_value(diagnostic["embeddings"].clone())?;
+            let mut profiles = features::load_profiles(&models_dir, registry.as_deref(), &model)?;
+            let output = features::parity_output(&vectors, &profiles.remove(0), threads)?;
+            println!("{}", serde_json::to_string(&output)?);
         }
         Action::DbCoverage { db, bliss_db, json } => {
             let result = storage::coverage(&db, &bliss_db)?;
