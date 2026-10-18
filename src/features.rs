@@ -314,6 +314,14 @@ pub fn persist(
     db_path: &Path, track_key: &str, report: &FeatureReport,
     state: Option<(i64, i64)>,
 ) -> Result<()> {
+    let mut conn = storage::open_scan_db(db_path)?;
+    persist_into(&mut conn, track_key, report, state)
+}
+
+fn persist_into(
+    conn: &mut Connection, track_key: &str, report: &FeatureReport,
+    state: Option<(i64, i64)>,
+) -> Result<()> {
     if track_key.is_empty() || track_key.trim() != track_key || track_key.contains('\0') {
         bail!("Invalid exact Bliss track key");
     }
@@ -323,7 +331,6 @@ pub fn persist(
     {
         bail!("Malformed feature report");
     }
-    let mut conn = storage::open_scan_db(db_path)?;
     let tx = conn.transaction()?;
     for (id, classifier) in &report.classifications {
         if id.is_empty() || classifier.scores.is_empty()
@@ -491,7 +498,9 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             summary.model_sessions_initialized = true;
         }
         let outcome = engine.as_mut().expect("engine available").analyze(&path, None)
-            .and_then(|report| persist(options.db, &track, &report, Some(state)));
+            .and_then(|report| persist_into(
+                conn.as_mut().expect("writable feature database"), &track, &report, Some(state),
+            ));
         match outcome {
             Ok(()) => {
                 summary.analyzed += 1;
