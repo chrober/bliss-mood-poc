@@ -25,9 +25,20 @@ Upstream TensorflowInputMusiCNN source configures 512 FFT frame samples, non-nor
 
 CI pins Python 3.11, NumPy 1.26.4 and Essentia 2.1b6.dev1389 (non-TensorFlow wheel) on GitHub-hosted Linux. No user music, trained models or local Python installations required for Gate 1.
 
-## Gate 2: 1280-dimensional embeddings (not yet implemented)
+## Gate 2: 1280-dimensional embeddings (numerical CI running)
 
-Compare the official TensorFlow Discogs EffNet .pb embedding model and the ONNX embedding model on identical 128x96 patches. Account for fixed TensorFlow batch size 64 versus ONNX dynamic batch shape, padded final batches, and patch order.
+Workflow: .github/workflows/embedding-parity.yml
+CLI: bliss-mood embedding-dump AUDIO --models-dir models --max-patches 4 --threads 1
+Comparator: scripts/compare_embedding_essentia.py
+
+- Export the ONNX encoder's 1280-D embedding vector for each of the first four audio patches. The diagnostic command needs only the ONNX embedding model, not the 56-class head, and does not touch SQLite or modify media.
+- On a GitHub-hosted Linux runner, install TensorFlow-enabled Essentia, download the original official fixed-batch-64 discogs-effnet-bs64-1.pb and dynamic-batch ONNX weights (model weights are not committed nor uploaded as artifacts).
+- Use a deterministic 6-second 16-kHz mono WAV. Essentia's TensorflowPredictEffnetDiscogs runs with output=PartitionedCall:1, batchSize=64, lastBatchMode=same, lastPatchMode=discard, patchSize=128 and patchHopSize=62.
+- Compare four 1280-value vectors with allclose rtol=1e-3 atol=1e-3. Record MAE, RMSE, maximum absolute difference and per-patch cosine similarity. A numeric mismatch fails the job and uploads diagnostics.
+- Passing the Mel test only validates its first 32 frames; this longer test exercises patch construction and four positions across the song as well. Do not infer full musical quality or long-track padding parity from this synthetic test.
+- Unlike regular analyze/scan, embedding-dump has no persistence effects. validated_against_essentia remains false until all reference gates pass.
+
+Official sources: https://essentia.upf.edu/reference/std_TensorflowPredictEffnetDiscogs.html and https://essentia.upf.edu/models.html .
 
 ## Gate 3: 56 Mood/Theme classes (not yet implemented)
 
