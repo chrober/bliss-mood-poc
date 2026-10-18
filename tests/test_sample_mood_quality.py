@@ -38,6 +38,15 @@ class SamplingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sample.collect_scores(payload, {"genre": ["pop"]}, False)
 
+    def test_parallel_sampling_worker_policy(self):
+        self.assertEqual(sample.resolve_workers("1"), 1)
+        self.assertEqual(sample.resolve_workers("3"), 3)
+        self.assertGreaterEqual(sample.resolve_workers("auto"), 1)
+        self.assertLessEqual(sample.resolve_workers("auto"), 4)
+        for invalid in ("0", "17", "-1", "many"):
+            with self.assertRaises(ValueError):
+                sample.resolve_workers(invalid)
+
     def test_three_model_score_extraction_keeps_all_labels(self):
         classifiers = {
             "moodtheme": ["heavy"], "genre": ["metal"],
