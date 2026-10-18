@@ -83,7 +83,7 @@ enum Action {
         models_dir: PathBuf,
         #[arg(long)]
         registry: Option<PathBuf>,
-        /// Comma-separated registry model IDs (e.g. moodtheme,genre).
+        /// Comma-separated registry model IDs (e.g. moodtheme,genre,voice).
         #[arg(long, default_value = "moodtheme,genre")]
         models: String,
         #[arg(long)]
