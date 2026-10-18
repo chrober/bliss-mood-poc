@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--report-output", type=Path, default=Path("embedding-parity-report.json"))
     parser.add_argument("--absolute-tolerance", type=float, default=1e-3)
     parser.add_argument("--relative-tolerance", type=float, default=1e-3)
+    parser.add_argument("--require-full", action="store_true", help="Require exactly equal full-track patch counts")
     args = parser.parse_args()
 
     rust = json.loads(args.rust_json.read_text(encoding="utf-8"))
@@ -49,10 +50,11 @@ def main():
         all_reference.ndim != 2
         or all_reference.shape[1] != 1280
         or all_reference.shape[0] < onnx.shape[0]
+        or (args.require_full and all_reference.shape[0] != onnx.shape[0])
     ):
         report = {
             "passed": False,
-            "reason": "TensorFlow returned too few patches or wrong dimensions",
+            "reason": "TensorFlow patch count or embedding dimensions differ",
             "onnx_shape": list(onnx.shape),
             "tensorflow_shape": list(all_reference.shape),
         }
@@ -75,6 +77,7 @@ def main():
                 atol=args.absolute_tolerance,
             )),
             "patches_compared": int(onnx.shape[0]),
+            "full_track_count_required": args.require_full,
             "tensorflow_total_patches": int(all_reference.shape[0]),
             "embedding_dimensions": 1280,
             "values_compared": int(onnx.size),
