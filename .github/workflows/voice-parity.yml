@@ -73,7 +73,7 @@ jobs:
             --models-dir models --model voice --threads 1 > voice-head-onnx.json
           python scripts/compare_classification_essentia.py \
             --embeddings embeddings.json \
-            --onnx-json genre-head-onnx.json \
+            --onnx-json voice-head-onnx.json \
             --tf-model models/voice_instrumental-discogs-effnet-1.pb \
             --report-output voice-head-parity.json
       - name: Validate full audio decoding and both Voice Softmax scores
@@ -142,7 +142,7 @@ jobs:
         with:
           name: voice-parity-reports
           path: |
-            genre-head-parity.json
+            voice-head-parity.json
             results/*.parity.json
           if-no-files-found: warn
           retention-days: 14
