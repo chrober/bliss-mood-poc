@@ -510,6 +510,114 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::UNIX_EPOCH;
+
+    fn fake_result(model_id: &str, capability: &str, count: usize) -> ClassificationResult {
+        let embedding_model = "encoder.onnx".to_owned();
+        let classification_model = format!("{model_id}.onnx");
+        let hashes = BTreeMap::from([
+            (embedding_model.clone(), "a".repeat(64)),
+            (classification_model.clone(), "b".repeat(64)),
+        ]);
+        let scores = (0..count)
+            .map(|i| (format!("label{i:03}"), i as f32 / 1000.0))
+            .collect::<BTreeMap<_, _>>();
+        let labels = scores.keys().cloned().collect::<Vec<_>>();
+        let model_key = storage::model_key_for(
+            &embedding_model, &classification_model, &hashes,
+            PREPROCESSING, AGGREGATION, &labels, false,
+        ).unwrap();
+        ClassificationResult {
+            capability: capability.to_owned(),
+            embedding_model, classification_model, models_sha256: hashes,
+            model_key, validated_against_essentia: false, scores,
+        }
+    }
+
+    fn fake_report() -> FeatureReport {
+        FeatureReport {
+            schema_version: 3, preprocessing_version: PREPROCESSING,
+            aggregation: AGGREGATION, audio_path: "track.flac".to_owned(),
+            audio_sha256: "c".repeat(64), sample_rate: 16000,
+            patches_analyzed: 5, threads: 1,
+            timings: Timing {
+                decode_seconds: 0.0, features_seconds: 0.0,
+                model_load_seconds: 0.0, inference_seconds: 0.0,
+                total_seconds: 0.0,
+            },
+            classifications: BTreeMap::from([
+                ("moodtheme".to_owned(), fake_result("mood", "mood_theme", 56)),
+                ("genre".to_owned(), fake_result("genre", "genre", 87)),
+            ]),
+        }
+    }
+
+    #[test]
+    fn generic_storage_preserves_legacy_rows_and_other_models() {
+        let db = std::env::temp_dir().join(format!(
+            "bliss-mood-feature-test-{}-{}.db", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let legacy = crate::Report {
+            schema_version: 1, preprocessing_version: PREPROCESSING,
+            classification_model: "mood.onnx",
+            embedding_model: "encoder.onnx",
+            audio_path: "song.flac".to_owned(),
+            audio_sha256: "c".repeat(64),
+            models_sha256: BTreeMap::from([("mood.onnx".to_owned(), "b".repeat(64))]),
+            sample_rate: 16000, patches_analyzed: 5, threads: 1,
+            aggregation: AGGREGATION, validated_against_essentia: false,
+            timings: Timing { decode_seconds: 0.0, features_seconds: 0.0,
+                model_load_seconds: 0.0, inference_seconds: 0.0, total_seconds: 0.0 },
+            scores: (0..56).map(|i| (format!("label{i:03}"), 0.1)).collect(),
+        };
+        let key = "Artist/Album/song.flac";
+        storage::persist(&db, key, &legacy).unwrap();
+        let report = fake_report();
+        persist(&db, key, &report, Some((5000, 12345))).unwrap();
+        let conn = Connection::open(&db).unwrap();
+        let (legacy_count, feature_count, catalog_count, state_count): (i64, i64, i64, i64) =
+            (
+                conn.query_row("SELECT count(*) FROM mood_tracks", [], |r| r.get(0)).unwrap(),
+                conn.query_row("SELECT count(*) FROM feature_tracks", [], |r| r.get(0)).unwrap(),
+                conn.query_row("SELECT count(*) FROM feature_models", [], |r| r.get(0)).unwrap(),
+                conn.query_row("SELECT count(*) FROM feature_track_state", [], |r| r.get(0)).unwrap(),
+            );
+        assert_eq!((legacy_count, feature_count, catalog_count, state_count), (1, 2, 2, 2));
+        let lengths = conn.prepare(
+            "SELECT model_id, length(scores_f32_le) FROM feature_tracks ORDER BY model_id",
+        ).unwrap().query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+            .unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert_eq!(lengths, [("genre".to_owned(), 348), ("moodtheme".to_owned(), 224)]);
+        drop(conn);
+        let mut partial = fake_report();
+        partial.classifications.remove("moodtheme");
+        persist(&db, key, &partial, Some((5001, 12346))).unwrap();
+        let conn = Connection::open(&db).unwrap();
+        let n: i64 = conn.query_row("SELECT count(*) FROM feature_tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2);
+        assert!(is_current(&conn, key, &[], (5000, 12345)).unwrap());
+        drop(conn);
+        std::fs::remove_file(db).unwrap();
+    }
+
+    #[test]
+    fn invalid_second_head_rolls_back_entire_feature_transaction() {
+        let db = std::env::temp_dir().join(format!(
+            "bliss-mood-feature-rollback-{}-{}.db", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let mut report = fake_report();
+        report.classifications.get_mut("moodtheme").unwrap().scores
+            .insert("label000".to_owned(), f32::NAN);
+        assert!(persist(&db, "song.flac", &report, Some((5000, 12345))).is_err());
+        let conn = Connection::open(&db).unwrap();
+        let count: i64 =
+            conn.query_row("SELECT count(*) FROM feature_tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+        drop(conn);
+        std::fs::remove_file(db).unwrap();
+    }
 
     #[test]
     fn rejects_absolute_and_parent_model_paths() {
