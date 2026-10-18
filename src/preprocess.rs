@@ -71,7 +71,8 @@ pub fn mel_spectrogram(samples: &[f32]) -> Result<Vec<[f32; MEL_BANDS]>> {
             } else {
                 0.0
             };
-            let hann = (0.5 - 0.5 * (2.0 * PI * i as f64 / FFT as f64).cos()) as f32;
+            // Essentia Windowing defaults to symmetric=true, so the Hann denominator is N-1.
+            let hann = (0.5 - 0.5 * (2.0 * PI * i as f64 / (FFT - 1) as f64).cos()) as f32;
             *v = Complex32::new(sample * hann, 0.0);
         }
         fft.process(&mut spectrum);
