@@ -342,7 +342,7 @@ pub fn persist(
             bail!("Model fingerprint mismatch for {id}");
         }
         tx.execute(
-            "INSERT OR IGNORE INTO mood_models
+            "INSERT OR IGNORE INTO feature_models
                (model_key, embedding_model, classification_model, models_sha256_json,
                 preprocessing_version, aggregation, classes_json, validated_against_essentia)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
