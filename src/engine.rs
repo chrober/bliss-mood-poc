@@ -107,6 +107,32 @@ pub fn embeddings_for_parity(
     Ok(vectors)
 }
 
+/// Diagnostic-only 56-class head inference on externally supplied, fixed ONNX
+/// embeddings. Using identical inputs in TensorFlow isolates classifier parity.
+pub fn classify_embeddings_for_parity(
+    input: &[Vec<f32>], models_dir: &Path, threads: usize,
+) -> Result<Vec<Vec<f32>>> {
+    if input.is_empty() || input.len() > 64 || threads == 0 {
+        bail!("Need 1..64 embeddings and at least one inference thread");
+    }
+    if input.iter().any(|v| v.len() != 1280 || v.iter().any(|x| !x.is_finite())) {
+        bail!("Each embedding must have exactly 1280 finite f32 values");
+    }
+    let classifier_path = models_dir.join(CLASSIFIER);
+    if !classifier_path.is_file() {
+        bail!("Missing ONNX classification model: {}", classifier_path.display());
+    }
+    let env = ort::init().build()?;
+    let mut classifier = Session::builder(&env)?
+        .with_intra_threads(threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&classifier_path)?;
+    let mut scores = Vec::with_capacity(input.len());
+    for vector in input {
+        scores.push(infer_moods(&mut classifier, vector)?);
+    }
+    Ok(scores)
+}
+
 impl MoodEngine {
     pub fn new(profile: ModelProfile, threads: usize) -> Result<Self> {
         if threads == 0 {
