@@ -38,12 +38,22 @@ CREATE TABLE IF NOT EXISTS mood_track_state (
     modified_ns INTEGER NOT NULL,
     model_key TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feature_models (
+    model_key TEXT PRIMARY KEY,
+    embedding_model TEXT NOT NULL,
+    classification_model TEXT NOT NULL,
+    models_sha256_json TEXT NOT NULL,
+    preprocessing_version TEXT NOT NULL,
+    aggregation TEXT NOT NULL,
+    classes_json TEXT NOT NULL,
+    validated_against_essentia INTEGER NOT NULL CHECK (validated_against_essentia IN (0,1))
+);
 CREATE TABLE IF NOT EXISTS feature_tracks (
     track_file TEXT NOT NULL,
     model_id TEXT NOT NULL,
     capability TEXT NOT NULL,
     audio_sha256 TEXT NOT NULL,
-    model_key TEXT NOT NULL REFERENCES mood_models(model_key),
+    model_key TEXT NOT NULL REFERENCES feature_models(model_key),
     scores_f32_le BLOB NOT NULL CHECK (length(scores_f32_le) > 0 AND length(scores_f32_le) % 4 = 0),
     patches_analyzed INTEGER NOT NULL CHECK (patches_analyzed > 0),
     analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -78,7 +88,7 @@ fn create_schema(conn: &Connection) -> Result<()> {
     let other_tables: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table'
            AND name NOT LIKE 'sqlite_%'
-           AND name NOT IN ('mood_models', 'mood_tracks', 'mood_track_state', 'feature_tracks', 'feature_track_state')",
+           AND name NOT IN ('mood_models', 'mood_tracks', 'mood_track_state', 'feature_models', 'feature_tracks', 'feature_track_state')",
         [],
         |row| row.get(0),
     )?;
