@@ -596,7 +596,15 @@ mod tests {
         let conn = Connection::open(&db).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM feature_tracks", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
-        assert!(is_current(&conn, key, &[], (5000, 12345)).unwrap());
+        let old_mood_stat: i64 = conn.query_row(
+            "SELECT file_size FROM feature_track_state WHERE model_id='moodtheme'",
+            [], |r| r.get(0),
+        ).unwrap();
+        let new_genre_stat: i64 = conn.query_row(
+            "SELECT file_size FROM feature_track_state WHERE model_id='genre'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!((old_mood_stat, new_genre_stat), (5000, 5001));
         drop(conn);
         std::fs::remove_file(db).unwrap();
     }
