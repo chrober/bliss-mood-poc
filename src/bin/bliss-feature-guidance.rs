@@ -270,6 +270,49 @@ mod tests {
         assert!(!valid_vector(&[f32::NAN,0.4]));
     }
     #[test]
+    fn bounded_scoring_preserves_bliss_candidate_identity() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE feature_models(model_key TEXT PRIMARY KEY,aggregation TEXT,classes_json TEXT,validated_against_essentia INTEGER);
+             CREATE TABLE feature_tracks(track_file TEXT,model_id TEXT,capability TEXT,model_key TEXT,scores_f32_le BLOB);"
+        ).unwrap();
+        let labels = serde_json::to_string(&(0..87).map(|i| format!("genre{i}")).collect::<Vec<_>>()).unwrap();
+        db.execute("INSERT INTO feature_models VALUES('same',?1,?2,1)",
+            params![AGGREGATION,labels]).unwrap();
+        let seed: Vec<u8> = (0..87).flat_map(|i| (if i%2==0 {0.2_f32} else {0.8_f32}).to_le_bytes()).collect();
+        let different: Vec<u8> = (0..87).flat_map(|i| (if i%2==0 {0.8_f32} else {0.2_f32}).to_le_bytes()).collect();
+        for (file,bytes) in [("Artist/Seed.flac",&seed),("Artist/Same.flac",&seed),("Artist/Different.flac",&different)] {
+            db.execute("INSERT INTO feature_tracks VALUES(?1,'genre','genre','same',?2)",
+                params![file,bytes]).unwrap();
+        }
+        let mut anchors = HashMap::new();
+        anchors.insert("seed1".to_string(),HashMap::from([(
+            "genre",fetch_vector(&db,"Artist/Seed.flac","genre","genre",87,false).unwrap()
+        )]));
+        let mut prepared = Prepared { db,anchors,include_experimental:false,requests:0 };
+        let request = json!({
+            "type":"score","spi_version":2,"request_id":"batch1",
+            "context":{"scope":"global","context_track_ids":["seed1"]},
+            "candidates":[
+                {"candidate_id":"bliss-1","database_file":"Artist/Same.flac"},
+                {"candidate_id":"bliss-2","database_file":"Artist/Different.flac"},
+                {"candidate_id":"bliss-3","database_file":"Artist/Absent.flac"},
+                {"candidate_id":"bliss-4","database_file":null}
+            ]
+        });
+        let response = score(&mut prepared,&request).unwrap();
+        let signals = response["signals"].as_array().unwrap();
+        assert_eq!(signals.len(),2);
+        assert_eq!(signals[0]["candidate_id"],"bliss-1");
+        assert_eq!(signals[0]["channel"],"genre");
+        assert_eq!(signals[0]["score"],1.0);
+        assert_eq!(signals[1]["candidate_id"],"bliss-2");
+        assert!(signals[1]["score"].as_f64().unwrap() < 1.0);
+        assert!(signals.iter().all(|s| s["confidence"] == 1.0));
+        assert_eq!(prepared.requests,1);
+    }
+
+    #[test]
     fn no_db_cannot_prepare_or_score() {
         let mut state = None;
         let message = json!({"type":"score","spi_version":2,"request_id":"r1",
