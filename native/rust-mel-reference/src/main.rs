@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     let frames = preprocess::mel_spectrogram(&samples)?;
     println!("{}", serde_json::json!({
         "total_frames": frames.len(),
-        "frames": frames.iter().take(limit).collect::<Vec<_>>(),
+        "frames": frames.iter().take(limit).map(|frame| frame.as_slice()).collect::<Vec<_>>(),
     }));
     Ok(())
 }
