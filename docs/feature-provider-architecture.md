@@ -109,3 +109,16 @@ Psychedelic Rock categories for improved style matching. However, the
 Discogs-EffNet head is officially hosted as a TensorFlow `.pb` without an
 ONNX file in the official directory. This enhancement remains out of scope
 until an independent conversion and TensorFlow-vs-ONNX parity gate pass.
+
+
+## Active next phase (2026-10-19)
+
+The concrete staged Lyrion integration contract is in
+[lyrion-bliss-mood-genre-integration.md](lyrion-bliss-mood-genre-integration.md).
+**Bliss-first** guidance reranks only the existing acoustically eligible
+candidate pool via SPI v2 and preserves every upstream hard constraint.
+Exact `TracksV2.File` key mapping between Lyrion and the read-only feature
+sidecar is the first unsolved implementation seam. Separate Mood/Genre
+signals and an explicitly experimental opt-in preview come before any
+feature-first or hybrid candidate admission. Platform resource tuning is
+[deferred](platform-resource-roadmap.md).
