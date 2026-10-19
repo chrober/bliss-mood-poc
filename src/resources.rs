@@ -357,7 +357,7 @@ mod native {
             0, // Linux fault counters are not exposed by this lightweight probe.
         ))
     }
-    fn parse_kib_field(text: &str, name: &str) -> Option<u64> {
+    pub(super) fn parse_kib_field(text: &str, name: &str) -> Option<u64> {
         text.lines().find(|line| line.starts_with(name))?
             .split_whitespace().nth(1)?.parse::<u64>().ok()
     }
