@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Executable end-to-end smoke for actual compiled original Essentia C++ worker."""
+import json
 import math
-import os
 from pathlib import Path
 import struct
 import subprocess
@@ -38,7 +38,32 @@ def request(proc, path, patch_cap=0):
         raise RuntimeError("Invalid Mel values from original Essentia")
     return status, (count, values), decoding, frontend
 
-def main(exe):
+def compare_to_rust_mel(rust_executable, path, patches):
+    """Compare every coefficient of the first full native Mel patch."""
+    output = subprocess.run(
+        [rust_executable, "mel-dump", str(path), "--max-frames", "128"],
+        check=True, capture_output=True, text=True, timeout=120,
+    )
+    parsed = json.loads(output.stdout)
+    frames = parsed["frames"]
+    if len(frames) != 128 or any(len(frame) != 96 for frame in frames):
+        raise RuntimeError("Rust reference returned unexpected Mel matrix shape")
+    reference = [x for frame in frames for x in frame]
+    native = patches[1][:128 * 96]
+    errors = [abs(a - b) for a, b in zip(native, reference)]
+    max_error = max(errors)
+    mae = sum(errors) / len(errors)
+    if max_error > 1e-3:
+        worst = errors.index(max_error)
+        raise AssertionError(
+            f"Native original Essentia vs Rust Mel mismatch: MAE={mae:.8g}, "
+            f"max={max_error:.8g} at frame={worst//96} band={worst%96}, "
+            f"native={native[worst]:.8g}, rust={reference[worst]:.8g}"
+        )
+    print(f"Mel parity PASS: {len(errors)} coefficients; "
+          f"MAE={mae:.8g}, max error={max_error:.8g}")
+
+def main(exe, rust_executable=None):
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder) / "essentia-synthetic-16k-mono.wav"
         with wave.open(str(source), "wb") as output:
@@ -59,6 +84,8 @@ def main(exe):
             assert status == 0 and result[0] == 4, f"Expected 4 patches, got {result[0]}"
             assert max(result[1]) > 0.0
             assert decode > 0 and mel > 0
+            if rust_executable:
+                compare_to_rust_mel(rust_executable, source, result)
             status, bounded, _, _ = request(proc, source, patch_cap=2)
             assert status == 0 and bounded[0] == 2, "Explicit patch limit ignored"
             status, err, _, _ = request(proc, Path(folder) / "not-a-file.wav")
@@ -72,6 +99,6 @@ def main(exe):
             print("Essentia native C++ smoke PASS: startup, 4 patches, cap, error, reuse")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("Usage: python test_native_essentia_protocol.py WORKER_EXECUTABLE")
-    main(sys.argv[1])
+    if len(sys.argv) not in (2, 3):
+        sys.exit("Usage: python test_native_essentia_protocol.py WORKER_EXECUTABLE [RUST_EXECUTABLE]")
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None)
