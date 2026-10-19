@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "native/protocol_fixture.cpp"
+      - "native/protocol-fixture/**"
       - "Cargo.toml"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
@@ -12,6 +14,8 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "native/protocol_fixture.cpp"
+      - "native/protocol-fixture/**"
       - "Cargo.toml"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
@@ -42,8 +46,19 @@ jobs:
           if (Test-Path $vswhere) {
             & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           }
-      - name: Run Rust tests
-        run: cargo test --target x86_64-pc-windows-msvc
+      - name: Build MSVC C++ mock and test real Windows subprocess IPC
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cmake -S native/protocol-fixture -B build/native-protocol-fixture -A x64
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture configuration failed' }
+            cmake --build build/native-protocol-fixture --config Release
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture compilation failed' }
+            $fixture = Resolve-Path 'build/native-protocol-fixture/Release/essentia-protocol-fixture.exe'
+            $env:ESSENTIA_IPC_FIXTURE_EXE = $fixture.Path
+            cargo test --target x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw 'Windows Rust/native worker regression failed' }
+          }
       - name: Build release binary
         run: cargo build --release --target x86_64-pc-windows-msvc
       - name: Smoke-test executable
