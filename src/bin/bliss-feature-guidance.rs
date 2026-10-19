@@ -135,7 +135,7 @@ fn similarity(seed: &[f32], candidate: &[f32]) -> Option<f64> {
     let rms = seed.iter().zip(candidate).map(|(a,b)| {
         let d = f64::from(*a) - f64::from(*b);
         d * d
-    }).sum::<f64>().div_euclid(1.0); // replaced below with arithmetic division
+    }).sum::<f64>();
     let rms = (rms / seed.len() as f64).sqrt();
     Some((1.0 - 2.0 * rms).clamp(-1.0, 1.0))
 }
