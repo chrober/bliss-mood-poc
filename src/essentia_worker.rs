@@ -351,14 +351,9 @@ mod tests {
             }));
         }
         barrier.wait();
-        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
-            assert!(tree.registered_children >= participants);
-            if tree.complete {
-                assert!(tree.observed_children >= participants);
-                assert!(tree.child_working_set_mib > 0.0);
-                assert!(tree.total_working_set_mib >= tree.child_working_set_mib);
-            }
-        }
+        let concurrent_tree = crate::resources::process_tree_memory_diagnostics();
+        // Always release the test worker threads before assertions; otherwise
+        // a failed RSS check would strand all four threads on their barrier.
         barrier.wait();
         let mut pids = std::collections::HashSet::new();
         for handle in handles {
@@ -366,6 +361,14 @@ mod tests {
                 "Parallel Rust workers must each own a distinct native process");
         }
         assert_eq!(pids.len(), participants);
+        if let Some(tree) = concurrent_tree {
+            assert!(tree.registered_children >= participants);
+            if tree.complete {
+                assert!(tree.observed_children >= participants);
+                assert!(tree.child_working_set_mib > 0.0);
+                assert!(tree.total_working_set_mib >= tree.child_working_set_mib);
+            }
+        }
         if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
             // All test-owned workers have exited. Other tests may have
             // concurrently spawned their own worker processes.
