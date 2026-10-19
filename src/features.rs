@@ -508,6 +508,13 @@ struct ScanDiagnostics {
     system_ram_max_percent: Option<f64>,
     /// Minimum available physical RAM seen at resource sampling points.
     system_available_ram_min_mib: Option<f64>,
+    process_working_set_max_mib: Option<f64>,
+    process_private_bytes_max_mib: Option<f64>,
+    /// Difference between first and last sampled Windows page-fault counter.
+    /// Includes soft faults; is NOT disk page-ins or paging-file I/O.
+    process_page_fault_delta: Option<u64>,
+    #[serde(skip)]
+    process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
     final_workers: usize,
     peak_workers: usize,
@@ -543,6 +550,16 @@ impl ScanDiagnostics {
             .unwrap_or(0.0).max(load.system_cpu_percent));
         self.system_ram_max_percent = Some(self.system_ram_max_percent
             .unwrap_or(0.0).max(load.system_ram_percent));
+        if let Some(process) = crate::resources::process_memory_diagnostics() {
+            self.process_working_set_max_mib = Some(self.process_working_set_max_mib
+                .unwrap_or(0.0).max(process.working_set_mib));
+            self.process_private_bytes_max_mib = Some(self.process_private_bytes_max_mib
+                .unwrap_or(0.0).max(process.private_bytes_mib));
+            let first = *self.process_first_page_fault_count
+                .get_or_insert(process.page_fault_count);
+            self.process_page_fault_delta =
+                Some(process.page_fault_count.wrapping_sub(first));
+        }
         if let Some(memory) = crate::resources::memory_diagnostics() {
             self.system_available_ram_min_mib = Some(self.system_available_ram_min_mib
                 .map_or(memory.available_physical_mib, |previous|
