@@ -776,6 +776,9 @@ fn scan_parallel(
         options.workers.min(tracks.len()).max(1)
     };
     let initial = options.workers.min(pool_size);
+    // Sample before starting the adaptive controller's cooldown clock;
+    // the one-second CPU baseline must not shorten its 20-second guard.
+    let baseline = crate::resources::scan_resource_baseline();
     let mut adaptive = if options.adaptive_workers {
         Some(crate::parallel::AdaptiveWorkers::new(
             initial, options.min_workers.min(initial), pool_size,
@@ -787,7 +790,7 @@ fn scan_parallel(
         initial_workers: initial,
         final_workers: initial,
         peak_workers: initial,
-        baseline: Some(crate::resources::scan_resource_baseline()),
+        baseline: Some(baseline),
         ..ScanDiagnostics::default()
     };
     let mut monitor = crate::resources::ResourceMonitor::new();
