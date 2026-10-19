@@ -30,8 +30,8 @@ jobs:
         run: |
           git clone --quiet https://github.com/MTG/essentia.git "$RUNNER_TEMP/essentia-source"
           cd "$RUNNER_TEMP/essentia-source"
-          # Pin before the upstream switch to FFmpeg 7/9 APIs (Ubuntu 22.04 has FFmpeg 4.4)
-          git checkout --quiet 1153d5592857215a478a67ce4340535c4977c388
+          # Pin Essentia's 2023-07 FFmpeg 4.4 compatibility revision, matching Ubuntu 22.04
+          git checkout --quiet 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
           python3 waf configure --prefix="$RUNNER_TEMP/essentia-install"
           python3 waf -j 4
           python3 waf install
