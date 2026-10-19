@@ -509,6 +509,12 @@ struct ScanDiagnostics {
     initial_workers: usize,
     final_workers: usize,
     peak_workers: usize,
+    /// Max number of jobs dispatched but not yet collected by coordinator.
+    peak_in_flight: usize,
+    /// Actual worker threads inside a song's analysis path simultaneously.
+    peak_active_analyses: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    controller_decisions: Option<crate::parallel::WorkerDecisionCounters>,
     adjustments: Vec<crate::parallel::WorkerAdjustment>,
     #[serde(skip)]
     cpu_sum: f64,
@@ -728,6 +734,7 @@ fn scan_parallel(
     started: Instant,
 ) -> Result<ScanSummary> {
     use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     let mut tracks = storage::bliss_files(options.bliss_db)?;
     if let Some(exact) = options.only_track {
         tracks.retain(|key| key == exact);
@@ -771,11 +778,15 @@ fn scan_parallel(
     let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(pool_size);
     let task_rx = Arc::new(Mutex::new(task_rx));
     let (result_tx, result_rx) = mpsc::channel::<FeatureCompletion>();
+    let active_analyses = Arc::new(AtomicUsize::new(0));
+    let peak_active_analyses = Arc::new(AtomicUsize::new(0));
     let aborted = std::thread::scope(|scope| -> Result<bool> {
         for _ in 0..pool_size {
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
+            let active_analyses = Arc::clone(&active_analyses);
+            let peak_active_analyses = Arc::clone(&peak_active_analyses);
             scope.spawn(move || {
                 let mut engine: Option<FeatureEngine> = None;
                 loop {
@@ -786,6 +797,8 @@ fn scan_parallel(
                         },
                         Err(_) => break,
                     };
+                    let active = active_analyses.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
                         Some(engine) => engine.analyze(&task.path, None),
                         None => match FeatureEngine::new(profiles.clone(), options.threads) {
@@ -796,6 +809,7 @@ fn scan_parallel(
                             Err(err) => Err(err),
                         },
                     };
+                    active_analyses.fetch_sub(1, Ordering::SeqCst);
                     if tx.send((task, report)).is_err() {
                         break;
                     }
@@ -872,6 +886,7 @@ fn scan_parallel(
             summary.model_sessions_initialized = true;
             summary.pending += 1;
             in_flight += 1;
+            diagnostics.peak_in_flight = diagnostics.peak_in_flight.max(in_flight);
         }
         drop(task_tx);
         // Return all in-flight reports before leaving scoped threads.
@@ -884,8 +899,10 @@ fn scan_parallel(
         }
         Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
+    diagnostics.peak_active_analyses = peak_active_analyses.load(Ordering::SeqCst);
     if let Some(controller) = adaptive {
         diagnostics.final_workers = controller.active;
+        diagnostics.controller_decisions = Some(controller.decisions);
         diagnostics.adjustments = controller.adjustments;
     }
     summary.elapsed_seconds = started.elapsed().as_secs_f64();

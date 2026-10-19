@@ -211,3 +211,35 @@ longer inputs or injectable deterministic observations.
   SQLite contents. The local-machine paths in this handover are setup
   examples, not real data files. Avoid exposing sensitive local details
   in additional public artifacts.
+
+
+## Observability follow-up (branch `feat/scanner-observability`)
+
+The next scanner diagnostic revision adds bounded aggregated adaptive controller
+decision counters (high/low/neutral load samples, minimum-song gate, cooldown,
+unchanged policy holds, increases/decreases) and actual concurrency high-water
+marks (`peak_in_flight` and `peak_active_analyses`). Counters do not add
+per-song arrays and do not modify worker thresholds or model semantics.
+`peak_in_flight` counts dispatched but uncollected jobs;
+`peak_active_analyses` counts worker threads between task receipt and
+completion of song analysis (including their first ONNX session setup).
+It is not CPU utilization or phase-specific concurrency.
+
+Observed same-commit 100-song A/B runs (CI Windows binary run 39234257104):
+
+| Run | Seconds | Decode summed s | Peak RAM % |
+| --- | ---: | ---: | ---: |
+| fixed-1 | 159.19 | 323.31 | 95.75 |
+| adaptive-1 | 126.56 | 167.91 | 93.78 |
+| fixed-2 | 121.96 | 175.94 | 87.23 |
+| adaptive-2 | 128.64 | 190.84 | 89.51 |
+
+Adaptive-1 reduced 6 to 5 workers after 24 completed songs at system
+CPU 61.12%, RAM 89.92%; adaptive-2 held 6. This confirms that a real
+adjustment can occur but does not establish a causal source of runtime
+variance. Four runs are insufficient to assign slowdown to adaptive mode.
+
+Next steps: CI/test validation, identical-path local test with a deliberately
+selected and verified Actions binary, and controlled NAS/local-SSD comparisons.
+Independent timer-driven sampling and phase-specific concurrency are not
+included in this first focused observability change.
