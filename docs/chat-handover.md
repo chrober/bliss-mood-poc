@@ -5,9 +5,9 @@
 > implementation details and open questions are in
 > [adaptive-scan-performance-handover.md](adaptive-scan-performance-handover.md).
 >
-> **Source of truth:** Always re-check current GitHub \`main\` before making
+> **Source of truth:** Always re-check current GitHub `main` before making
 > claims or changing code. This handover was prepared against
-> \`55b35dab1a873c3e61ecd639b7430caf0b09034c\` (PR #5 merged), before the
+> `55b35dab1a873c3e61ecd639b7430caf0b09034c` (PR #5 merged), before the
 > documentation-only handover PR. Do not assume that SHA is still the latest.
 
 ## Project and boundaries
@@ -18,13 +18,13 @@ Experimental Rust/ONNX offline audio analysis to complement Lyrion/Bliss,
 SPI. The generic CLI handles **three independent heads** sharing one
 Discogs-EffNet embedding per song:
 
-- \`moodtheme\` — 56-label MTG-Jamendo Mood/Theme (Sigmoid).
-- \`genre\` — 87-label MTG-Jamendo Genre (Sigmoid).
-- \`voice\` — Voice/Instrumental, 2 labels (Softmax). Not vocal-technique or
+- `moodtheme` — 56-label MTG-Jamendo Mood/Theme (Sigmoid).
+- `genre` — 87-label MTG-Jamendo Genre (Sigmoid).
+- `voice` — Voice/Instrumental, 2 labels (Softmax). Not vocal-technique or
   percentage-of-vocal-time detection.
 
-Original \`bliss.db\` and audio are read-only. Experimental results live in a
-separate SQLite sidecar, schema v3, keyed by exact \`TracksV2.File\` identity.
+Original `bliss.db` and audio are read-only. Experimental results live in a
+separate SQLite sidecar, schema v3, keyed by exact `TracksV2.File` identity.
 Old Mood-only CLI and legacy rows remain untouched. Real-world prediction
 quality is **not** production-validated; verified synthetic Essentia numerical
 parity is not evidence of musical usefulness. See
@@ -35,46 +35,46 @@ parity is not evidence of musical usefulness. See
 
 1. Generic Mood + Genre + Voice analysis, shared encoder, model registry,
    per-head caching and validated numerical parity.
-2. Incremental \`scan-features\` with bounded, parallel *songs*, independent
+2. Incremental `scan-features` with bounded, parallel *songs*, independent
    per-worker ONNX Sessions and a single transaction-safe SQLite writer.
 3. Corrected ONNX Runtime process-global Environment (earlier concurrent
-   \`ort::init().build()\` attempts failed on Windows).
-4. \`--max-new N\` means **at most N newly attempted tracks**, not N
-   successes; \`--max-errors N\` aborts repeatedly failing scans.
-5. \`--workers auto\` keeps Windows responsive (roughly 25% CPU headroom,
-   cap eight), \`--workers N\` is explicit; for parallel use \`--threads 1\`.
+   `ort::init().build()` attempts failed on Windows).
+4. `--max-new N` means **at most N newly attempted tracks**, not N
+   successes; `--max-errors N` aborts repeatedly failing scans.
+5. `--workers auto` keeps Windows responsive (roughly 25% CPU headroom,
+   cap eight), `--workers N` is explicit; for parallel use `--threads 1`.
 6. [PR #5](https://github.com/chrober/bliss-mood-poc/pull/5), merged:
-   opt-in \`--adaptive-workers\` with \`--workers 6 --min-workers 4
-   --max-workers 8\`; per-song decode/preprocessing/inference/hash/load
+   opt-in `--adaptive-workers` with `--workers 6 --min-workers 4
+   --max-workers 8`; per-song decode/preprocessing/inference/hash/load
    stage totals; OS CPU/RAM monitoring; logged worker adjustments.
    The fixed-worker interface remains available and unchanged.
 
 Important source entry points:
 
-- \`src/features.rs\`: \`FeatureEngine\`, \`scan_parallel\`,
-  \`save_completion\`, \`ScanSummary\`, \`ScanDiagnostics\`.
-- \`src/parallel.rs\`: \`worker_count\`, \`AdaptiveWorkers::observe\`.
-- \`src/resources.rs\`: OS-level load sampling.
-- \`src/main.rs\`: CLI flags and validation.
-- \`src/storage.rs\`: read-only upstream Bliss access and SQLite sidecar.
-- \`model-registry.json\` and
-  \`.github/workflows/voice-parity.yml\`: model contract and integration tests.
-- \`README.md\`: usage and caveats.
+- `src/features.rs`: `FeatureEngine`, `scan_parallel`,
+  `save_completion`, `ScanSummary`, `ScanDiagnostics`.
+- `src/parallel.rs`: `worker_count`, `AdaptiveWorkers::observe`.
+- `src/resources.rs`: OS-level load sampling.
+- `src/main.rs`: CLI flags and validation.
+- `src/storage.rs`: read-only upstream Bliss access and SQLite sidecar.
+- `model-registry.json` and
+  `.github/workflows/voice-parity.yml`: model contract and integration tests.
+- `README.md`: usage and caveats.
 
 ## Real test setup
 
 User machine: Windows 11, HP Laptop 15-fc0xxx, AMD Ryzen 7 7730U,
 8 physical cores / 16 logical CPUs, ~16 GB physical RAM; Wi-Fi 6 Realtek
 RTL8852BE-VS at negotiated 600 Mbit/s. Music on NAS UNC share
-\`\\192.168.1.100\music\`, local checkout
-\`D:\LMS\bliss-mood-poc\`, 64,062 eligible Bliss tracks.
+`\\192.168.1.100\music`, local checkout
+`D:\LMS\bliss-mood-poc`, 64,062 eligible Bliss tracks.
 
 Deterministic local 100-song fixture:
-\`D:\LMS\bliss-mood-poc\benchmark-workers-20261019-060347\sample-100.db\`
+`D:\LMS\bliss-mood-poc\benchmark-workers-20261019-060347\sample-100.db`
 (seed 20261018). Benchmark sidecars:
-\`features-6.db\`, \`features-8.db\`, \`features-10.db\`,
-\`features-12.db\`; raw samples \`resources-*.csv\`, \`summary.csv\`
-and \`summary-with-6.csv\`. Keep this suite for apples-to-apples work;
+`features-6.db`, `features-8.db`, `features-10.db`,
+`features-12.db`; raw samples `resources-*.csv`, `summary.csv`
+and `summary-with-6.csv`. Keep this suite for apples-to-apples work;
 do **not** upload personal music or database to GitHub.
 
 **Fixed-worker results over the same 100 tracks**:
@@ -93,7 +93,7 @@ at much higher resource pressure.
 
 **First adaptive run**, reported after PR #5 from a database within the
 same benchmark directory:
-\`adaptive-20261019-080350.db\`; 100/100 successful, zero failures,
+`adaptive-20261019-080350.db`; 100/100 successful, zero failures,
 **120.66 s (49.7 songs/min)**; workers initial/final/max **6/6/6**,
 CPU avg 51.26%, peak RAM 86.33%, 38 OS-load samples, **no adjustments**.
 Per-song *summed overlapping* durations: decoding 173.52 s, Mel/patches
@@ -115,7 +115,7 @@ the command truly used an identical track set/cache/priority, remain OPEN.
 ## Next work — priority order
 
 1. **Investigate the adaptive performance regression** on exactly the
-   existing \`sample-100.db\` and music source. Compare fixed six vs adaptive
+   existing `sample-100.db` and music source. Compare fixed six vs adaptive
    six under equivalent environment and process priority; alternate run
    order/repeat measurements, inspect NAS/OS caching, thermal/power throttling,
    and runtime phases. Do not conclude adaptive scheduling is at fault merely
@@ -136,20 +136,20 @@ the command truly used an identical track set/cache/priority, remain OPEN.
    deadband, missing samples, cooldown); verify real in-flight changes,
    maximum attempts, error stop and byte-identical feature vectors.
 6. Only after evidence, optimize the controller and maybe expose explicit
-   \`--max-workers\` defaults; keep fixed-worker behavior stable. Later:
+   `--max-workers` defaults; keep fixed-worker behavior stable. Later:
    full-library progress/ETA and resumable/interruptible UX.
 
 ## Rules for the next chat
 
-- Fetch fresh \`main\` SHA and review these docs + source **first**.
+- Fetch fresh `main` SHA and review these docs + source **first**.
 - Diagnose rather than assert adaptive is broken: 6/6/6 can be correct.
 - Prefer a reproducible minimal PR; run Rust tests, Clippy, Windows x64,
   and required Essentia/model parity before merge.
-- No production mixer/plugin changes. Keep \`bliss.db\`/music read-only;
+- No production mixer/plugin changes. Keep `bliss.db`/music read-only;
   new SQLite benchmark DBs only; never commit music, model weights,
   local sidecar DBs or personal track lists.
-- Always bound experiments: \`--max-new\`, \`--max-errors\`, timeouts;
-  \`--threads 1\` when parallel. Retain \`--workers N\` and
-  \`--adaptive-workers\` as optional.
-- The user prefers actionable full PowerShell blocks (\`& { ... }\`) and
+- Always bound experiments: `--max-new`, `--max-errors`, timeouts;
+  `--threads 1` when parallel. Retain `--workers N` and
+  `--adaptive-workers` as optional.
+- The user prefers actionable full PowerShell blocks (`& { ... }`) and
   measured evidence over speculative optimizations.
