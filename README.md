@@ -357,6 +357,18 @@ check and model provenance verification would be required first. The current
 Mood, Genre and Voice ONNX pipeline must not silently try to load a
 non-existent official Discogs400 ONNX file.
 
+## Offline Mood/Genre similarity metric benchmark
+
+Before activating a Mood/Genre guidance weight, compare RMS, cosine,
+centered cosine, weighted Jaccard and sparse top-K weighted Jaccard
+**separately for the 87D Genre and 56D Mood heads**. The new
+[read-only similarity evaluator](docs/similarity-metric-evaluation.md)
+runs with Python's standard library against the existing schema-v3
+feature database, with a deterministic sample, optional human-judged
+positive/negative pairs, and no audio/ONNX work. It deliberately
+**does not choose a winner or calibrate scores without real listening
+judgments**. Current model outputs remain experimental.
+
 ## Local files and Git hygiene
 
 `.gitignore` excludes root-level `benchmark-*/` benchmark runs,
