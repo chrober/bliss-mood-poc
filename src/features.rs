@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
+use crate::essentia_worker::{BackendChoice, EssentiaWorker};
 
 const PREPROCESSING: &str = "experimental-essentia-audio-v4-unvalidated";
 const AGGREGATION: &str = "arithmetic_mean_of_per_patch_sigmoid_scores";
@@ -170,6 +171,28 @@ pub fn load_profiles(
     Ok(profiles)
 }
 
+/// Profile model keys must differ for alternative preprocessing code and each
+/// exact native-worker binary. Never alias the default Rust frontend cache.
+pub fn retarget_profiles(profiles: &mut [Profile], backend: &BackendChoice) -> Result<()> {
+    if let Some(worker_hash) = backend.worker_hash() {
+        for profile in profiles {
+            profile.hashes.insert(
+                "essentia_cpp_worker_binary_sha256".to_owned(),
+                worker_hash.to_owned(),
+            );
+            profile.model_key = storage::model_key_for(
+                &profile.descriptor.embedding_model,
+                &profile.descriptor.classification_model,
+                &profile.hashes,
+                backend.preprocessing(),
+                profile.descriptor.output_type.aggregation(),
+                &profile.labels, false,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Serialize)]
 pub struct ClassificationResult {
     pub capability: String,
@@ -203,6 +226,8 @@ pub struct FeatureEngine {
     load_secs: f64,
     counted_load: bool,
     threads: usize,
+    frontend: Option<EssentiaWorker>,
+    preprocessing: &'static str,
 }
 
 fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
@@ -231,6 +256,12 @@ fn feature_environment() -> Result<&'static ort::environment::Environment> {
 
 impl FeatureEngine {
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
+        Self::with_backend(profiles, threads, &BackendChoice::Rust)
+    }
+
+    pub fn with_backend(
+        profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
+    ) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
         }
@@ -248,8 +279,14 @@ impl FeatureEngine {
                 .commit_from_file(&profile.head_path)?;
             heads.push((profile, session));
         }
+        let frontend = match backend {
+            BackendChoice::Rust => None,
+            BackendChoice::Essentia { executable, .. } =>
+                Some(EssentiaWorker::new(executable.clone())),
+        };
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
-            counted_load: false, threads })
+            counted_load: false, threads, frontend,
+            preprocessing: backend.preprocessing() })
     }
 
     pub fn analyze(&mut self, path: &Path, max_patches: Option<usize>) -> Result<FeatureReport> {
@@ -257,13 +294,21 @@ impl FeatureEngine {
             bail!("Audio file does not exist: {}", path.display());
         }
         let started = Instant::now();
-        let at = Instant::now();
-        let audio = ffmpeg_pcm_mono_16k(path)?;
-        let decode_seconds = at.elapsed().as_secs_f64();
-        let at = Instant::now();
-        let mel = preprocess::mel_spectrogram(&audio)?;
-        let patches = preprocess::patches(&mel, max_patches)?;
-        let features_seconds = at.elapsed().as_secs_f64();
+        let (patches, decode_seconds, features_seconds) = match self.frontend.as_mut() {
+            Some(worker) => {
+                let native = worker.analyze(path, max_patches)?;
+                (native.patches, native.decode_seconds, native.features_seconds)
+            }
+            None => {
+                let at = Instant::now();
+                let audio = ffmpeg_pcm_mono_16k(path)?;
+                let decode_seconds = at.elapsed().as_secs_f64();
+                let at = Instant::now();
+                let mel = preprocess::mel_spectrogram(&audio)?;
+                let patches = preprocess::patches(&mel, max_patches)?;
+                (patches, decode_seconds, at.elapsed().as_secs_f64())
+            }
+        };
         let count = patches.len();
         let mut sums: Vec<Vec<f64>> = self.heads.iter()
             .map(|(profile, _)| vec![0.0; profile.labels.len()]).collect();
@@ -311,7 +356,7 @@ impl FeatureEngine {
         let audio_hash = sha256_file(path)?;
         let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(FeatureReport {
-            schema_version: 3, preprocessing_version: PREPROCESSING,
+            schema_version: 3, preprocessing_version: self.preprocessing,
             aggregation: AGGREGATION,
             audio_path: path.display().to_string(),
             audio_sha256: audio_hash,
@@ -588,6 +633,7 @@ pub struct ScanOptions<'a> {
     pub min_workers: usize,
     pub max_workers: usize,
     pub dry_run: bool,
+    pub backend: BackendChoice,
 }
 
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
@@ -595,7 +641,8 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
         bail!("--threads, --max-new and --max-errors must be positive");
     }
-    let profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    retarget_profiles(&mut profiles, &options.backend)?;
     if options.workers == 0 || options.workers > 64 {
         bail!("Worker count must be 1..=64");
     }
@@ -679,7 +726,9 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             break;
         }
         if engine.is_none() {
-            engine = Some(FeatureEngine::new(profiles.clone(), options.threads)?);
+            engine = Some(FeatureEngine::with_backend(
+                profiles.clone(), options.threads, &options.backend,
+            )?);
             summary.model_sessions_initialized = true;
         }
         let outcome = engine.as_mut().expect("engine available").analyze(&path, None)
@@ -816,6 +865,7 @@ fn scan_parallel(
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
+            let backend = options.backend.clone();
             let active_analyses = Arc::clone(&active_analyses);
             let peak_active_analyses = Arc::clone(&peak_active_analyses);
             scope.spawn(move || {
@@ -832,7 +882,9 @@ fn scan_parallel(
                     peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
                         Some(engine) => engine.analyze(&task.path, None),
-                        None => match FeatureEngine::new(profiles.clone(), options.threads) {
+                        None => match FeatureEngine::with_backend(
+                            profiles.clone(), options.threads, &backend,
+                        ) {
                             Ok(created) => {
                                 engine = Some(created);
                                 engine.as_mut().expect("initialized").analyze(&task.path, None)
