@@ -4,6 +4,7 @@ mod engine;
 mod batch;
 mod features;
 mod parallel;
+mod resources;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -127,6 +128,15 @@ enum Action {
         /// Parallel tracks: auto preserves interactive CPU headroom.
         #[arg(long, default_value = "1")]
         workers: String,
+        /// Opt-in system CPU/RAM-aware concurrency control.
+        #[arg(long)]
+        adaptive_workers: bool,
+        /// Minimum active jobs during adaptive scanning.
+        #[arg(long, default_value_t = 4)]
+        min_workers: usize,
+        /// Maximum active jobs during adaptive scanning.
+        #[arg(long, default_value_t = 8)]
+        max_workers: usize,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -186,6 +196,7 @@ enum Action {
 struct Timing {
     decode_seconds: f64,
     features_seconds: f64,
+    hash_seconds: f64,
     model_load_seconds: f64,
     inference_seconds: f64,
     total_seconds: f64,
@@ -448,13 +459,20 @@ fn main() -> Result<()> {
         }
         Action::ScanFeatures {
             bliss_db, db, models_dir, registry, models, library_root,
-            source_root, only_track, max_new, max_errors, threads, workers, dry_run, json,
+            source_root, only_track, max_new, max_errors, threads, workers,
+            adaptive_workers, min_workers, max_workers, dry_run, json,
         } => {
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
-            if is_auto && !dry_run {
+            if adaptive_workers {
+                parallel::AdaptiveWorkers::new(worker_count, min_workers, max_workers)?;
+                if worker_count > 1 && threads != 1 {
+                    bail!("Adaptive analysis requires --threads 1");
+                }
+            }
+            if (is_auto || adaptive_workers) && !dry_run {
                 parallel::lower_priority_auto();
             }
             let summary = features::scan(features::ScanOptions {
@@ -463,7 +481,8 @@ fn main() -> Result<()> {
                 source_root: source_root.as_deref(),
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
-                max_new, max_errors, threads, workers: worker_count, dry_run,
+                max_new, max_errors, threads, workers: worker_count,
+                adaptive_workers, min_workers, max_workers, dry_run,
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
