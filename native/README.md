@@ -44,6 +44,7 @@ Pi/aarch64 compatibility.
         --models moodtheme,genre,voice `
         --audio-backend essentia `
         --essentia-worker $worker `
+        --essentia-timeout-seconds 900 `
         --threads 1 --json
     if ($LASTEXITCODE -ne 0) { throw 'Essentia backend analysis failed' }
 }
@@ -68,10 +69,20 @@ GitHub Actions compiles it without installing Essentia. Rust unit tests
 exercise an actual persistent child process, two songs through one
 instance, errors, crashes, restart and bounded binary parsing.
 
-Those tests **do not** validate actual C++ Essentia DSP, resampling,
-Windows packaging, native exception recovery on audio data or true
-model parity. They are separate mandatory gates. Before unattended
-deployment, additionally implement a hard worker timeout, process-tree
-RAM monitoring and operating-system-specific crash supervision.
+The separate native CI gate **has built upstream Essentia C++ and run
+real synthetic WAV decoding and patch extraction successfully**. The
+current workflow also compares all four 128x96 patches to the Rust
+reference numerically; this parity test is distinct from the earlier
+successful protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity,
+Windows native C++ packaging, ARM64 and real-world acoustic validation
+remain separate mandatory gates.
+
+Rust now enforces a hard per-song timeout with
+`--essentia-timeout-seconds` (default 900, allowed 1..7200), including
+the initial native handshake. On expiry the native child is killed and
+reaped, and a subsequent job can start a new instance. The simulated
+hanging-child test exercises that behavior. Aggregate process-tree RAM
+monitoring and Windows/ARM64 hung-native validation remain required
+before unattended large-library deployment.
 
 No merge to main without explicit user approval.
