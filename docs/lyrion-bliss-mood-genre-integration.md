@@ -184,3 +184,30 @@ changing the scanner's number of workers is not required.
 **Deferred:** [platform resource architecture](platform-resource-roadmap.md).
 Read [chat-handover.md](chat-handover.md) for repository/CI rules; Windows
 Rust binaries are built by PR-triggered GitHub Actions, **never locally**.
+
+
+## F1 first implementation — read-only feature lookup CLI
+
+A focused F1 code slice adds `bliss-mood inspect-features` for existing
+schema-v3 sidecars. A bounded repeated `--track-key` list uses the exact
+`TracksV2.File` values and returns independently typed Mood/Genre
+`model_key`, label order, preprocessing and aggregation metadata,
+validation flags and scores (only when permitted). It never scans media,
+invokes ONNX, creates a database or writes to the source sidecar.
+
+Example (replace the executable with the verified Actions artifact):
+
+```powershell
+& {
+    $exe = 'PATH-TO-VERIFIED-GITHUB-ACTIONS-EXE'
+    & $exe inspect-features --db .\mood.db --track-key 'Artist/Album/track.flac' `
+        --models moodtheme,genre --json
+    # In an isolated Lab preview, append --include-experimental to reveal
+    # unvalidated predictions. The default emits no such score vectors.
+}
+```
+
+Read-only lookup is a **diagnostic/contract first step**, not a deployed
+Guidance SPI provider. Next task: host-side exact-key mapping for LMS
+anchors/candidates, followed by a separate SPI v2 provider. Do not imply
+that the extractor already reranks Lyrion tracks.

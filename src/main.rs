@@ -3,6 +3,7 @@ mod storage;
 mod engine;
 mod batch;
 mod features;
+mod feature_lookup;
 mod parallel;
 mod resources;
 
@@ -139,6 +140,22 @@ enum Action {
         max_workers: usize,
         #[arg(long)]
         dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect cached Mood/Genre vectors by exact Bliss file key without
+    /// opening source audio, starting ONNX or changing the sidecar SQLite.
+    InspectFeatures {
+        #[arg(long)]
+        db: PathBuf,
+        /// Exact TracksV2.File; can be repeated for a bounded candidate batch.
+        #[arg(long = "track-key", required = true)]
+        track_keys: Vec<String>,
+        #[arg(long, default_value = "moodtheme,genre")]
+        models: String,
+        /// Explicitly expose unvalidated experimental predictions in Lab tests.
+        #[arg(long)]
+        include_experimental: bool,
         #[arg(long)]
         json: bool,
     },
@@ -495,6 +512,23 @@ fn main() -> Result<()> {
                 || result["missing_files"].as_u64().unwrap_or(0) > 0
             {
                 bail!("Feature scan completed with failed or unavailable songs");
+            }
+        }
+        Action::InspectFeatures {
+            db, track_keys, models, include_experimental, json,
+        } => {
+            let found = feature_lookup::inspect(
+                &db, &track_keys, &models, include_experimental,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&found)?);
+            } else {
+                for track in &found {
+                    println!("{}", track.track_file);
+                    for (id, head) in &track.models {
+                        println!("  {id}: {}", head.status);
+                    }
+                }
             }
         }
         Action::ClassifyFeatureEmbeddings {
