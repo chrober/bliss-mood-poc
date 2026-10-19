@@ -271,16 +271,12 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
                         undefined += 1
                     elif score == 0:
                         zero += 1
+                        # An empty Top-K overlap is not a similarity match:
+                        # never show alphabetical tie winners as neighbors.
+                        if name != "topk_weighted_jaccard":
+                            ranking.append((score, file))
                     else:
                         ranking.append((score, file))
-                # A sparse metric with zero common active classes gives NO
-                # match, not an alphabetically ranked "best" song.
-                if name != "topk_weighted_jaccard":
-                    ranking.extend(
-                        (0.0, file)
-                        for file in files if file != seed_file
-                        and function(tracks[seed_file][head], tracks[file][head]) == 0
-                    )
                 ranking.sort(key=lambda row: (-row[0], row[1]))
                 neighbors = [
                     {"file": file, "score": score}
@@ -290,7 +286,7 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
                 exemplar.append({
                     "metric": name, "seed": seed_file,
                     "neighbors": neighbors,
-                    "positive_or_negative_nonzero_count": len(ranking) if name == "topk_weighted_jaccard" else None,
+                    "positive_overlap_candidates": len(ranking) if name == "topk_weighted_jaccard" else None,
                     "zero_score_candidates": zero,
                     "undefined_score_candidates": undefined,
                     "total_other_candidates": len(files) - 1,
