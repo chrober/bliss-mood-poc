@@ -135,6 +135,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn high_ram_reduces_concurrency_and_cooldown_prevents_thrashing() {
+        use std::time::Duration;
+        let mut ctl = AdaptiveWorkers::new(6, 4, 8).unwrap();
+        ctl.last_change -= Duration::from_secs(21);
+        let high = crate::resources::LoadSample {
+            system_cpu_percent: 62.0,
+            system_ram_percent: 91.0,
+        };
+        ctl.observe(24, high);
+        assert_eq!(ctl.active, 6); // One spike is not enough.
+        ctl.observe(25, high);
+        assert_eq!(ctl.active, 5);
+        assert_eq!(ctl.adjustments.len(), 1);
+        // The next sample may be high, but the cooldown inhibits changes.
+        ctl.observe(26, high);
+        ctl.observe(27, high);
+        assert_eq!(ctl.active, 5);
+    }
+
+    #[test]
+    fn headroom_can_add_one_worker_and_obeys_upper_bound() {
+        use std::time::Duration;
+        let mut ctl = AdaptiveWorkers::new(6, 4, 7).unwrap();
+        let low = crate::resources::LoadSample {
+            system_cpu_percent: 40.0, system_ram_percent: 65.0,
+        };
+        ctl.last_change -= Duration::from_secs(21);
+        ctl.observe(24, low);
+        ctl.observe(25, low);
+        assert_eq!(ctl.active, 6);
+        ctl.observe(26, low);
+        assert_eq!(ctl.active, 7);
+        ctl.last_change -= Duration::from_secs(21);
+        for n in 27..34 {
+            ctl.observe(n, low);
+        }
+        assert_eq!(ctl.active, 7);
+        assert_eq!(ctl.adjustments.len(), 1);
+    }
+
+    #[test]
     fn adaptive_bounds_validate() {
         assert!(AdaptiveWorkers::new(6, 4, 8).is_ok());
         assert!(AdaptiveWorkers::new(6, 7, 8).is_err());
