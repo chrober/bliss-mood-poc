@@ -80,6 +80,36 @@ class SimilarityMathTests(unittest.TestCase):
         )
         self.assertEqual(profile["active_ge_0_10"], 2)
 
+    def test_low_activation_vectors_rank_without_arbitrary_absolute_cutoff(self):
+        # All valid Mood values may be below 0.10, as in the real Aretha
+        # Franklin recording. Lack of threshold crossing is not lack of
+        # vector evidence: threshold-free top-K still evaluates their ranks.
+        a = (0.0815, 0.0738, 0.0640, 0.0601, 0.0498, 0.0473, 0.03)
+        b = (0.0780, 0.0690, 0.0620, 0.0590, 0.0520, 0.0430, 0.02)
+        self.assertIsNone(ev.topk_weighted_jaccard(a, b))
+        self.assertGreater(ev.METRIC_FUNCS["topk6_ranked_jaccard"](a, b), 0)
+        self.assertGreater(ev.METRIC_FUNCS["topk12_ranked_jaccard"](a, b), 0)
+        # No production calibration, threshold or universal optimal K implied.
+        self.assertEqual(ev.METRICS[-2:],
+                         ("topk6_ranked_jaccard", "topk12_ranked_jaccard"))
+
+    def test_sparsity_report_is_auditable_per_head(self):
+        tracks = {"seed1": (.0815, .0738, .0640, .0601),
+                  "seed2": (.35, .25, .05, .01)}
+        sample = {"tracks": {
+            key: {head: v for head in ev.MODELS}
+            for key, v in tracks.items()
+        }}
+        output = ev.evaluate_random(sample, 8, 1, 0)
+        for head in ev.MODELS:
+            activation = output[head]["activation_distribution"]
+            self.assertEqual(activation["tracks_no_classes_ge_0_10"], 1)
+            self.assertEqual(activation["active_classes_ge_0_10"]["median"], 1)
+            self.assertEqual(activation["maximum"]["count"], 2)
+            self.assertEqual(
+                output[head]["random_pairs"]["topk6_ranked_jaccard"]["count"], 8
+            )
+
     def test_vectors_must_have_valid_dimensions_and_values(self):
         self.assertIsNone(ev.decode_blob(b"abc", 2))
         self.assertIsNone(ev.decode_blob(struct.pack("<2f", float("nan"), 0.3), 2))
