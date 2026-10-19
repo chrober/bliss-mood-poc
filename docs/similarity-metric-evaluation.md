@@ -15,9 +15,20 @@ and never runs ONNX, inference or audio decoding.
 | Cosine | [0,1] for nonnegative inputs | Similar direction of class activation patterns |
 | Centered cosine | [-1,1] | Class patterns after subtracting each track's mean activation |
 | Weighted Jaccard | [0,1] | Sum of classwise minima / maxima; shared zeros add no similarity |
-| Top-6 weighted Jaccard | [0,1] | Union of each song's strongest six classes, ignoring activations below 0.10 |
+| Top-6 weighted Jaccard (cutoff 0.10) | [0,1] | Old sparse baseline; can reject *every* class for a quiet Mood vector |
+| Top-6 ranked Jaccard (no cutoff) | [0,1] | Compare each song's six strongest activations, regardless of absolute magnitude |
+| Top-12 ranked Jaccard (no cutoff) | [0,1] | Sensitivity check: whether widening active ranks stabilizes similarity |
 
-Top-K and 0.10 are **experimental parameters**, not validated defaults.
+The old cutoff-based Top-K is retained strictly for before/after research,
+not recommended for production. The real 100-track sample had an Aretha
+Franklin Mood vector with maximum class activation 0.0815, so the old
+threshold removed **all 56 features** and produced zero overlap for
+92 of 99 other tracks, with seven comparisons undefined. This is
+a parameter artifact, not evidence that these songs share no mood.
+Rank-only Top-K removes the arbitrary 0.10 eligibility threshold
+while keeping a fixed number of compared classes. No absolute output
+should be read as a calibrated probability; K=6 or 12 is not yet
+validated.
 Scores on different scales or between Genre and Mood are not interchangeable.
 
 The previous genre=0.8380 and mood=0.9067 for a 4 Non Blondes versus
@@ -30,21 +41,25 @@ The prototype's confidence=1.0 reflects seed coverage, **not** certainty.
 Only Python standard library is required; no Rust compiler.
 
 ```powershell
-cd D:\LMS\bliss-mood-poc
-git fetch origin
-git switch feat/similarity-metric-evaluation
-git pull --ff-only
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    git fetch origin
+    if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
+    git switch feat/similarity-metric-evaluation
+    if ($LASTEXITCODE -ne 0) { throw 'Git switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
 
-$db = 'D:\LMS\bliss-mood-poc\benchmark-baseline-20261019-134244\adaptive.db'
-$out = 'D:\LMS\bliss-mood-poc\benchmark-similarity-local'
-New-Item -ItemType Directory -Force $out | Out-Null
+    $db = 'D:\LMS\bliss-mood-poc\benchmark-baseline-20261019-134244\adaptive.db'
+    $out = 'D:\LMS\bliss-mood-poc\benchmark-similarity-local'
+    New-Item -ItemType Directory -Force $out | Out-Null
 
-python .\scripts\evaluate_similarity.py `
-    --db $db --include-experimental `
-    --limit 300 --pairs 3000 --seed 20261019 --examples 5 `
-    > (Join-Path $out 'similarity-report.json')
-
-if ($LASTEXITCODE -ne 0) { throw 'Similarity evaluation failed' }
+    python .\scripts\evaluate_similarity.py `
+        --db $db --include-experimental `
+        --limit 300 --pairs 3000 --seed 20261019 --examples 5 `
+        > (Join-Path $out 'similarity-report.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Similarity evaluation failed' }
+}
 ```
 
 Adjust the database path if your feature sidecar is elsewhere. The output
@@ -62,6 +77,30 @@ head/metric. No quality claims are made from these numbers alone.
 Experimental and unvalidated prediction vectors are **excluded by default**;
 --include-experimental deliberately enables them for this offline analysis,
 without changing their stored validation status.
+
+## Low output amplitudes and label interpretation
+
+The model heads are MTG-Jamendo **multilabel Sigmoid classifiers**,
+not mutually exclusive genre proportions. Official Essentia model
+documentation lists the 87 genre and 56 mood/theme labels. The models
+were trained on community-tagged music, so they can produce several
+low activations even for music with a recognizable style. For Aretha,
+the strongest genre labels are pop (0.309), jazz (0.129), rock (0.115)
+and soul only 0.052. This is a plausible indication of
+**imperfect genre discrimination**, but these raw outputs alone do not
+establish bad preprocessing or an incorrect Similarity metric. In the
+Mood head, `christmas=0.074` should *not* be interpreted as a positive
+Christmas prediction; it is simply one low relative rank.
+
+The read-only report now includes `activation_distribution` for
+every sampled track per head: maximum activation, number of classes
+above 0.05 and 0.10, and how often the old 0.10 cutoff removes all
+classes. Compare `topk6_ranked_jaccard`,
+`topk12_ranked_jaccard`, and the original
+`topk_weighted_jaccard` on **the same frozen sample and seed pairs**.
+A better-looking distribution is not enough: listen to pair examples,
+then judge held-out positive and hard-negative song pairs separately
+for Genre and Mood.
 
 ## Diagnosing the surprising neighbors
 
@@ -142,11 +181,17 @@ cross-artist positives, and diverse styles. Do not infer a song's
 compatibility only from file names or genre labels.
 
 ```powershell
-python .\scripts\evaluate_similarity.py `
-    --db $db --include-experimental `
-    --limit 300 --pairs 3000 --seed 20261019 `
-    --labels (Join-Path $out 'judged-pairs.csv') `
-    > (Join-Path $out 'similarity-labeled.json')
+& {
+    $db = 'D:\LMS\bliss-mood-poc\benchmark-baseline-20261019-134244\adaptive.db'
+    $out = 'D:\LMS\bliss-mood-poc\benchmark-similarity-local'
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    python .\scripts\evaluate_similarity.py `
+        --db $db --include-experimental `
+        --limit 300 --pairs 3000 --seed 20261019 `
+        --labels (Join-Path $out 'judged-pairs.csv') `
+        > (Join-Path $out 'similarity-labeled.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Similarity evaluation failed' }
+}
 ```
 
 This adds positive/negative distributions, missing-vector counts, and a
