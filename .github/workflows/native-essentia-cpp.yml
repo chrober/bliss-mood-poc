@@ -44,7 +44,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build existing Rust reference Mel frontend
-        run: cargo build --locked
+        run: cargo build
       - name: Exercise original C++ worker and numeric 12,288-coefficient Rust parity
         shell: bash
         run: |
