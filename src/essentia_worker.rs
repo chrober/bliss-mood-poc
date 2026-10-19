@@ -6,6 +6,9 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex},
+    thread,
+    time::{Duration, Instant},
 };
 use crate::{preprocess, sha256_file};
 
@@ -58,29 +61,110 @@ pub struct NativePatches {
     pub features_seconds: f64,
 }
 
+enum WatchdogCommand {
+    Arm(Duration),
+    Disarm,
+    Stop,
+}
+
 struct ChildIo {
-    child: Child,
+    child: Arc<Mutex<Child>>,
     input: ChildStdin,
     output: ChildStdout,
+    watch_tx: mpsc::Sender<WatchdogCommand>,
+    watcher: Option<thread::JoinHandle<()>>,
+    timed_out: Arc<AtomicBool>,
+}
+
+impl ChildIo {
+    fn new(child: Child, input: ChildStdin, output: ChildStdout) -> Self {
+        let child = Arc::new(Mutex::new(child));
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let (watch_tx, rx) = mpsc::channel();
+        let watch_child = Arc::clone(&child);
+        let watch_timeout = Arc::clone(&timed_out);
+        let watcher = thread::spawn(move || {
+            let mut deadline: Option<Instant> = None;
+            loop {
+                let command = if let Some(expiry) = deadline {
+                    match rx.recv_timeout(expiry.saturating_duration_since(Instant::now())) {
+                        Ok(command) => command,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            watch_timeout.store(true, Ordering::SeqCst);
+                            if let Ok(mut child) = watch_child.lock() {
+                                let _ = child.kill();
+                            }
+                            deadline = None;
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match rx.recv() {
+                        Ok(command) => command,
+                        Err(_) => break,
+                    }
+                };
+                match command {
+                    WatchdogCommand::Arm(duration) => {
+                        watch_timeout.store(false, Ordering::SeqCst);
+                        deadline = Some(Instant::now() + duration);
+                    }
+                    WatchdogCommand::Disarm => deadline = None,
+                    WatchdogCommand::Stop => break,
+                }
+            }
+        });
+        Self { child, input, output, watch_tx, watcher: Some(watcher), timed_out }
+    }
+
+    fn arm(&self, duration: Duration) -> Result<()> {
+        self.watch_tx.send(WatchdogCommand::Arm(duration))
+            .context("Native worker watchdog exited")
+    }
+    fn disarm(&self) {
+        let _ = self.watch_tx.send(WatchdogCommand::Disarm);
+    }
+    fn timeout_failure(&self) -> bool {
+        self.timed_out.load(Ordering::SeqCst)
+    }
+    #[cfg(test)]
+    fn pid(&self) -> u32 {
+        self.child.lock().unwrap().id()
+    }
 }
 
 impl Drop for ChildIo {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // A blocked reader is unblocked by the watchdog killing the child.
+        // This also prevents orphan processes when the parent worker exits.
+        let _ = self.watch_tx.send(WatchdogCommand::Stop);
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+        }
+        if let Some(watcher) = self.watcher.take() {
+            let _ = watcher.join();
+        }
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.wait();
+        }
     }
 }
 
-/// This object lives only inside one Rust worker thread. Essentia processes
-/// are independent and process-local; they never share native C++ objects.
+/// One Rust worker thread owns this object. Each C++ child processes tracks
+/// serially; the original Essentia library is never called concurrently
+/// from unguarded Rust threads in the same process.
 pub struct EssentiaWorker {
     executable: PathBuf,
     child: Option<ChildIo>,
+    timeout: Duration,
 }
 
 impl EssentiaWorker {
     pub fn new(executable: PathBuf) -> Self {
-        Self { executable, child: None }
+        // Hard default timeout includes NAS I/O, decoding, DSP and IPC
+        // transfer. Do not accidentally limit ordinary long music tracks.
+        Self { executable, child: None, timeout: Duration::from_secs(600) }
     }
 
     fn start(&mut self) -> Result<()> {
@@ -91,19 +175,22 @@ impl EssentiaWorker {
                 "Failed to launch native Essentia worker {}", self.executable.display()
             ))?;
         let input = child.stdin.take().context("Native worker stdin missing")?;
-        let mut output = child.stdout.take().context("Native worker stdout missing")?;
+        let output = child.stdout.take().context("Native worker stdout missing")?;
+        let mut io = ChildIo::new(child, input, output);
+        io.arm(Duration::from_secs(30))?;
         let mut hello = [0u8; 4];
-        if let Err(err) = output.read_exact(&mut hello) {
-            let _ = child.kill();
-            let _ = child.wait();
+        let result = io.output.read_exact(&mut hello);
+        io.disarm();
+        if let Err(err) = result {
+            if io.timeout_failure() {
+                bail!("Native Essentia worker startup exceeded 30-second deadline");
+            }
             return Err(err).context("Native Essentia worker handshake failed");
         }
         if &hello != b"EFW1" {
-            let _ = child.kill();
-            let _ = child.wait();
             bail!("Native Essentia worker protocol mismatch: expected EFW1");
         }
-        self.child = Some(ChildIo { child, input, output });
+        self.child = Some(io);
         Ok(())
     }
 
@@ -118,6 +205,7 @@ impl EssentiaWorker {
         }
         self.start()?;
         let io = self.child.as_mut().context("Missing Essentia worker")?;
+        io.arm(self.timeout)?;
         let result = (|| {
             io.input.write_all(b"REQ1")?;
             io.input.write_all(&(path.len() as u32).to_le_bytes())?;
@@ -126,8 +214,13 @@ impl EssentiaWorker {
             io.input.flush()?;
             read_response(&mut io.output, max_patches)
         })();
-        // Broken IPC or native error must not contaminate the next track.
-        // No silent Rust fallback, which would mix incompatible fingerprints.
+        io.disarm();
+        let result = if io.timeout_failure() {
+            Err(anyhow::anyhow!("Native Essentia worker exceeded {}-second job deadline",
+                self.timeout.as_secs_f64()))
+        } else { result };
+        // Broken IPC or native DSP error invalidates this process, never
+        // silently fallback to the Rust frontend / another fingerprint.
         if result.is_err() { self.child = None; }
         result
     }
@@ -241,7 +334,7 @@ mod tests {
         assert_eq!(first.patches.len(), 1);
         assert_eq!(first.patches[0][0], 0.25);
         assert!((first.decode_seconds - 0.001).abs() < 1e-6);
-        let first_pid = worker.child.as_ref().unwrap().child.id();
+        let first_pid = worker.child.as_ref().unwrap().pid();
         let second = worker.analyze(Path::new("good-two.flac"), Some(1)).unwrap();
         assert_eq!(second.patches[0][0], 0.25);
         assert_eq!(worker.child.as_ref().unwrap().child.id(), first_pid,
@@ -253,6 +346,14 @@ mod tests {
         assert!(worker.analyze(Path::new("crash.flac"), None).is_err());
         assert!(worker.child.is_none(), "native crashes must not poison future jobs");
         assert_eq!(worker.analyze(Path::new("good-restarted.flac"), None)
+            .unwrap().patches.len(), 1);
+        worker.timeout = Duration::from_millis(250);
+        let started = Instant::now();
+        let timeout = worker.analyze(Path::new("hang.flac"), None).err().unwrap();
+        assert!(format!("{timeout:#}").contains("deadline"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(worker.child.is_none());
+        assert_eq!(worker.analyze(Path::new("good-after-timeout.flac"), None)
             .unwrap().patches.len(), 1);
     }
 
