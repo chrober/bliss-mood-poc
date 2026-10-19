@@ -78,6 +78,16 @@ pub fn inspect(
     inspect_connection(&conn, track_files, &models, include_experimental)
 }
 
+struct StoredHeadRow {
+    capability: String,
+    model_key: String,
+    preprocessing_version: String,
+    aggregation: String,
+    classes_json: String,
+    validated: i64,
+    bytes: Vec<u8>,
+}
+
 fn inspect_connection(
     conn: &Connection,
     track_files: &[String],
@@ -97,22 +107,19 @@ fn inspect_connection(
         let mut heads = BTreeMap::new();
         for model_id in models {
             let found = statement.query_row(params![key, model_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, Vec<u8>>(6)?,
-                ))
+                Ok(StoredHeadRow {
+                    capability: row.get(0)?,
+                    model_key: row.get(1)?,
+                    preprocessing_version: row.get(2)?,
+                    aggregation: row.get(3)?,
+                    classes_json: row.get(4)?,
+                    validated: row.get(5)?,
+                    bytes: row.get(6)?,
+                })
             }).optional()?;
             let head = match found {
                 None => ModelLookup::status("missing"),
-                Some((capability, fingerprint, prep, aggregation, labels_json, validated, bytes)) => {
-                    decode_head(model_id, capability, fingerprint, prep,
-                        aggregation, labels_json, validated, bytes, include_experimental)
-                }
+                Some(stored) => decode_head(model_id, stored, include_experimental),
             };
             heads.insert((*model_id).to_owned(), head);
         }
@@ -121,17 +128,11 @@ fn inspect_connection(
     Ok(result)
 }
 
-fn decode_head(
-    id: &str,
-    capability: String,
-    model_key: String,
-    preprocessing_version: String,
-    aggregation: String,
-    classes_json: String,
-    validated: i64,
-    bytes: Vec<u8>,
-    include_experimental: bool,
-) -> ModelLookup {
+fn decode_head(id: &str, stored: StoredHeadRow, include_experimental: bool) -> ModelLookup {
+    let StoredHeadRow {
+        capability, model_key, preprocessing_version, aggregation,
+        classes_json, validated, bytes,
+    } = stored;
     let (expected_capability, expected_count) = match id {
         "moodtheme" => ("mood_theme", 56),
         "genre" => ("genre", 87),
@@ -151,8 +152,8 @@ fn decode_head(
         return ModelLookup::status("invalid");
     }
     let mut scores = Vec::with_capacity(expected_count);
-    for word in bytes.chunks_exact(4) {
-        let value = f32::from_le_bytes([word[0], word[1], word[2], word[3]]);
+    for word in bytes.as_chunks::<4>().0 {
+        let value = f32::from_le_bytes(*word);
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return ModelLookup::status("invalid");
         }
