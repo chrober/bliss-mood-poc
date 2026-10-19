@@ -83,6 +83,30 @@ counts and data validity are bounded, no shell expansion, no text float arrays,
 and malformed replies invalidate that worker. The native executable is
 explicitly configured, never downloaded or executed automatically.
 
+## Licensing and native dependency provenance
+
+The original Essentia C++ library is **AGPLv3** licensed, and its
+dependencies and the separately downloaded model weights have their own
+conditions. Shipping an Essentia-linked child process with an MIT Rust
+application requires an explicit legal/distribution review. Splitting
+into processes does not by itself remove license obligations.
+
+The experimental cache fingerprint includes the native **executable**
+SHA-256, but not the versions or SHA-256 checksums of dynamically
+loaded libessentia, FFmpeg and libsamplerate. Before real deployment we
+must pin the complete native dependency set, or hash the installed
+native deployment at runtime, to avoid cache aliasing after a library
+update.
+
+## Native build and transport CI
+
+The `.github/workflows/native-essentia-cpp.yml` job builds a **pinned
+original MTG/essentia C++ revision** and tests the real native worker
+against a synthetic WAV and multiple sequential jobs. The normal Rust
+CI separately builds a no-Essentia C++ protocol fixture, verifying
+the Rust process orchestration even where Essentia is unavailable.
+Both gates remain independent of full feature/model numerical parity.
+
 ## Provenance and rollout gates
 
 The new frontend uses an **independent preprocessing identity** and
