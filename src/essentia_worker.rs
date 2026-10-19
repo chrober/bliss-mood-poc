@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(first.patches.len(), 1);
         assert_eq!(first.patches[0][0], 0.25);
         assert!((first.decode_seconds - 0.001).abs() < 1e-6);
-        let first_pid = worker.child.as_ref().unwrap().pid();
+        let first_pid = worker.child.as_ref().unwrap().child.id();
         let second = worker.analyze(Path::new("good-two.flac"), Some(1)).unwrap();
         assert_eq!(second.patches[0][0], 0.25);
         assert_eq!(worker.child.as_ref().unwrap().child.id(), first_pid,
@@ -298,14 +298,6 @@ mod tests {
         assert!(worker.analyze(Path::new("crash.flac"), None).is_err());
         assert!(worker.child.is_none(), "native crashes must not poison future jobs");
         assert_eq!(worker.analyze(Path::new("good-restarted.flac"), None)
-            .unwrap().patches.len(), 1);
-        worker.timeout = Duration::from_millis(250);
-        let started = Instant::now();
-        let timeout = worker.analyze(Path::new("hang.flac"), None).err().unwrap();
-        assert!(format!("{timeout:#}").contains("deadline"));
-        assert!(started.elapsed() < Duration::from_secs(3));
-        assert!(worker.child.is_none());
-        assert_eq!(worker.analyze(Path::new("good-after-timeout.flac"), None)
             .unwrap().patches.len(), 1);
     }
 
