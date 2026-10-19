@@ -135,8 +135,9 @@ mod native {
         };
         // SAFETY: process pseudo-handle is valid for the caller and the fixed
         // C layout is initialized, with its size passed to the Win32 API.
+        let size = counters.cb;
         let ok = unsafe {
-            GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb)
+            GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size)
         };
         if ok == 0 { return None; }
         Some((
