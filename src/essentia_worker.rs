@@ -230,6 +230,33 @@ mod tests {
     }
 
     #[test]
+    fn child_protocol_reuses_and_restarts_real_process() {
+        let Some(exe) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else {
+            // Native fixture is built in the Rust CI job; local builds do
+            // not require any native C++ toolchain or Essentia install.
+            return;
+        };
+        let mut worker = EssentiaWorker::new(PathBuf::from(exe));
+        let first = worker.analyze(Path::new("good-one.wav"), None).unwrap();
+        assert_eq!(first.patches.len(), 1);
+        assert_eq!(first.patches[0][0], 0.25);
+        assert!((first.decode_seconds - 0.001).abs() < 1e-6);
+        let first_pid = worker.child.as_ref().unwrap().child.id();
+        let second = worker.analyze(Path::new("good-two.flac"), Some(1)).unwrap();
+        assert_eq!(second.patches[0][0], 0.25);
+        assert_eq!(worker.child.as_ref().unwrap().child.id(), first_pid,
+                   "C++ worker must be reused across consecutive songs");
+        assert!(worker.analyze(Path::new("fail.flac"), None).is_err());
+        assert!(worker.child.is_none(), "native errors retire the process");
+        let after = worker.analyze(Path::new("good-after-failure.flac"), None).unwrap();
+        assert_eq!(after.patches.len(), 1);
+        assert!(worker.analyze(Path::new("crash.flac"), None).is_err());
+        assert!(worker.child.is_none(), "native crashes must not poison future jobs");
+        assert_eq!(worker.analyze(Path::new("good-restarted.flac"), None)
+            .unwrap().patches.len(), 1);
+    }
+
+    #[test]
     fn backend_selection_is_explicit() {
         assert!(matches!(BackendChoice::from_cli("rust", None), Ok(BackendChoice::Rust)));
         assert!(BackendChoice::from_cli("unknown", None).is_err());
