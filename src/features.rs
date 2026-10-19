@@ -1189,6 +1189,45 @@ mod tests {
     }
 
     #[test]
+    fn native_frontend_has_distinct_cached_model_key_per_worker_binary() {
+        let descriptor = Descriptor {
+            id: "genre".to_owned(), capability: "genre".to_owned(),
+            embedding_model: "encoder.onnx".to_owned(),
+            classification_model: "genre.onnx".to_owned(),
+            metadata: "genre.json".to_owned(), embedding_dimensions: 1280,
+            expected_classes: 2, output_type: OutputType::Sigmoid,
+        };
+        let hashes = BTreeMap::from([
+            ("encoder.onnx".to_owned(), "a".repeat(64)),
+            ("genre.onnx".to_owned(), "b".repeat(64)),
+        ]);
+        let labels = vec!["a".to_owned(), "b".to_owned()];
+        let original_key = storage::model_key_for(
+            "encoder.onnx", "genre.onnx", &hashes, PREPROCESSING,
+            AGGREGATION, &labels, false,
+        ).unwrap();
+        let original = Profile {
+            descriptor, labels, encoder_path: PathBuf::from("encoder.onnx"),
+            head_path: PathBuf::from("genre.onnx"), hashes,
+            model_key: original_key.clone(),
+        };
+        let mut untouched = vec![original.clone()];
+        retarget_profiles(&mut untouched, &BackendChoice::Rust).unwrap();
+        assert_eq!(untouched[0].model_key, original_key);
+        let mk_backend = |fingerprint: &str| BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: fingerprint.repeat(64),
+        };
+        let mut first = vec![original.clone()];
+        let mut second = vec![original];
+        retarget_profiles(&mut first, &mk_backend("c")).unwrap();
+        retarget_profiles(&mut second, &mk_backend("d")).unwrap();
+        assert_ne!(first[0].model_key, original_key);
+        assert_ne!(second[0].model_key, first[0].model_key);
+        assert_eq!(first[0].hashes["essentia_cpp_worker_binary_sha256"], "c".repeat(64));
+    }
+
+    #[test]
     fn registry_has_independent_capabilities() {
         let registry: Registry = serde_json::from_str(include_str!("../model-registry.json")).unwrap();
         assert_eq!(registry.schema_version, 2);
