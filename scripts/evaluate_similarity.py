@@ -330,23 +330,43 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
     return output
 
 
-def load_labels(path: Path) -> list[tuple[str, str, int]]:
+def load_labels(path: Path) -> list[tuple[str, str, dict[str, int | None]]]:
+    """Read independent genre/mood labels; blank means deliberately unjudged.
+
+    A shared 'label' column is rejected: a song pair may match in mood
+    without belonging to the same genre, or vice versa.
+    """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        if not reader.fieldnames or not {"left", "right", "label"} <= set(reader.fieldnames):
-            raise ValueError("Label CSV requires left,right,label columns")
+        required = {"left", "right", "genre_label", "mood_label"}
+        if not reader.fieldnames or not required <= set(reader.fieldnames):
+            raise ValueError(
+                "Label CSV requires left,right,genre_label,mood_label; "
+                "a single shared 'label' is not valid for both heads"
+            )
         labels = []
         seen = set()
         for row in reader:
             a, b = row["left"], row["right"]
-            label = row["label"].strip()
-            if not a or not b or a == b or label not in ("0", "1"):
-                raise ValueError("Judged pairs must contain distinct exact file keys and label 0/1")
+            if not a or not b or a == b:
+                raise ValueError("Judged pairs require two distinct exact file keys")
+            judged: dict[str, int | None] = {}
+            for model, column in (("genre", "genre_label"),
+                                  ("moodtheme", "mood_label")):
+                value = row[column]
+                if value is None:
+                    raise ValueError(f"Missing {column} field in CSV row")
+                value = value.strip()
+                if value not in ("", "0", "1"):
+                    raise ValueError(f"{column} must be 0, 1 or blank (unjudged)")
+                judged[model] = None if value == "" else int(value)
+            if all(value is None for value in judged.values()):
+                raise ValueError("Each judged pair needs at least one head label")
             pair = tuple(sorted((a, b)))
             if pair in seen:
                 raise ValueError("Duplicate judged pair; do not give it extra weight")
             seen.add(pair)
-            labels.append((a, b, int(label)))
+            labels.append((a, b, judged))
             if len(labels) > MAX_LABELS:
                 raise ValueError(f"At most {MAX_LABELS} judged pairs")
     return labels
@@ -373,11 +393,16 @@ def fetch_keys(conn: sqlite3.Connection, keys: set[str], cohorts: dict) -> dict:
 
 def evaluate_labels(conn: sqlite3.Connection, cohorts: dict, labels: list) -> dict:
     found = fetch_keys(conn, {name for a, b, _ in labels for name in (a, b)}, cohorts)
-    result = {"judged_pairs": len(labels), "method": "manual_positive_negative_labels"}
+    result = {"judged_pairs": len(labels), "method": "independent_manual_genre_and_mood_labels"}
     for head in MODELS:
         by_method = {name: {0: [], 1: []} for name in METRICS}
         unmatched = 0
-        for a, b, label in labels:
+        judged_count = 0
+        for a, b, judgments in labels:
+            label = judgments[head]
+            if label is None:
+                continue
+            judged_count += 1
             if head not in found[a] or head not in found[b]:
                 unmatched += 1
                 continue
@@ -386,6 +411,7 @@ def evaluate_labels(conn: sqlite3.Connection, cohorts: dict, labels: list) -> di
                 if value is not None:
                     by_method[metric][label].append(value)
         result[head] = {
+            "pairs_judged_for_head": judged_count,
             "pairs_missing_compatible_vectors": unmatched,
             "metrics": {
                 name: {
