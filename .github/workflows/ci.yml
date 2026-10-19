@@ -17,5 +17,8 @@ jobs:
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
 
+      - name: Evaluate similarity metrics on read-only synthetic feature fixture
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
