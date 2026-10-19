@@ -1,6 +1,8 @@
 // Test-only native worker: no Essentia, no audio, no ONNX.
 // Reproduces the EFW1/REQ1/RES1 binary protocol for Rust integration tests.
 #include <cstdint>
+#include <chrono>
+#include <thread>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -45,6 +47,9 @@ int main() {
             const std::string message = "test worker failure";
             header(1, std::uint32_t(message.size()));
             std::cout.write(message.data(), message.size());
+        } else if (path.find("hang") != std::string::npos) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            continue;
         } else if (path.find("crash") != std::string::npos) {
             return 9;
         } else if (path.find("hang") != std::string::npos) {
