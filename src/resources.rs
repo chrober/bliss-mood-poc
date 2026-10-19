@@ -22,6 +22,25 @@ pub fn memory_diagnostics() -> Option<MemoryDiagnostics> {
     })
 }
 
+/// Windows process memory counters. Page faults include soft faults and are
+/// not a direct count of pagefile reads or physical disk I/O.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ProcessMemoryDiagnostics {
+    pub working_set_mib: f64,
+    pub private_bytes_mib: f64,
+    pub page_fault_count: u64,
+}
+
+pub fn process_memory_diagnostics() -> Option<ProcessMemoryDiagnostics> {
+    native::process_memory_counters().map(|(working_set, private_bytes, faults)| {
+        ProcessMemoryDiagnostics {
+            working_set_mib: working_set as f64 / 1048576.0,
+            private_bytes_mib: private_bytes as f64 / 1048576.0,
+            page_fault_count: faults,
+        }
+    })
+}
+
 pub struct ResourceMonitor {
     previous: Option<(u64, u64)>,
     last: Instant,
@@ -78,10 +97,54 @@ mod native {
         avail_extended_virtual: u64,
     }
 
+    #[repr(C)]
+    #[derive(Default)]
+    struct ProcessMemoryCountersEx {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+        private_usage: usize,
+    }
+
+    #[link(name = "psapi")]
+    extern "system" {
+        fn GetProcessMemoryInfo(
+            process: *mut std::ffi::c_void,
+            counters: *mut ProcessMemoryCountersEx,
+            cb: u32,
+        ) -> i32;
+    }
     #[link(name = "kernel32")]
     extern "system" {
         fn GetSystemTimes(idle: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
         fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+        fn GetCurrentProcess() -> *mut std::ffi::c_void;
+    }
+
+    pub fn process_memory_counters() -> Option<(u64, u64, u64)> {
+        let mut counters = ProcessMemoryCountersEx {
+            cb: std::mem::size_of::<ProcessMemoryCountersEx>() as u32,
+            ..ProcessMemoryCountersEx::default()
+        };
+        // SAFETY: process pseudo-handle is valid for the caller and the fixed
+        // C layout is initialized, with its size passed to the Win32 API.
+        let size = counters.cb;
+        let ok = unsafe {
+            GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size)
+        };
+        if ok == 0 { return None; }
+        Some((
+            counters.working_set_size as u64,
+            counters.private_usage as u64,
+            counters.page_fault_count as u64,
+        ))
     }
 
     fn to_ticks(time: FileTime) -> u64 {
@@ -140,6 +203,7 @@ mod native {
         let idle = values[3].saturating_add(values.get(4).copied().unwrap_or(0));
         Some((total.saturating_sub(idle), total))
     }
+    pub fn process_memory_counters() -> Option<(u64, u64, u64)> { None }
     pub fn available_memory_bytes() -> Option<u64> {
         let stats = fs::read_to_string("/proc/meminfo").ok()?;
         let line = stats.lines().find(|line| line.starts_with("MemAvailable:"))?;
@@ -164,6 +228,7 @@ mod native {
     pub fn cpu_ticks() -> Option<(u64,u64)> { None }
     pub fn memory_load() -> Option<f64> { None }
     pub fn available_memory_bytes() -> Option<u64> { None }
+    pub fn process_memory_counters() -> Option<(u64, u64, u64)> { None }
 }
 
 use native::{cpu_ticks, memory_load};
@@ -182,6 +247,10 @@ mod tests {
         if let Some(detail) = memory_diagnostics() {
             assert!(detail.available_physical_mib.is_finite());
             assert!(detail.available_physical_mib >= 0.0);
+        }
+        if let Some(process) = process_memory_diagnostics() {
+            assert!(process.working_set_mib.is_finite() && process.working_set_mib >= 0.0);
+            assert!(process.private_bytes_mib.is_finite() && process.private_bytes_mib >= 0.0);
         }
         let mut monitor = ResourceMonitor::new();
         // First sample intentionally waits for a nonzero OS counter interval.
