@@ -106,7 +106,10 @@ Patches analyze(const std::string& path, std::uint32_t limit) {
     result.decode_ns = decode_ns;
     result.features_ns = 0;
     // No extra FFT/filter bank code: this is the original Essentia pipeline.
-    while (true) {
+    // Reference TensorflowPredictEffnetDiscogs uses ceil(samples / hop)
+    // frames. Stand-alone FrameCutter may return one additional final frame.
+    const auto expected_frames = (audio.size() + kHop - 1) / kHop;
+    while (result.bands.size() < expected_frames) {
         cutter->compute();
         if (frame.empty()) break;
         tim->compute();
