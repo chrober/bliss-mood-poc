@@ -282,8 +282,10 @@ impl FeatureEngine {
         }
         let frontend = match backend {
             BackendChoice::Rust => None,
-            BackendChoice::Essentia { executable, .. } =>
-                Some(EssentiaWorker::new(executable.clone())),
+            BackendChoice::Essentia { executable, timeout_seconds, .. } =>
+                Some(EssentiaWorker::with_timeout(
+                    executable.clone(), std::time::Duration::from_secs(*timeout_seconds),
+                )),
         };
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
             counted_load: false, threads, frontend,
@@ -1216,7 +1218,7 @@ mod tests {
         assert_eq!(untouched[0].model_key, original_key);
         let mk_backend = |fingerprint: &str| BackendChoice::Essentia {
             executable: PathBuf::from("test-only-worker"),
-            worker_sha256: fingerprint.repeat(64),
+            worker_sha256: fingerprint.repeat(64), timeout_seconds: 900,
         };
         let mut first = vec![original.clone()];
         let mut second = vec![original];
