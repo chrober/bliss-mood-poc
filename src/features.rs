@@ -841,11 +841,24 @@ fn scan_parallel(
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
             while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+                let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
                     &mut monitor, &mut adaptive, options.max_new,
                 )?;
                 in_flight -= 1;
+                if summary.failures > failures_before {
+                    // Stop dispatching new songs on the first inference or
+                    // storage failure. Drain existing work to avoid starting
+                    // a fifth failing song while four are already in flight.
+                    while in_flight > 0 {
+                        save_completion(
+                            &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                            &mut monitor, &mut adaptive, options.max_new,
+                        )?;
+                        in_flight -= 1;
+                    }
+                }
                 if summary.failures + summary.missing_files >= options.max_errors {
                     stopped_for_errors = true;
                     break;
