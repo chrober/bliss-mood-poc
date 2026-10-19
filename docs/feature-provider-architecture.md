@@ -47,13 +47,13 @@ repeat-window and playlist integrity rules remain in the host regardless
 of the chosen strategy. Unavailable or unvalidated features must lead to
 explicit, predictable fallback, not silently alter the candidate pool.
 
-## Proposed strategies (not implemented)
+## Three product strategies under evaluation (no final decision)
 
-- **Bliss-first**: Bliss admits candidates based on acoustic similarity;
+- **Bliss-first (first integration experiment only)**: Bliss admits candidates based on acoustic similarity;
   compatible Genre/Mood signals may rerank only that candidate pool. This is
   feasible with today's Bliss Guidance SPI v2 after adding an opt-in feature
   provider. The existing SPI forbids external providers from admitting tracks.
-- **Feature-first** (initially Essentia-first): Genre/Mood descriptors generate
+- **Mood-/Genre-first** (feature-first): Genre/Mood descriptors generate
   candidates; Bliss provides transition similarity in the final scoring.
   This requires a new candidate-selection host contract. It must **not**
   silently reinterpret the existing Bliss-only eligibility semantics.
@@ -61,6 +61,21 @@ explicit, predictable fallback, not silently alter the candidate pool.
   then a coherent strategy evaluates transition quality, musical identity,
   preference, and diversity. Feature score scales must be normalized and
   calibrated rather than directly summed.
+
+
+**Decision status:** All three approaches remain genuine competing
+product options, not a sequentially predetermined roadmap ending with one
+choice. Bliss-first was implemented first **only because current SPI v2
+provides bounded reranking of Bliss's pool**, allowing evaluation of the
+full feature→sidecar→guidance path without changing hard candidate
+admission. This does **not** establish that Bliss-first is the best
+algorithm: it can miss tracks with excellent Mood/Genre compatibility that
+Bliss never proposed. Mood-/Genre-first and Hybrid require a new host
+candidate-source contract and calibrated cross-source scoring; they
+should be evaluated on the same frozen seeds, eligibility constraints,
+candidate coverage, listening impressions, drift/diversity and Pi budget
+before the product strategy is selected. See the detailed
+[strategy decision record](lyrion-bliss-mood-genre-integration.md#mixing-strategy-decision-record--deliberately-open-2026-10-19).
 
 Model selection and mixing strategy are separate user settings. A model can
 declare capability genre without the UI needing to display its ONNX filename.
@@ -115,8 +130,10 @@ until an independent conversion and TensorFlow-vs-ONNX parity gate pass.
 
 The concrete staged Lyrion integration contract is in
 [lyrion-bliss-mood-genre-integration.md](lyrion-bliss-mood-genre-integration.md).
-**Bliss-first** guidance reranks only the existing acoustically eligible
-candidate pool via SPI v2 and preserves every upstream hard constraint.
+The **first Bliss-first experiment** reranks only the existing
+acoustically eligible candidate pool via SPI v2 and preserves every upstream
+hard constraint. This is an integration shortcut, **not** a product
+decision against Mood-/Genre-first or Hybrid.
 Exact `TracksV2.File` key mapping between Lyrion and the read-only feature
 sidecar is the first unsolved implementation seam. Separate Mood/Genre
 signals and an explicitly experimental opt-in preview come before any
