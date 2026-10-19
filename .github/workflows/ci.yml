@@ -22,3 +22,14 @@ jobs:
 
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
+
+  similarity-windows:
+    name: Python similarity tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify SQLite handles close before tempdir cleanup
+        run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
