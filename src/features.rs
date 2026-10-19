@@ -506,6 +506,8 @@ struct ScanDiagnostics {
     system_cpu_average_percent: Option<f64>,
     system_cpu_max_percent: Option<f64>,
     system_ram_max_percent: Option<f64>,
+    /// Minimum available physical RAM seen at resource sampling points.
+    system_available_ram_min_mib: Option<f64>,
     initial_workers: usize,
     final_workers: usize,
     peak_workers: usize,
@@ -541,6 +543,11 @@ impl ScanDiagnostics {
             .unwrap_or(0.0).max(load.system_cpu_percent));
         self.system_ram_max_percent = Some(self.system_ram_max_percent
             .unwrap_or(0.0).max(load.system_ram_percent));
+        if let Some(memory) = crate::resources::memory_diagnostics() {
+            self.system_available_ram_min_mib = Some(self.system_available_ram_min_mib
+                .map_or(memory.available_physical_mib, |previous|
+                    previous.min(memory.available_physical_mib)));
+        }
     }
 }
 
