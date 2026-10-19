@@ -254,3 +254,52 @@ counter), remains optional on unsupported systems, and does **not** influence
 adaptive controller decisions. This intentionally small follow-up helps
 interpret observations of 90%+ system-wide RAM load; detailed process
 Working Set/Private Bytes and Windows paging telemetry remain future work.
+
+
+## Mandatory GitHub Actions / local testing workflow (2026-10-19)
+
+**User preference and delivery contract for all future chats:**
+
+1. **Never build Rust binaries on the user's Windows laptop.** Do not put
+   `cargo build` or local Rust compilation in a PowerShell test script.
+   Source code, unit tests, and release binaries are built and verified by
+   GitHub Actions.
+2. Make development changes on a feature branch and open a PR. PR events
+   automatically trigger the existing **Windows x64 binary** workflow
+   (workflow ID `387992797`) along with Rust checks and model parity checks.
+   Do not assume that a documentation-only `main` commit also generated a
+   Windows executable. Inspect the PR **head SHA** and matching Actions runs.
+3. **Do not stop after reporting a queued/in-progress build.** Check the
+   triggered Windows workflow to completion; verify that its conclusion is
+   `success`, its head SHA matches the exact code under test, and that its
+   non-expired artifact **`bliss-mood-windows-x64`** exists. Check all
+   relevant Rust and model-parity workflows too. If any check fails, diagnose
+   and fix first; never claim the binary is available prematurely.
+4. Whenever the user is asked to run a local test, provide a **complete
+   executable PowerShell script in `& { ... }` form**, containing the
+   **literal, verified numeric Actions run ID** (not a placeholder, an
+   automatically selected run, or instructions for the user to look it up).
+   Embed the actual binary download, for example:
+   `gh run download $runId --repo chrober/bliss-mood-poc --name bliss-mood-windows-x64 --dir $binDir`,
+   followed by verification of `bliss-mood.exe`. Download to a run-ID-specific
+   path such as `bin\windows-x64\$runId` and reuse only that matching binary.
+   The script must check workflow head SHA/conclusion and fail safely if they
+   do not match, use a fresh benchmark sidecar, and report useful diagnostics.
+5. Preserve the user's existing setup: repo
+   `D:\LMS\bliss-mood-poc`, source music `\\192.168.1.100\music`,
+   stable 100-song sample
+   `benchmark-workers-20261019-060347\sample-100.db`,
+   `--models moodtheme,genre,voice --threads 1`. Audio files and original
+   `bliss.db` are read-only. Do not commit personal media or benchmark DBs.
+6. If testing code on a PR branch, don't require the user's local checkout
+   to be on `main`; the binary must match the chosen PR SHA. Do not merge
+   before CI and local validation where required.
+7. Continue gathering evidence rather than changing worker behavior based
+   solely on one timing result. Keep fixed worker modes and model-score
+   identity intact.
+
+**Previously verified example:** PR #7 Windows run `39236884182`,
+artifact `bliss-mood-windows-x64`, head
+`d34e2c4941d008caae089640dc4b75925da5c3e6`. PR #7 was squash-merged
+into main as `8ee29972999caf1e543dbb7ce63d57868fdd16f2`.
+Do **not** reuse that run ID for subsequently modified code.
