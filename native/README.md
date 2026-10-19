@@ -71,9 +71,11 @@ instance, errors, crashes, restart and bounded binary parsing.
 
 The separate native CI gate **has built upstream Essentia C++ and run
 real synthetic WAV decoding and patch extraction successfully**. The
-current workflow also compares all four 128x96 patches to the Rust
-reference numerically; this parity test is distinct from the earlier
-successful protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity,
+current workflow compared all four 128x96 patches to the Rust reference
+numerically **successfully** (49,152 floating-point coefficients;
+MAE 1.7774358e-7, maximum error 8.4042549e-6; GitHub run
+39295089664). This parity test is distinct from the earlier
+protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity,
 Windows native C++ packaging, ARM64 and real-world acoustic validation
 remain separate mandatory gates.
 
@@ -82,7 +84,13 @@ Rust now enforces a hard per-song timeout with
 the initial native handshake. On expiry the native child is killed and
 reaped, and a subsequent job can start a new instance. The simulated
 hanging-child test exercises that behavior. Aggregate process-tree RAM
-monitoring and Windows/ARM64 hung-native validation remain required
-before unattended large-library deployment.
+observation is now implemented for Windows and Linux: every child PID is
+registered on spawn and unregistered on exit, with the scan diagnostics
+reporting process-tree resident/private memory peaks, child-only memory
+peaks, observed native-worker concurrency, and incomplete OS samples.
+The adaptive policy still uses **system-wide RAM** (which already accounts
+for native children); its thresholds have not changed. Windows/ARM64
+timeout validation, real NAS load benchmarks and ARM64 packaging remain
+required before unattended large-library deployment.
 
 No merge to main without explicit user approval.
