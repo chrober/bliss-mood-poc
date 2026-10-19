@@ -31,6 +31,26 @@ production Bliss Mixer, invoke ONNX at mixing time, or silently use
 unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
 is recorded for later and does not block functional integration.
 
+## Experimental original Essentia C++ frontend (feature branch only)
+
+The [Essentia C++ worker architecture](docs/essentia-cpp-worker-architecture.md)
+explains how the existing Rust multi-worker scanner, adaptive controller,
+ONNX Runtime sessions and SQLite writer can be reused with a **separate,
+persistent original Essentia C++ DSP subprocess per Rust worker**.
+A versioned, bounded binary IPC frontend is implemented in
+`src/essentia_worker.rs`, with native source and test fixture in
+[`native/`](native/README.md). The default is still the original Rust
+frontend; the C++ backend is explicitly selected using
+`--audio-backend essentia --essentia-worker <trusted-executable>`
+for `analyze-features` or `scan-features`.
+
+**Not production-ready:** Rust CI tests the process protocol with a dummy
+C++ worker, **not original Essentia DSP**. Native Essentia builds for
+Windows and Pi, actual spectral parity, subprocess watchdog and
+process-tree RAM diagnostics remain required. Do not enable unattended
+large-library scans against this backend yet. Feature identities include
+the worker binary digest, so switching backends invalidates stale cache.
+
 ## Generic feature models (opt-in)
 
 The **feature analyzer** is separate from the legacy Mood-only commands.
