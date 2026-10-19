@@ -113,10 +113,13 @@ def describe(values: list[float]) -> dict:
         low, high = int(i), min(int(i) + 1, len(ordered) - 1)
         return ordered[low] * (high - i) + ordered[high] * (i - low)
 
+    zero_count = sum(value == 0 for value in values)
     return {
         "count": len(values), "mean": statistics.fmean(values),
         "p05": percentile(.05), "median": percentile(.5), "p95": percentile(.95),
         "min": ordered[0], "max": ordered[-1],
+        "zero_count": zero_count,
+        "zero_fraction": zero_count / len(values),
     }
 
 
@@ -165,7 +168,7 @@ def _catalog(connection: sqlite3.Connection, model: str, experimental: bool) -> 
             )
         return {"model_id": model, "model_key": key, "dimensions": dims,
                 "track_count": count, "validated": bool(validated),
-                "preprocessing_version": preprocessing}
+                "preprocessing_version": preprocessing, "labels": labels}
     raise ValueError(
         f"No eligible {model} cohort (unvalidated model values require "
         "--include-experimental)."
@@ -218,7 +221,23 @@ def load_sample(conn: sqlite3.Connection, cohorts: dict, limit: int, seed: int) 
             "invalid": invalid_count, "sample_size": len(selected)}
 
 
-def evaluate_random(sample: dict, pairs: int, seed: int, examples: int) -> dict:
+def feature_profile(file: str, vector: tuple[float, ...],
+                    labels: list[str], top: int = 6) -> dict:
+    ranked = sorted(range(len(vector)), key=lambda i: (-vector[i], i))
+    return {
+        "file": file,
+        "active_ge_0_10": sum(value >= MIN_ACTIVITY for value in vector),
+        "max_activation": max(vector),
+        "mean_activation": statistics.fmean(vector),
+        "top_classes": [
+            {"label": labels[i], "activation": vector[i]}
+            for i in ranked[:top]
+        ],
+    }
+
+
+def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
+                    cohorts: dict | None = None) -> dict:
     tracks = sample["tracks"]
     files = list(tracks)
     if len(files) < 2:
@@ -238,23 +257,56 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int) -> dict:
         # These are not labels; the reviewer must judge the actual music.
         seed_files = random.Random(seed + 113).sample(files, min(3, len(files)))
         exemplar = []
+        inspected_files = set(seed_files)
         for seed_file in seed_files:
             for name, function in METRIC_FUNCS.items():
                 ranking = []
+                undefined = 0
+                zero = 0
                 for file in files:
                     if file == seed_file:
                         continue
                     score = function(tracks[seed_file][head], tracks[file][head])
-                    if score is not None:
+                    if score is None:
+                        undefined += 1
+                    elif score == 0:
+                        zero += 1
+                    else:
                         ranking.append((score, file))
+                # A sparse metric with zero common active classes gives NO
+                # match, not an alphabetically ranked "best" song.
+                if name != "topk_weighted_jaccard":
+                    ranking.extend(
+                        (0.0, file)
+                        for file in files if file != seed_file
+                        and function(tracks[seed_file][head], tracks[file][head]) == 0
+                    )
                 ranking.sort(key=lambda row: (-row[0], row[1]))
-                exemplar.append({"metric": name, "seed": seed_file,
-                                 "neighbors": [
-                                     {"file": file, "score": score}
-                                     for score, file in ranking[:examples]
-                                 ]})
-        output[head] = {"random_pairs": {name: describe(v) for name, v in scores.items()},
-                        "nearest_neighbor_examples": exemplar}
+                neighbors = [
+                    {"file": file, "score": score}
+                    for score, file in ranking[:examples]
+                ]
+                inspected_files.update(item["file"] for item in neighbors)
+                exemplar.append({
+                    "metric": name, "seed": seed_file,
+                    "neighbors": neighbors,
+                    "positive_or_negative_nonzero_count": len(ranking) if name == "topk_weighted_jaccard" else None,
+                    "zero_score_candidates": zero,
+                    "undefined_score_candidates": undefined,
+                    "total_other_candidates": len(files) - 1,
+                    "no_positive_overlap": name == "topk_weighted_jaccard"
+                        and not ranking,
+                })
+        output[head] = {
+            "random_pairs": {name: describe(v) for name, v in scores.items()},
+            "nearest_neighbor_examples": exemplar,
+        }
+        if cohorts is not None:
+            labels = cohorts[head]["labels"]
+            output[head]["track_profiles"] = [
+                feature_profile(file, tracks[file][head], labels)
+                for file in sorted(inspected_files)
+            ]
     return output
 
 
@@ -348,7 +400,7 @@ def report(database: Path, limit: int, pairs: int, seed: int, examples: int,
                          "paired_valid_total": sample["valid_total"],
                          "paired_invalid": sample["invalid"],
                          "sample_size": sample["sample_size"]},
-            "unlabeled": evaluate_random(sample, pairs, seed, examples),
+            "unlabeled": evaluate_random(sample, pairs, seed, examples, cohorts),
         }
         if label_path:
             out["labeled"] = evaluate_labels(conn, cohorts, load_labels(label_path))
