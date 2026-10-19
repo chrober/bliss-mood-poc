@@ -35,6 +35,19 @@ pub struct WorkerAdjustment {
     pub system_ram_percent: f64,
 }
 
+/// Aggregated policy observations; bounded even for full-library scans.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct WorkerDecisionCounters {
+    pub high_load_samples: usize,
+    pub low_load_samples: usize,
+    pub neutral_load_samples: usize,
+    pub minimum_song_gate_holds: usize,
+    pub cooldown_holds: usize,
+    pub policy_holds: usize,
+    pub increases: usize,
+    pub decreases: usize,
+}
+
 /// Optional conservative resource guard. It limits the number of concurrent
 /// active jobs rather than destroying/recreating expensive ONNX sessions.
 /// Never changes the encoder, model scores, SQLite schema or file identity.
@@ -43,6 +56,7 @@ pub struct AdaptiveWorkers {
     pub minimum: usize,
     pub maximum: usize,
     pub adjustments: Vec<WorkerAdjustment>,
+    pub decisions: WorkerDecisionCounters,
     last_change: std::time::Instant,
     consecutive_high: usize,
     consecutive_low: usize,
@@ -58,6 +72,7 @@ impl AdaptiveWorkers {
             minimum,
             maximum,
             adjustments: Vec::new(),
+            decisions: WorkerDecisionCounters::default(),
             last_change: std::time::Instant::now(),
             consecutive_high: 0,
             consecutive_low: 0,
@@ -69,22 +84,33 @@ impl AdaptiveWorkers {
             || sample.system_cpu_percent >= 90.0;
         let low = sample.system_ram_percent <= 79.0
             && sample.system_cpu_percent <= 65.0;
+        if high { self.decisions.high_load_samples += 1; }
+        else if low { self.decisions.low_load_samples += 1; }
+        else { self.decisions.neutral_load_samples += 1; }
         self.consecutive_high = if high { self.consecutive_high + 1 } else { 0 };
         self.consecutive_low = if low { self.consecutive_low + 1 } else { 0 };
 
         // Adjust slowly, only after enough analyzed tracks. This avoids
         // chasing random song length and NAS/SMB cache variability.
-        if completed < 24 || self.last_change.elapsed().as_secs() < 20 {
+        if completed < 24 {
+            self.decisions.minimum_song_gate_holds += 1;
+            return;
+        }
+        if self.last_change.elapsed().as_secs() < 20 {
+            self.decisions.cooldown_holds += 1;
             return;
         }
         let from = self.active;
         let reason = if self.consecutive_high >= 2 && self.active > self.minimum {
             self.active -= 1;
+            self.decisions.decreases += 1;
             "sustained CPU/RAM pressure"
         } else if self.consecutive_low >= 3 && self.active < self.maximum {
             self.active += 1;
+            self.decisions.increases += 1;
             "sustained CPU/RAM headroom"
         } else {
+            self.decisions.policy_holds += 1;
             return;
         };
         self.last_change = std::time::Instant::now();
@@ -148,10 +174,13 @@ mod tests {
         ctl.observe(25, high);
         assert_eq!(ctl.active, 5);
         assert_eq!(ctl.adjustments.len(), 1);
+        assert_eq!(ctl.decisions.high_load_samples, 2);
+        assert_eq!(ctl.decisions.decreases, 1);
         // The next sample may be high, but the cooldown inhibits changes.
         ctl.observe(26, high);
         ctl.observe(27, high);
         assert_eq!(ctl.active, 5);
+        assert_eq!(ctl.decisions.cooldown_holds, 2);
     }
 
     #[test]
@@ -173,6 +202,20 @@ mod tests {
         }
         assert_eq!(ctl.active, 7);
         assert_eq!(ctl.adjustments.len(), 1);
+    }
+
+    #[test]
+    fn neutral_samples_never_trigger_a_change() {
+        use std::time::Duration;
+        let mut ctl = AdaptiveWorkers::new(6, 4, 8).unwrap();
+        ctl.last_change -= Duration::from_secs(21);
+        let neutral = crate::resources::LoadSample {
+            system_cpu_percent: 50.0, system_ram_percent: 85.0,
+        };
+        for completed in 24..34 { ctl.observe(completed, neutral); }
+        assert_eq!(ctl.active, 6);
+        assert_eq!(ctl.decisions.neutral_load_samples, 10);
+        assert_eq!(ctl.decisions.policy_holds, 10);
     }
 
     #[test]
