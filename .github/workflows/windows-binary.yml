@@ -46,6 +46,8 @@ jobs:
         run: cargo test --target x86_64-pc-windows-msvc
       - name: Build release binary
         run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Build passive guidance provider
+        run: cargo build --release --target x86_64-pc-windows-msvc --bin bliss-feature-guidance
       - name: Smoke-test executable
         run: |
           & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe --help
@@ -54,6 +56,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows scan CLI failed to start" }
           & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe analyze-features --help
           if ($LASTEXITCODE -ne 0) { throw "Windows feature CLI failed to start" }
+          & .\target\x86_64-pc-windows-msvc\release\bliss-feature-guidance.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "SPI provider failed to start" }
           & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe scan-features --help
           if ($LASTEXITCODE -ne 0) { throw "Windows generic scan CLI failed to start" }
       - name: Stage executable and runtime libraries
@@ -62,6 +66,7 @@ jobs:
           $dist = Join-Path $PWD "dist"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Copy-Item (Join-Path $release "bliss-mood.exe") -Destination $dist
+          Copy-Item (Join-Path $release "bliss-feature-guidance.exe") -Destination $dist
           # Copy external ONNX Runtime libraries if using a dynamic build.
           Get-ChildItem -LiteralPath $release -File -Filter "onnxruntime*.dll" |
             Copy-Item -Destination $dist
@@ -85,6 +90,8 @@ jobs:
           "Commit: $env:GITHUB_SHA" | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
           $checksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-mood.exe") -Algorithm SHA256).Hash
           "$checksum *bliss-mood.exe" | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          $providerChecksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-feature-guidance.exe") -Algorithm SHA256).Hash
+          "$providerChecksum *bliss-feature-guidance.exe" | Add-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
           Get-ChildItem -LiteralPath $dist | Select-Object Name,Length
       - name: Upload Windows binary
         uses: actions/upload-artifact@v4

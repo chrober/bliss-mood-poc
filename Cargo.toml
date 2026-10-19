@@ -1,5 +1,6 @@
 [package]
 name = "bliss-mood"
+default-run = "bliss-mood"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
