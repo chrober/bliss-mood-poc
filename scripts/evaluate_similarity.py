@@ -8,7 +8,7 @@ Stdlib only: works with Windows Python without compiling Rust.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from contextlib import closing
 import csv
 import json
 import math
@@ -155,11 +155,14 @@ def _catalog(connection: sqlite3.Connection, model: str, experimental: bool) -> 
         if (aggregation != AGGREGATION or not preprocessing
             or validated not in (0, 1)
             or not isinstance(labels, list) or len(labels) != dims
-            or len(set(labels)) != dims
-            or any(not isinstance(x, str) or not x for x in labels)):
+            or any(not isinstance(x, str) or not x for x in labels)
+            or len(set(labels)) != dims):
             continue
         if not validated and not experimental:
-            continue
+            raise ValueError(
+                f"Dominant {model} model cohort is unvalidated; "
+                "rerun with --include-experimental for research only."
+            )
         return {"model_id": model, "model_key": key, "dimensions": dims,
                 "track_count": count, "validated": bool(validated),
                 "preprocessing_version": preprocessing}
@@ -323,7 +326,7 @@ def evaluate_labels(conn: sqlite3.Connection, cohorts: dict, labels: list) -> di
 
 def report(database: Path, limit: int, pairs: int, seed: int, examples: int,
            experimental: bool, label_path: Path | None) -> dict:
-    with open_database(database) as conn:
+    with closing(open_database(database)) as conn:
         cohorts = {model: _catalog(conn, model, experimental) for model in MODELS}
         sample = load_sample(conn, cohorts, limit, seed)
         if sample["sample_size"] < 2:
