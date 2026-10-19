@@ -319,6 +319,40 @@ mod tests {
     }
 
     #[test]
+    fn independent_cpp_processes_support_parallel_rust_workers() {
+        let Some(exe) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else { return };
+        let participants = 4usize;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(participants));
+        let mut handles = Vec::new();
+        for worker_id in 0..participants {
+            let exe = PathBuf::from(&exe);
+            let gate = std::sync::Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut worker = EssentiaWorker::with_timeout(
+                    exe, Duration::from_secs(10),
+                );
+                let first = format!("parallel-first-{worker_id}.flac");
+                let second = format!("parallel-second-{worker_id}.flac");
+                let a = worker.analyze(Path::new(&first), Some(1)).unwrap();
+                assert_eq!(a.patches.len(), 1);
+                let pid = worker.child.as_ref().unwrap().child.id();
+                // All processes are alive together, ruling out PID reuse.
+                gate.wait();
+                let b = worker.analyze(Path::new(&second), None).unwrap();
+                assert_eq!(b.patches[0][0], 0.25);
+                assert_eq!(worker.child.as_ref().unwrap().child.id(), pid);
+                pid
+            }));
+        }
+        let mut pids = std::collections::HashSet::new();
+        for handle in handles {
+            assert!(pids.insert(handle.join().unwrap()),
+                "Parallel Rust workers must each own a distinct native process");
+        }
+        assert_eq!(pids.len(), participants);
+    }
+
+    #[test]
     fn backend_selection_is_explicit() {
         assert!(matches!(BackendChoice::from_cli("rust", None, 900), Ok(BackendChoice::Rust)));
         assert!(BackendChoice::from_cli("unknown", None, 900).is_err());
