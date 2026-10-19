@@ -493,6 +493,9 @@ pub struct ScanSummary {
 
 #[derive(Debug, Default, Serialize)]
 struct ScanDiagnostics {
+    /// Baseline captured before starting any scan worker; separate from
+    /// the controller's later completion-driven resource samples.
+    baseline: Option<crate::resources::ScanResourceBaseline>,
     /// Sum of per-song timings; overlapping workers mean these totals are NOT
     /// wall-clock durations or exclusive CPU time.
     completed_songs: usize,
@@ -784,6 +787,7 @@ fn scan_parallel(
         initial_workers: initial,
         final_workers: initial,
         peak_workers: initial,
+        baseline: Some(crate::resources::scan_resource_baseline()),
         ..ScanDiagnostics::default()
     };
     let mut monitor = crate::resources::ResourceMonitor::new();
