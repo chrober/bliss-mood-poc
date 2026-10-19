@@ -1,10 +1,10 @@
 // Persistent, strictly single-threaded Essentia C++ DSP child.
 // Compile against the original MTG/essentia library (no essentia-rs).
 // All stdout bytes implement EFW1/REQ1/RES1; diagnostic text goes to stderr.
-#include <essentia/essentia.h>
-#include <essentia/algorithmfactory.h>
-#include <essentia/algorithm.h>
-#include <essentia/types.h>
+#include <essentia.h>
+#include <algorithmfactory.h>
+#include <algorithm.h>
+#include <types.h>
 
 #include <algorithm>
 #include <cstring>
