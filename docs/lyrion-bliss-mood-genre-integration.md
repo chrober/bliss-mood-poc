@@ -211,3 +211,51 @@ Read-only lookup is a **diagnostic/contract first step**, not a deployed
 Guidance SPI provider. Next task: host-side exact-key mapping for LMS
 anchors/candidates, followed by a separate SPI v2 provider. Do not imply
 that the extractor already reranks Lyrion tracks.
+
+
+## F2 proof-of-concept: native SPI v2 Mood/Genre scoring
+
+**Status:** Experimental standalone binary only; not installed or enabled in Lyrion.
+The repository now also contains \`src/bin/bliss-feature-guidance.rs\`, a
+separate passive JSONL SPI v2 process. It receives a *trusted* read-only
+schema-v3 \`bliss-feature-sqlite-v3\` resource in \`prepare\`, resolves seed
+\`anchor_id\`s and candidate \`database_file\` keys, and returns
+independent \`genre\` and \`mood_theme\` bounded-influence signals.
+
+The standalone scorer never generates new candidates, writes SQLite or
+\`bliss.db\`, decodes audio, or invokes ONNX. Only matched model fingerprints,
+correct dimensions (87/56), identical aggregation, nondegenerate 0..1
+vectors and validated content produce normal scores. The trusted Lab-only
+\`include_experimental: true\` option is required for the currently
+unvalidated vectors; by default those inputs cause neutral/no signals.
+
+Initial similarity is deliberately **provisional**, not a calibrated
+musical-distance metric: independent per-head
+\`1 - 2 * RMS(seed-vector - candidate-vector)\`, bounded to [-1,1].
+Missing or incompatible anchors/candidates yield **no** signal. Multiple
+eligible context anchors contribute an average per head. The Lyrion host
+owns settings, bounded influence, candidate selection, and fallback.
+
+The Windows x64 GitHub Actions artifact now also contains
+\`bliss-feature-guidance.exe\` with a checksum. This is a testing tool,
+not a production Lyrion plugin. The current Lab repository is readable but
+the connected GitHub integration returned HTTP **403** when asked to
+create a feature branch, so no changes to \`lms-blissmixer-lab\` have been
+made or claimed. Host-side exact \`database_file\` identity mapping and
+separate plugin packaging remain necessary.
+
+For an isolated contract exercise, send the following **one JSON object per
+line** (using an actual existing sidecar path and exact track keys):
+
+\`\`\`json
+{"type":"describe","spi_version":2}
+{"type":"prepare","spi_version":2,"job_id":"lab-preview","options":{"include_experimental":true},"artifacts":[],"resources":[{"kind":"bliss-feature-sqlite-v3","path":"C:\\\\temp\\\\mood.db","access":"read_only"}],"anchors":[{"anchor_id":"seed1","candidate_id":"lms-seed","database_file":"Artist/Seed.flac"}]}
+{"type":"score","spi_version":2,"request_id":"preview1","context":{"scope":"global","context_track_ids":["seed1"]},"candidates":[{"candidate_id":"bliss-candidate-1","database_file":"Artist/Another.flac"}]}
+{"type":"close","spi_version":2}
+\`\`\`
+
+**Next:** obtain write access to Lab, implement and test the canonical
+Lyrion-to-Bliss track key join for both anchors and candidates, then expose
+this scorer through a passive provider plugin and Lab's existing host
+contracts. Keep legacy provider logs and existing mixing unchanged until
+a documented A/B preview passes.
