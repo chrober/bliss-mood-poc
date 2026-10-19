@@ -5,6 +5,18 @@ Experimental Rust CLI for capability-based music feature analysis using MTG/Esse
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
+## Development handover (2026-10-19)
+
+For ongoing scanner performance work, start with
+[docs/chat-handover.md](docs/chat-handover.md) and the detailed
+[adaptive scanner benchmark and investigation handover](docs/adaptive-scan-performance-handover.md).
+These documents capture the fixed 6/8/10/12-worker NAS benchmarks, the first
+adaptive run (100 songs, 6 -> 6 workers, slower than fixed 6), the actual
+CPU/RAM gating rules, verified invariants, and the next experiments.
+The unchanged worker count is *consistent with the current thresholds*;
+the throughput regression is not yet diagnosed. Check the current main
+commit and source before concluding otherwise.
+
 ## Generic feature models (opt-in)
 
 The **feature analyzer** is separate from the legacy Mood-only commands.
