@@ -275,7 +275,8 @@ mod native {
             cb: std::mem::size_of::<ProcessMemoryCountersEx>() as u32,
             ..ProcessMemoryCountersEx::default()
         };
-        let result = unsafe { GetProcessMemoryInfo(handle, &mut counters, counters.cb) };
+        let size = counters.cb;
+        let result = unsafe { GetProcessMemoryInfo(handle, &mut counters, size) };
         unsafe { CloseHandle(handle) };
         if result == 0 { return None; }
         Some((
