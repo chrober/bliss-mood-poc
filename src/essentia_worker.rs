@@ -6,6 +6,8 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::mpsc,
+    time::Duration,
     sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -21,11 +23,14 @@ pub const CPP_PREPROCESSING: &str = "experimental-essentia-cpp-dsp-v1-unvalidate
 #[derive(Clone, Debug)]
 pub enum BackendChoice {
     Rust,
-    Essentia { executable: PathBuf, worker_sha256: String },
+    Essentia { executable: PathBuf, worker_sha256: String, timeout_seconds: u64 },
 }
 
 impl BackendChoice {
-    pub fn from_cli(name: &str, worker_path: Option<&Path>) -> Result<Self> {
+    pub fn from_cli(name: &str, worker_path: Option<&Path>, timeout_seconds: u64) -> Result<Self> {
+        if timeout_seconds == 0 || timeout_seconds > 7200 {
+            bail!("--essentia-timeout-seconds must be within 1..=7200");
+        }
         match (name, worker_path) {
             ("rust", None) => Ok(Self::Rust),
             ("essentia", Some(path)) => {
@@ -36,7 +41,7 @@ impl BackendChoice {
                 let executable = fs::canonicalize(path)
                     .with_context(|| format!("Invalid Essentia worker path {}", path.display()))?;
                 let worker_sha256 = sha256_file(&executable)?;
-                Ok(Self::Essentia { executable, worker_sha256 })
+                Ok(Self::Essentia { executable, worker_sha256, timeout_seconds })
             }
             ("rust", Some(_)) => bail!("--essentia-worker requires --audio-backend essentia"),
             ("essentia", None) => bail!("--audio-backend essentia requires --essentia-worker"),
@@ -68,92 +73,24 @@ enum WatchdogCommand {
 }
 
 struct ChildIo {
-    child: Arc<Mutex<Child>>,
-    input: ChildStdin,
-    output: ChildStdout,
-    watch_tx: mpsc::Sender<WatchdogCommand>,
-    watcher: Option<thread::JoinHandle<()>>,
-    timed_out: Arc<AtomicBool>,
-}
-
-impl ChildIo {
-    fn new(child: Child, input: ChildStdin, output: ChildStdout) -> Self {
-        let child = Arc::new(Mutex::new(child));
-        let timed_out = Arc::new(AtomicBool::new(false));
-        let (watch_tx, rx) = mpsc::channel();
-        let watch_child = Arc::clone(&child);
-        let watch_timeout = Arc::clone(&timed_out);
-        let watcher = thread::spawn(move || {
-            let mut deadline: Option<Instant> = None;
-            loop {
-                let command = if let Some(expiry) = deadline {
-                    match rx.recv_timeout(expiry.saturating_duration_since(Instant::now())) {
-                        Ok(command) => command,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            watch_timeout.store(true, Ordering::SeqCst);
-                            if let Ok(mut child) = watch_child.lock() {
-                                let _ = child.kill();
-                            }
-                            deadline = None;
-                            continue;
-                        }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    }
-                } else {
-                    match rx.recv() {
-                        Ok(command) => command,
-                        Err(_) => break,
-                    }
-                };
-                match command {
-                    WatchdogCommand::Arm(duration) => {
-                        watch_timeout.store(false, Ordering::SeqCst);
-                        deadline = Some(Instant::now() + duration);
-                    }
-                    WatchdogCommand::Disarm => deadline = None,
-                    WatchdogCommand::Stop => break,
-                }
-            }
-        });
-        Self { child, input, output, watch_tx, watcher: Some(watcher), timed_out }
-    }
-
-    fn arm(&self, duration: Duration) -> Result<()> {
-        self.watch_tx.send(WatchdogCommand::Arm(duration))
-            .context("Native worker watchdog exited")
-    }
-    fn disarm(&self) {
-        let _ = self.watch_tx.send(WatchdogCommand::Disarm);
-    }
-    fn timeout_failure(&self) -> bool {
-        self.timed_out.load(Ordering::SeqCst)
-    }
-    #[cfg(test)]
-    fn pid(&self) -> u32 {
-        self.child.lock().unwrap().id()
-    }
+    child: Child,
+    input: Option<ChildStdin>,
+    output: Option<ChildStdout>,
+    hello_pending: bool,
 }
 
 impl Drop for ChildIo {
     fn drop(&mut self) {
-        // A blocked reader is unblocked by the watchdog killing the child.
-        // This also prevents orphan processes when the parent worker exits.
-        let _ = self.watch_tx.send(WatchdogCommand::Stop);
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
-        }
-        if let Some(watcher) = self.watcher.take() {
-            let _ = watcher.join();
-        }
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.wait();
-        }
+        // On timeout or native failure, close/kill and reap before next song.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
-/// One Rust worker thread owns this object. Each C++ child processes tracks
-/// serially; the original Essentia library is never called concurrently
-/// from unguarded Rust threads in the same process.
+/// One Rust worker thread owns one long-lived *process*, never shared Essentia
+/// objects. Blocking native pipe I/O runs on a short-lived transport thread:
+/// the caller owns Child and can forcibly terminate an unresponsive native
+/// process, releasing a hung read or handshake on every supported platform.
 pub struct EssentiaWorker {
     executable: PathBuf,
     child: Option<ChildIo>,
@@ -162,9 +99,11 @@ pub struct EssentiaWorker {
 
 impl EssentiaWorker {
     pub fn new(executable: PathBuf) -> Self {
-        // Hard default timeout includes NAS I/O, decoding, DSP and IPC
-        // transfer. Do not accidentally limit ordinary long music tracks.
-        Self { executable, child: None, timeout: Duration::from_secs(600) }
+        Self::with_timeout(executable, Duration::from_secs(900))
+    }
+
+    pub fn with_timeout(executable: PathBuf, timeout: Duration) -> Self {
+        Self { executable, child: None, timeout }
     }
 
     fn start(&mut self) -> Result<()> {
@@ -176,21 +115,10 @@ impl EssentiaWorker {
             ))?;
         let input = child.stdin.take().context("Native worker stdin missing")?;
         let output = child.stdout.take().context("Native worker stdout missing")?;
-        let mut io = ChildIo::new(child, input, output);
-        io.arm(Duration::from_secs(30))?;
-        let mut hello = [0u8; 4];
-        let result = io.output.read_exact(&mut hello);
-        io.disarm();
-        if let Err(err) = result {
-            if io.timeout_failure() {
-                bail!("Native Essentia worker startup exceeded 30-second deadline");
-            }
-            return Err(err).context("Native Essentia worker handshake failed");
-        }
-        if &hello != b"EFW1" {
-            bail!("Native Essentia worker protocol mismatch: expected EFW1");
-        }
-        self.child = Some(io);
+        // Handshake occurs *under the same hard deadline* as the first request.
+        self.child = Some(ChildIo {
+            child, input: Some(input), output: Some(output), hello_pending: true,
+        });
         Ok(())
     }
 
@@ -204,25 +132,58 @@ impl EssentiaWorker {
             bail!("Essentia patch limit must be between 1 and {MAX_PATCHES}, or omitted");
         }
         self.start()?;
-        let io = self.child.as_mut().context("Missing Essentia worker")?;
-        io.arm(self.timeout)?;
-        let result = (|| {
-            io.input.write_all(b"REQ1")?;
-            io.input.write_all(&(path.len() as u32).to_le_bytes())?;
-            io.input.write_all(&(cap as u32).to_le_bytes())?;
-            io.input.write_all(path.as_bytes())?;
-            io.input.flush()?;
-            read_response(&mut io.output, max_patches)
-        })();
-        io.disarm();
-        let result = if io.timeout_failure() {
-            Err(anyhow::anyhow!("Native Essentia worker exceeded {}-second job deadline",
-                self.timeout.as_secs_f64()))
-        } else { result };
-        // Broken IPC or native DSP error invalidates this process, never
-        // silently fallback to the Rust frontend / another fingerprint.
-        if result.is_err() { self.child = None; }
-        result
+        let mut io = self.child.take().context("Missing Essentia worker")?;
+        let input = io.input.take().context("Native worker input missing")?;
+        let output = io.output.take().context("Native worker output missing")?;
+        let initial = io.hello_pending;
+        let path = path.as_bytes().to_vec();
+        let (tx, rx) = mpsc::sync_channel(1);
+        let handle = std::thread::spawn(move || {
+            let mut input = input;
+            let mut output = output;
+            let result = (|| -> Result<NativePatches> {
+                if initial {
+                    let mut hello = [0u8; 4];
+                    output.read_exact(&mut hello)
+                        .context("Native Essentia worker handshake failed")?;
+                    if &hello != b"EFW1" {
+                        bail!("Native Essentia worker protocol mismatch: expected EFW1");
+                    }
+                }
+                input.write_all(b"REQ1")?;
+                input.write_all(&(path.len() as u32).to_le_bytes())?;
+                input.write_all(&(cap as u32).to_le_bytes())?;
+                input.write_all(&path)?;
+                input.flush()?;
+                read_response(&mut output, max_patches)
+            })();
+            let _ = tx.send((result, input, output));
+        });
+        match rx.recv_timeout(self.timeout) {
+            Ok((result, input, output)) => {
+                let _ = handle.join();
+                if result.is_ok() {
+                    io.input = Some(input);
+                    io.output = Some(output);
+                    io.hello_pending = false;
+                    self.child = Some(io);
+                }
+                // Errors retire the process; never silently mix a Rust fallback.
+                result
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // io still owns Child, so dropping it kills the blocked C++
+                // process, releases the pipe reads and reaps the child.
+                drop(io);
+                let _ = handle.join();
+                bail!("Native Essentia worker exceeded {}-second deadline", self.timeout.as_secs());
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                drop(io);
+                let _ = handle.join();
+                bail!("Native Essentia worker transport thread exited unexpectedly");
+            }
+        }
     }
 }
 
@@ -359,9 +320,9 @@ mod tests {
 
     #[test]
     fn backend_selection_is_explicit() {
-        assert!(matches!(BackendChoice::from_cli("rust", None), Ok(BackendChoice::Rust)));
-        assert!(BackendChoice::from_cli("unknown", None).is_err());
-        assert!(BackendChoice::from_cli("essentia", None).is_err());
-        assert!(BackendChoice::from_cli("rust", Some(Path::new("worker"))).is_err());
+        assert!(matches!(BackendChoice::from_cli("rust", None, 900), Ok(BackendChoice::Rust)));
+        assert!(BackendChoice::from_cli("unknown", None, 900).is_err());
+        assert!(BackendChoice::from_cli("essentia", None, 900).is_err());
+        assert!(BackendChoice::from_cli("rust", Some(Path::new("worker")), 900).is_err());
     }
 }
