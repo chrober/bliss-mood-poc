@@ -561,10 +561,21 @@ struct ScanDiagnostics {
     system_available_ram_min_mib: Option<f64>,
     process_working_set_max_mib: Option<f64>,
     process_private_bytes_max_mib: Option<f64>,
+    /// Observed high-water estimate for the Rust process plus registered
+    /// Essentia worker subprocesses. Shared pages may be counted twice.
+    process_tree_working_set_max_mib: Option<f64>,
+    process_tree_private_bytes_max_mib: Option<f64>,
+    native_child_working_set_max_mib: Option<f64>,
+    native_child_private_bytes_max_mib: Option<f64>,
+    native_child_processes_max: usize,
+    /// Transient child exits may race with resource enumeration: samples
+    /// missing child counters are recorded but not treated as complete.
+    process_tree_incomplete_samples: usize,
     /// Difference between first and last sampled Windows page-fault counter.
     /// Includes soft faults; is NOT disk page-ins or paging-file I/O.
     process_page_fault_delta: Option<u64>,
     #[serde(skip)]
+    #[cfg_attr(not(windows), allow(dead_code))]
     process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
     final_workers: usize,
@@ -606,10 +617,33 @@ impl ScanDiagnostics {
                 .unwrap_or(0.0).max(process.working_set_mib));
             self.process_private_bytes_max_mib = Some(self.process_private_bytes_max_mib
                 .unwrap_or(0.0).max(process.private_bytes_mib));
-            let first = *self.process_first_page_fault_count
-                .get_or_insert(process.page_fault_count);
-            self.process_page_fault_delta =
-                Some(process.page_fault_count.wrapping_sub(first));
+            #[cfg(windows)]
+            {
+                let first = *self.process_first_page_fault_count
+                    .get_or_insert(process.page_fault_count);
+                self.process_page_fault_delta =
+                    Some(process.page_fault_count.wrapping_sub(first));
+            }
+        }
+        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
+            self.native_child_processes_max =
+                self.native_child_processes_max.max(tree.registered_children);
+            if tree.complete {
+                self.process_tree_working_set_max_mib = Some(
+                    self.process_tree_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.total_working_set_mib));
+                self.process_tree_private_bytes_max_mib = Some(
+                    self.process_tree_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.total_private_bytes_mib));
+                self.native_child_working_set_max_mib = Some(
+                    self.native_child_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.child_working_set_mib));
+                self.native_child_private_bytes_max_mib = Some(
+                    self.native_child_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.child_private_bytes_mib));
+            } else {
+                self.process_tree_incomplete_samples += 1;
+            }
         }
         if let Some(memory) = crate::resources::memory_diagnostics() {
             self.system_available_ram_min_mib = Some(self.system_available_ram_min_mib
