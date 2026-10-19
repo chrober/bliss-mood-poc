@@ -63,6 +63,66 @@ Experimental and unvalidated prediction vectors are **excluded by default**;
 --include-experimental deliberately enables them for this offline analysis,
 without changing their stored validation status.
 
+## Diagnosing the surprising neighbors
+
+The first real-library report (100 valid tracks) exposed a real limitation:
+**Top-K Jaccard can have zero common active classes for a seed against every
+candidate**. A zero-score tie is *not* a nearest neighbor; formerly the
+script printed alphabetically first tracks as its "top matches". It now
+omits those zero-overlap neighbors, sets `no_positive_overlap=true`, and
+reports `zero_score_candidates`, `positive_overlap_candidates`,
+`undefined_score_candidates`, and `zero_fraction` for the relevant
+distribution.
+
+A second possibility is that the 56D/87D experimental model predictions
+themselves lack useful semantics for the music in this library. Accordingly
+the report now includes `unlabeled.{genre,moodtheme}.track_profiles` for
+the sampled seeds and returned neighbors. Each profile lists the **six
+highest-scoring class labels in exact model order**, their activations,
+total number of classes at least 0.10, and the mean/max activity. This is
+a way to audit **what the model actually believes a track contains**,
+without using names or albums as ground truth.
+
+For the next round, first inspect the strongest labels of known tracks
+such as an Aretha Franklin soul recording and a Balkan folk recording.
+If the class profiles are implausible, changing the distance metric may
+only disguise a classifier or preprocessing problem. Compare Genre and
+Mood independently; even when a pair shares one strong class, Top-K
+overlap is not proof of similar overall music.
+
+Read the extended report after repeating the documented evaluation command:
+
+```powershell
+& {
+    $report = 'D:\LMS\bliss-mood-poc\benchmark-similarity-local\similarity-report.json'
+    $r = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+
+    foreach ($head in 'genre', 'moodtheme') {
+        Write-Host "`n=== $head ==="
+        $examples = @($r.unlabeled.$head.nearest_neighbor_examples)
+        $seeds = @($examples | Select-Object -ExpandProperty seed -Unique)
+        foreach ($seed in $seeds) {
+            $profile = @($r.unlabeled.$head.track_profiles) |
+                Where-Object { $_.file -eq $seed } |
+                Select-Object -First 1
+            Write-Host "`nSEED: $seed"
+            Write-Host "Active classes >= 0.10: $($profile.active_ge_0_10)"
+            $profile.top_classes |
+                ForEach-Object { "{0:N3} {1}" -f $_.activation, $_.label }
+            $topk = $examples |
+                Where-Object { $_.seed -eq $seed -and
+                    $_.metric -eq 'topk_weighted_jaccard' } |
+                Select-Object -First 1
+            Write-Host "Top-K positive candidates: $($topk.positive_overlap_candidates)"
+            Write-Host "Top-K zero-score candidates: $($topk.zero_score_candidates)"
+        }
+    }
+}
+```
+
+This is **diagnostic evidence only**. No model-head class output, score
+percentile, or filename association by itself establishes playlist quality.
+
 ## Evaluate manually judged pairs
 
 Create a CSV in the same ignored directory. Each row uses exact feature DB
