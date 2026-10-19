@@ -323,3 +323,40 @@ traces in a separate, explicitly benchmarked experiment.
 
 Follow the mandatory GitHub Actions build and fixed-run-ID PowerShell rules
 above, including waiting for all checks and verifying the PR artifact.
+
+
+## PR #10: Pre-worker CPU and RAM baseline
+
+Because the test laptop often has high memory load before the Rust scan
+begins, do not attribute the system's RAM peak to the analyzer without a
+pre-worker baseline. The scan now records `diagnostics.baseline` before any
+worker threads are spawned. It captures system RAM use and available MiB,
+process Working Set and Private Bytes, plus system-wide CPU use averaged
+over a **measured one-second pre-worker interval**. There is no meaningful
+instantaneous CPU utilization reading from cumulative OS CPU counters.
+
+The pre-worker snapshot is taken after `bliss.db` input and SQLite sidecar
+setup. It is therefore not a pre-process or fully idle desktop snapshot.
+The CPU baseline adds roughly one second to the wall-clock scan runtime
+but does not affect adaptive controller observations, thresholds, worker
+scheduling, fixed worker modes, or ONNX inference output. Existing
+post-start CPU/RAM averages and peaks continue to cover the established
+completion-driven sampling window; do not conflate the two windows.
+
+Fields: `diagnostics.baseline.system_cpu_percent`,
+`diagnostics.baseline.cpu_measurement_seconds`,
+`diagnostics.baseline.system_ram_percent`,
+`diagnostics.baseline.system_available_ram_mib`,
+`diagnostics.baseline.process_working_set_mib`,
+`diagnostics.baseline.process_private_bytes_mib`.
+Compare baseline with scan maxima and minima without treating values
+at different instants as a simultaneous resource snapshot.
+
+The previous Windows local test for PR #9 (`39240876213`) reported
+100 analyzed, 172.41 seconds, RAM max 95.84%, available min 653 MiB,
+process WS max 1128 MiB, Private Bytes max 1190 MiB, CPU avg 43.59%,
+and 0 adjustments (6 final workers). PR #9 merged into `main` as
+`7783a485e38e608d1dde59d14869c2015082cb25`.
+
+Follow the mandatory GitHub Actions CI artifact and exact-run-ID
+PowerShell test script process described in the chat handover.
