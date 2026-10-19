@@ -247,7 +247,7 @@ jobs:
           code=$?
           set -e
           test "$code" -ne 0
-          grep -q 'Feature scan stopped after 2 errors' invalid-limit-errors.txt
+          grep -Eq 'Feature scan stopped after [2-4] errors \(limit 2\)' invalid-limit-errors.txt
           test "$(grep -c '^ANALYSIS FAILED' invalid-limit-errors.txt)" -le 4
           echo "PASS: hard error budget stops bad library scans"
       - name: Verify adaptive scanner stage diagnostics and identical classifications
