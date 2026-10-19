@@ -21,7 +21,12 @@ from typing import Callable
 
 MODELS = {"genre": ("genre", 87), "moodtheme": ("mood_theme", 56)}
 AGGREGATION = "arithmetic_mean_of_per_patch_sigmoid_scores"
-METRICS = ("rms", "cosine", "centered_cosine", "weighted_jaccard", "topk_weighted_jaccard")
+METRICS = (
+    "rms", "cosine", "centered_cosine", "weighted_jaccard",
+    "topk_weighted_jaccard",  # historical top-six WITH absolute 0.10 cutoff
+    "topk6_ranked_jaccard",   # top six, NO absolute cutoff
+    "topk12_ranked_jaccard",  # top twelve, NO absolute cutoff
+)
 MAX_TRACKS = 2000
 MAX_RANDOM_PAIRS = 50000
 MAX_LABELS = 5000
@@ -100,6 +105,12 @@ METRIC_FUNCS: dict[str, Callable] = {
     "centered_cosine": centered_cosine,
     "weighted_jaccard": weighted_jaccard,
     "topk_weighted_jaccard": topk_weighted_jaccard,
+    "topk6_ranked_jaccard": lambda a, b: topk_weighted_jaccard(
+        a, b, k=6, threshold=0.0
+    ),
+    "topk12_ranked_jaccard": lambda a, b: topk_weighted_jaccard(
+        a, b, k=12, threshold=0.0
+    ),
 }
 
 
@@ -273,7 +284,7 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
                         zero += 1
                         # An empty Top-K overlap is not a similarity match:
                         # never show alphabetical tie winners as neighbors.
-                        if name != "topk_weighted_jaccard":
+                        if not name.startswith("topk"):
                             ranking.append((score, file))
                     else:
                         ranking.append((score, file))
@@ -286,16 +297,29 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int,
                 exemplar.append({
                     "metric": name, "seed": seed_file,
                     "neighbors": neighbors,
-                    "positive_overlap_candidates": len(ranking) if name == "topk_weighted_jaccard" else None,
+                    "positive_overlap_candidates": len(ranking) if name.startswith("topk") else None,
                     "zero_score_candidates": zero,
                     "undefined_score_candidates": undefined,
                     "total_other_candidates": len(files) - 1,
-                    "no_positive_overlap": name == "topk_weighted_jaccard"
-                        and not ranking,
+                    "no_positive_overlap": name.startswith("topk") and not ranking,
                 })
         output[head] = {
             "random_pairs": {name: describe(v) for name, v in scores.items()},
             "nearest_neighbor_examples": exemplar,
+            "activation_distribution": {
+                "maximum": describe([max(tracks[file][head]) for file in files]),
+                "active_classes_ge_0_10": describe([
+                    sum(value >= 0.10 for value in tracks[file][head])
+                    for file in files
+                ]),
+                "active_classes_ge_0_05": describe([
+                    sum(value >= 0.05 for value in tracks[file][head])
+                    for file in files
+                ]),
+                "tracks_no_classes_ge_0_10": sum(
+                    max(tracks[file][head]) < 0.10 for file in files
+                ),
+            },
         }
         if cohorts is not None:
             labels = cohorts[head]["labels"]
