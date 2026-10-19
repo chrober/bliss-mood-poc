@@ -236,3 +236,23 @@ local cargo builds.
 **Read [lyrion-bliss-mood-genre-integration.md](lyrion-bliss-mood-genre-integration.md) before new product changes.** The immediate engineering task is F1: reliable exact `TracksV2.File` joining and read-only model-provenance-aware Mood/Genre SQLite retrieval for a bounded Bliss/Lyrion candidate set. The first strategy is **Bliss-first with optional Mood/Genre reranking in BlissMixerLab** through guidance SPI v2, with hard eligibility and original Bliss untouched, separate per-head influence, experimental preview opt-in and neutral fallback. Current provider host transmits candidate IDs/urlmd5, but exact file keys are not yet guaranteed; do not silently join by title/artist. Do not enable stored unvalidated model scores for production playlist generation by default.
 
 The cross-platform worker and Raspberry Pi runtime/resource strategy is **deferred**, documented in [platform-resource-roadmap.md](platform-resource-roadmap.md). The user explicitly does not want tuning for one benchmark laptop; development focus now is meaningful playlist fusion, not scanner performance.
+
+
+## Lyrion Mood/Genre work status (2026-10-19)
+
+PR #12 was successfully tested locally using the exact Bliss file key
+`4 Non Blondes/1992 - Bigger, Better, Faster, More!/02 Superfly.mp3`
+against schema-v3 SQLite: 56 Mood and 87 Genre dimensions, with
+unvalidated scores hidden by default and available only in explicit
+experimental preview. Merged into `main` as
+`05962b2e835b55f300f79355abda73d4d7ac316f`.
+
+**Current active PR:** separate experimental `bliss-feature-guidance`
+JSONL SPI v2 binary in this repo, reading schema-v3 SQLite only and returning
+bounded, separate Mood/Genre guidance for an already admitted Bliss pool.
+The current service is not yet wired into Lyrion. Lab source
+`chrober/lms-blissmixer-lab` was inspected, but its GitHub integration
+returned **403 forbidden for branch creation**. Do not claim the Lab mapping
+or plugin host has been changed. Once write access is available, supply exact
+verified `TracksV2.File` values as `database_file` for both seed anchors
+and candidates. Keep the cross-platform resources plan deferred.
