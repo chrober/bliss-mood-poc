@@ -19,6 +19,46 @@ between songs, not changing acoustic-feature analysis or replacing the
 Bliss analysis itself. Final product evaluation must use real music and
 listening feedback in addition to numerical tests.
 
+## Mixing strategy decision record — deliberately open (2026-10-19)
+
+**No final mixing strategy has been selected.** The earlier discussion
+identified three **peer product alternatives**. This project's
+`Bliss-first` first implementation is a low-risk **vertical integration
+test**, not a claim that Bliss-first yields the best musical results.
+The current host's guidance SPI v2 can only rerank an already admitted
+Bliss pool. Extending candidate admission is a separate host capability.
+
+| Strategy | Who proposes candidate songs? | How are they ranked? | What must be built? |
+| --- | --- | --- | --- |
+| **Bliss-first** | Bliss's acoustic neighbourhood | Independent Genre/Mood guidance within the existing pool, with established host rules | Read-only vectors, verified LMS file identity, bounded provider, opt-in Lab wiring |
+| **Mood-/Genre-first** (feature-first) | Nearest-neighbour or indexed Mood/Genre features; optionally separate searches for each | Host evaluates Bliss transitions plus calibrated features | New feature candidate retrieval/index and host-owned candidate-source API, retaining Lyrion hard constraints |
+| **Hybrid** | Union or deliberately diversified combination of Bliss and feature candidate sources | Host normalizes comparable evidence, controls diversity/drift, applies common hard constraints | Both candidate sources, deduplication, per-source provenance, calibration, fallback and consistent final selector |
+
+**Rationale for the implementation order, not a product verdict:** Bliss-first
+needs no new candidate-admission contract and can validate the exact track
+identity, feature quality, latency and neutral fallback on the existing
+`lms-blissmixer-lab` integration. The limitation is **candidate recall**:
+a desirable Mood/Genre track that Bliss does not propose can never be
+selected. Feature-first and Hybrid must be tested precisely to determine
+whether overcoming that limitation improves listening quality.
+
+**Strategy-selection gate:** Compare all three on the **same frozen library,
+seed(s), and mandatory Lyrion filters**. Evaluate (a) candidate coverage and
+head-validation coverage, (b) actual genre/mood coherence and transition
+quality from listening reviews, (c) drift versus original seed(s),
+(d) diversity/artist repeats, (e) fallback when signals are missing, and
+(f) Pi latency/memory budget. A/B tests must include Bliss-only as control.
+Score scales from the 56D Mood and 87D Genre heads are not interchangeable,
+and the prototype's raw RMS-based high similarities are not calibrated
+probabilities. **Do not select a global strategy or default weights before
+these gates pass.**
+
+At all times, preserve upstream Bliss, existing Lab/Better Call Bliss use,
+original `bliss.db` and audio in read-only mode, and a valid Bliss-only
+fallback. Mood-/Genre-first is **not** allowed to bypass the common Lyrion
+membership/genre/artist/repeat constraints, even when it introduces songs
+outside Bliss's candidate set.
+
 ## Grounded current state
 
 - Upstream Bliss Mixer owns its existing acoustic database `bliss.db`,
@@ -65,7 +105,7 @@ Reference repos:
 | Candidate admission / hard constraints | Existing Bliss Mixer / BlissMixerLab, unchanged in first release |
 | Guidance and final choice | New optional Mood/Genre guidance source via existing SPI v2; Lab combines bounded signals with its other providers and owns playlist/queue |
 
-### First strategy: Bliss-first + Mood/Genre reranking
+### First integration experiment: Bliss-first + Mood/Genre reranking
 
 1. Lyrion/Bliss Mixer Lab acquires its usual bounded Bliss candidate pool.
 2. The host resolves **exact** per-track Bliss keys for seed/context tracks
@@ -96,7 +136,7 @@ The first product target is a Lab-only A/B preview. Do not enable provider
 by default. Full native Lyrion plugin packaging and actual Pi binary
 execution are separate verification gates.
 
-### Later, not part of the first bridge
+### Other equal-priority strategy candidates (not part of the first bridge)
 
 - **Feature-first:** mood/genre retrieves candidates outside Bliss's
   acoustic shortlist, followed by Bliss transition scoring. The current
@@ -176,10 +216,14 @@ and no production use of unvalidated vectors by default.
 
 ## Immediate work order
 
-**Next engineering task: F1.** Establish the exact Lyrion-to-Bliss
-`track_file` join and a tested, read-only extraction of Mood/Genre
-vectors from schema-v3 SQLite. This is the critical integration seam;
-changing the scanner's number of workers is not required.
+**Current state:** The read-only schema-v3 `inspect-features` extraction
+is implemented and locally validated (PR #12). The standalone native
+Mood/Genre scorer is under review in PR #13. The remaining integration
+seam is **verified Lyrion-to-Bliss `track_file` mapping for seeds and
+candidates**, followed by opt-in Lab provider wiring. Lab repository
+write access was unavailable in the last attempt; no host edits are
+claimed. None of these implementation steps predetermines a final
+Bliss-first, Mood-/Genre-first, or Hybrid strategy.
 
 **Deferred:** [platform resource architecture](platform-resource-roadmap.md).
 Read [chat-handover.md](chat-handover.md) for repository/CI rules; Windows
