@@ -17,6 +17,18 @@ The unchanged worker count is *consistent with the current thresholds*;
 the throughput regression is not yet diagnosed. Check the current main
 commit and source before concluding otherwise.
 
+
+## Lyrion integration workstream (current priority)
+
+The next product phase is **Bliss-first playlist generation with independent
+Mood/Theme and Genre guidance** in Lyrion through the existing BlissMixerLab
+provider host. See the [functional integration plan](docs/lyrion-bliss-mood-genre-integration.md):
+its first gate is a read-only schema-v3 feature lookup and **exact**
+`TracksV2.File` mapping for candidates and anchors. It must not change
+production Bliss Mixer, invoke ONNX at mixing time, or silently use
+unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
+is recorded for later and does not block functional integration.
+
 ## Generic feature models (opt-in)
 
 The **feature analyzer** is separate from the legacy Mood-only commands.
