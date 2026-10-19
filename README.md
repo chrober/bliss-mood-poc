@@ -151,6 +151,46 @@ keeps previous CLI behavior.
 }
 ~~~
 
+## Native scanner diagnostics and optional adaptive concurrency
+
+The Rust scan reports **stage totals** in its JSON diagnostics: FFprobe/
+FFmpeg decode (includes file/network I/O), Mel + patch preparation, ONNX
+inference, SHA-256 audio re-read, and per-worker ONNX session load. Values
+are **sums of overlapping per-song wall times**, not exclusive CPU times.
+They must not be compared directly to whole-scan wall time. Audio hashing
+performs a second full read of every source audio file; high decode/hash
+fractions are consistent with I/O constraints, not proof of NAS saturation.
+Windows and Linux sample system-wide CPU and physical RAM about every two
+seconds as classification results arrive.
+
+By default fixed --workers behavior remains unchanged. The opt-in flag
+**--adaptive-workers** dynamically changes the number of concurrent
+in-flight tracks. Per-worker ONNX sessions are reused and SQLite still has
+one writer. For the measured HP Ryzen 7 7730U with 16GB memory, start at
+six workers and permit a guarded range of four to eight. In adaptive mode
+Windows sets the analyzer process priority to BelowNormal.
+
+~~~powershell
+& {
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $exe = '.\bin\windows-x64\LATEST-RUN-ID\bliss-mood.exe'
+    & $exe scan-features --bliss-db .\bliss.db --db .\adaptive-test.db --models-dir .\models --models moodtheme,genre,voice --source-root '\\192.168.1.100\music' --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 --threads 1 --max-new 100 --max-errors 3 --json
+}
+~~~
+
+The controller requires at least 24 completed songs. It lowers active
+concurrency by one after two consecutive samples at 88% RAM or 90% CPU.
+It raises by one only after three samples below 79% RAM AND 65% CPU.
+Adjustments require at least a 20-second cooldown to avoid oscillation.
+Decisions are logged as ADAPTIVE WORKERS and recorded under the JSON
+diagnostics adjustments field. No active task is cancelled and no ONNX
+environment is recreated. On a system already around 85% RAM it should
+usually hold the six-worker baseline. This is a **protective resource
+heuristic, not a proven real-time throughput optimizer**; compare controlled
+equal-work scans to infer optimum worker settings. Missing OS metrics cause
+the controller to hold current concurrency. Fresh sidecar databases are
+necessary for honest benchmark comparisons.
+
 ## Windows executable without local Rust/Visual Studio
 
 The [Windows x64 binary workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/windows-binary.yml) builds the release executable on a **GitHub-hosted Windows Server 2022 runner**, using MSVC 2022. The job runs Rust tests and verifies that the binary and scan subcommand start before publishing anything.
