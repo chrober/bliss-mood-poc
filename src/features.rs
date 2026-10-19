@@ -486,6 +486,56 @@ pub struct ScanSummary {
     elapsed_seconds: f64,
     model_sessions_initialized: bool,
     experimental_results: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostics: Option<ScanDiagnostics>,
+}
+
+
+#[derive(Debug, Default, Serialize)]
+struct ScanDiagnostics {
+    /// Sum of per-song timings; overlapping workers mean these totals are NOT
+    /// wall-clock durations or exclusive CPU time.
+    completed_songs: usize,
+    cumulative_decode_seconds: f64,
+    cumulative_features_seconds: f64,
+    cumulative_inference_seconds: f64,
+    cumulative_hash_seconds: f64,
+    cumulative_model_load_seconds: f64,
+    cumulative_song_seconds: f64,
+    system_load_samples: usize,
+    system_cpu_average_percent: Option<f64>,
+    system_cpu_max_percent: Option<f64>,
+    system_ram_max_percent: Option<f64>,
+    initial_workers: usize,
+    final_workers: usize,
+    peak_workers: usize,
+    adjustments: Vec<crate::parallel::WorkerAdjustment>,
+    #[serde(skip)]
+    cpu_sum: f64,
+}
+
+impl ScanDiagnostics {
+    fn add(&mut self, report: &FeatureReport) {
+        let t = &report.timings;
+        self.completed_songs += 1;
+        self.cumulative_decode_seconds += t.decode_seconds;
+        self.cumulative_features_seconds += t.features_seconds;
+        self.cumulative_inference_seconds += t.inference_seconds;
+        self.cumulative_hash_seconds += t.hash_seconds;
+        self.cumulative_model_load_seconds += t.model_load_seconds;
+        self.cumulative_song_seconds += t.total_seconds;
+    }
+
+    fn sample(&mut self, load: crate::resources::LoadSample) {
+        self.system_load_samples += 1;
+        self.cpu_sum += load.system_cpu_percent;
+        self.system_cpu_average_percent =
+            Some(self.cpu_sum / self.system_load_samples as f64);
+        self.system_cpu_max_percent = Some(self.system_cpu_max_percent
+            .unwrap_or(0.0).max(load.system_cpu_percent));
+        self.system_ram_max_percent = Some(self.system_ram_max_percent
+            .unwrap_or(0.0).max(load.system_ram_percent));
+    }
 }
 
 pub struct ScanOptions<'a> {
@@ -501,6 +551,9 @@ pub struct ScanOptions<'a> {
     pub max_errors: usize,
     pub threads: usize,
     pub workers: usize,
+    pub adaptive_workers: bool,
+    pub min_workers: usize,
+    pub max_workers: usize,
     pub dry_run: bool,
 }
 
@@ -515,6 +568,14 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     }
     if options.workers > 1 && options.threads > 1 {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
+    }
+    if options.adaptive_workers {
+        crate::parallel::AdaptiveWorkers::new(
+            options.workers, options.min_workers, options.max_workers,
+        )?;
+        if options.dry_run {
+            bail!("--adaptive-workers cannot be used with --dry-run");
+        }
     }
     if options.workers > 1 && !options.dry_run {
         return scan_parallel(options, profiles, started);
@@ -540,6 +601,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
+        diagnostics: None,
     };
     for track in tracks {
         // Bound attempted songs, not just successful writes. A broken ONNX
