@@ -169,16 +169,26 @@ track_file identities and a *listening judgment*, not automatically derived
 same-artist, same-album, file naming, or Bliss neighbor labels:
 
 ```csv
-left,right,label
-Artist A/Album X/Song 1.flac,Artist B/Album Y/Song 2.flac,1
-Artist A/Album X/Song 1.flac,Artist C/Album Z/Song 3.flac,0
+left,right,genre_label,mood_label
+Artist A/Album X/Song 1.flac,Artist B/Album Y/Song 2.flac,1,0
+Artist A/Album X/Song 1.flac,Artist C/Album Z/Song 3.flac,0,1
 ```
 
-Here 1 means musically suitable for the intended playlist context;
-0 means unsuitable. Include clearly similar songs, clearly dissimilar
-songs, **hard negatives** (same production but different mood/genre),
-cross-artist positives, and diverse styles. Do not infer a song's
-compatibility only from file names or genre labels.
+**Genre and Mood require independent human labels.** A pair can share
+its mood but not its genre, or its genre but not its mood. Here
+`genre_label=1` means reasonably similar musical style, while
+`mood_label=1` means similar felt mood/energy in the specific recording.
+`0` means not similar in that dimension. An empty label cell indicates
+**not judged for that dimension**; at least one of the two must be
+judged for every pair. The old single `label` column is now rejected
+because reusing one verdict for both heads would distort the experiment.
+
+Include clear positives, clear negatives, difficult negatives
+(e.g. similar style with different mood; different style with similar
+mood), cross-artist positives, varied recordings and diverse musical
+contexts. File names and metadata help find the audio, **not** assign
+the labels automatically. For paths containing commas, quote the CSV
+field or use PowerShell `Export-Csv` so they are escaped correctly.
 
 ```powershell
 & {
@@ -194,9 +204,10 @@ compatibility only from file names or genre labels.
 }
 ```
 
-This adds positive/negative distributions, missing-vector counts, and a
-tie-aware **ROC-AUC** separately for each metric and each head. AUC
-requires positive and negative examples. Higher raw score is not
+This adds independent positive/negative distributions, per-head judged
+pair counts, per-head missing-vector counts, and tie-aware **ROC-AUC**
+separately for each metric and head. An empty dimension is ignored;
+ROC-AUC requires both positive and negative judgments **for that head**. Higher raw score is not
 necessarily better; a useful metric ranks *actually similar* pairs above
 dissimilar ones, consistently across genres and seeds.
 
