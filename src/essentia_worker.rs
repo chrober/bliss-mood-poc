@@ -325,7 +325,7 @@ mod tests {
     fn independent_cpp_processes_support_parallel_rust_workers() {
         let Some(exe) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else { return };
         let participants = 4usize;
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(participants));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(participants + 1));
         let mut handles = Vec::new();
         for worker_id in 0..participants {
             let exe = PathBuf::from(&exe);
@@ -341,18 +341,36 @@ mod tests {
                 let pid = worker.child.as_ref().unwrap().child.id();
                 // All processes are alive together, ruling out PID reuse.
                 gate.wait();
+                // Keep the native process alive while the parent samples
+                // combined Rust + native child resident/private memory.
+                gate.wait();
                 let b = worker.analyze(Path::new(&second), None).unwrap();
                 assert_eq!(b.patches[0][0], 0.25);
                 assert_eq!(worker.child.as_ref().unwrap().child.id(), pid);
                 pid
             }));
         }
+        barrier.wait();
+        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
+            assert!(tree.registered_children >= participants);
+            if tree.complete {
+                assert!(tree.observed_children >= participants);
+                assert!(tree.child_working_set_mib > 0.0);
+                assert!(tree.total_working_set_mib >= tree.child_working_set_mib);
+            }
+        }
+        barrier.wait();
         let mut pids = std::collections::HashSet::new();
         for handle in handles {
             assert!(pids.insert(handle.join().unwrap()),
                 "Parallel Rust workers must each own a distinct native process");
         }
         assert_eq!(pids.len(), participants);
+        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
+            // All test-owned workers have exited. Other tests may have
+            // concurrently spawned their own worker processes.
+            assert!(tree.registered_children < participants);
+        }
     }
 
     #[test]
