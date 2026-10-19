@@ -177,13 +177,16 @@ impl MoodEngine {
         let scores = self.profile.labels.iter().cloned()
             .zip(sums.iter().map(|value| (value / count as f64) as f32))
             .collect();
+        let at_hash = Instant::now();
+        let audio_hash = sha256_file(path)?;
+        let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(Report {
             schema_version: 1,
             preprocessing_version: "experimental-essentia-audio-v4-unvalidated",
             classification_model: CLASSIFIER,
             embedding_model: ENCODER,
             audio_path: path.display().to_string(),
-            audio_sha256: sha256_file(path)?,
+            audio_sha256: audio_hash,
             models_sha256: self.profile.hashes.clone(),
             sample_rate: preprocess::RATE,
             patches_analyzed: count,
@@ -191,7 +194,7 @@ impl MoodEngine {
             aggregation: "arithmetic_mean_of_per_patch_sigmoid_scores",
             validated_against_essentia: false,
             timings: Timing {
-                decode_seconds, features_seconds, model_load_seconds,
+                decode_seconds, features_seconds, hash_seconds, model_load_seconds,
                 inference_seconds,
                 total_seconds: started.elapsed().as_secs_f64() + model_load_seconds,
             },
