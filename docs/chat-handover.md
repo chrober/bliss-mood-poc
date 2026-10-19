@@ -236,3 +236,20 @@ local cargo builds.
 **Read [lyrion-bliss-mood-genre-integration.md](lyrion-bliss-mood-genre-integration.md) before new product changes.** The immediate engineering task is F1: reliable exact `TracksV2.File` joining and read-only model-provenance-aware Mood/Genre SQLite retrieval for a bounded Bliss/Lyrion candidate set. The first strategy is **Bliss-first with optional Mood/Genre reranking in BlissMixerLab** through guidance SPI v2, with hard eligibility and original Bliss untouched, separate per-head influence, experimental preview opt-in and neutral fallback. Current provider host transmits candidate IDs/urlmd5, but exact file keys are not yet guaranteed; do not silently join by title/artist. Do not enable stored unvalidated model scores for production playlist generation by default.
 
 The cross-platform worker and Raspberry Pi runtime/resource strategy is **deferred**, documented in [platform-resource-roadmap.md](platform-resource-roadmap.md). The user explicitly does not want tuning for one benchmark laptop; development focus now is meaningful playlist fusion, not scanner performance.
+
+## Three-way mixing decision and local workfiles (2026-10-19)
+
+The mixing architecture remains **undecided** between **Bliss-first**,
+**Mood-/Genre-first**, and **Hybrid**. The first integration vertical slice
+uses Bliss-first because the existing SPI v2 can already rerank a Bliss
+candidate pool, **not** because Bliss-first has won a listening/coverage
+comparison. All three must be compared on equivalent seeds, constraints,
+coverage, transition quality, drift/diversity and Pi budgets before choosing.
+See [lyrion-bliss-mood-genre-integration.md](lyrion-bliss-mood-genre-integration.md).
+
+Root-level `benchmark-*/`, `bin/`, local `mood-full.json` and
+`mood-quality-*.csv` are excluded by `.gitignore`; keep personal
+music paths/analysis outputs out of commits. Do **not** ignore
+`Cargo.lock`: this binary application's dependency lockfile should
+be separately versioned once. Git status will continue showing it as
+untracked until added/committed.
