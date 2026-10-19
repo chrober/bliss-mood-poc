@@ -1,4 +1,5 @@
 import csv
+from contextlib import closing
 import importlib.util
 import json
 import math
@@ -154,7 +155,10 @@ class ReadOnlySimilarityEvaluationTests(unittest.TestCase):
         self.assertFalse(path.exists())
 
     def test_rejects_wrong_sqlite_schema(self):
-        with sqlite3.connect(self.dbfile) as conn:
+        # sqlite3.Connection's context manager commits/rolls back, but does
+        # NOT close the handle. Windows cannot remove our TemporaryDirectory
+        # while that connection is still open.
+        with closing(sqlite3.connect(self.dbfile)) as conn:
             conn.execute("PRAGMA user_version=2")
         with self.assertRaisesRegex(ValueError, "schema v3"):
             ev.open_database(self.dbfile)
