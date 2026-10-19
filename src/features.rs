@@ -255,6 +255,7 @@ fn feature_environment() -> Result<&'static ort::environment::Environment> {
 }
 
 impl FeatureEngine {
+    #[allow(dead_code)] // Retain legacy constructor for code paths using the Rust frontend.
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
         Self::with_backend(profiles, threads, &BackendChoice::Rust)
     }
