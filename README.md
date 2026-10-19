@@ -20,9 +20,11 @@ commit and source before concluding otherwise.
 
 ## Lyrion integration workstream (current priority)
 
-The next product phase is **Bliss-first playlist generation with independent
-Mood/Theme and Genre guidance** in Lyrion through the existing BlissMixerLab
-provider host. See the [functional integration plan](docs/lyrion-bliss-mood-genre-integration.md):
+The first **integration experiment** uses Bliss-first playlist generation
+with independent Mood/Theme and Genre guidance in Lyrion through the
+existing BlissMixerLab provider host. **Bliss-first, Mood-/Genre-first and
+Hybrid remain open alternative mixing strategies; no final product choice
+has been made.** See the [functional integration plan](docs/lyrion-bliss-mood-genre-integration.md):
 its first gate is a read-only schema-v3 feature lookup and **exact**
 `TracksV2.File` mapping for candidates and anchors. It must not change
 production Bliss Mixer, invoke ONNX at mixing time, or silently use
@@ -354,3 +356,18 @@ extension: an explicit, reproducible TF-to-ONNX conversion, numerical parity
 check and model provenance verification would be required first. The current
 Mood, Genre and Voice ONNX pipeline must not silently try to load a
 non-existent official Discogs400 ONNX file.
+
+## Local files and Git hygiene
+
+`.gitignore` excludes root-level `benchmark-*/` benchmark runs,
+`bin/` GitHub Actions downloads, `models/` weights, locally populated
+SQLite databases, `mood-full.json` and root `mood-quality-*.csv`
+exports. These can contain library filenames or user-specific metadata;
+never commit them. Tracked fixtures, code and model registry JSON are not
+blanket-ignored.
+
+**`Cargo.lock` is deliberately not gitignored.** Since this repository
+builds distributable Rust executables, commit the generated lockfile once
+to freeze dependency resolution across developer machines and CI. If
+`Cargo.lock` still appears as untracked, that is the single intentional
+exception; do not hide it through `.gitignore` or `.git/info/exclude`.
