@@ -303,3 +303,23 @@ artifact `bliss-mood-windows-x64`, head
 `d34e2c4941d008caae089640dc4b75925da5c3e6`. PR #7 was squash-merged
 into main as `8ee29972999caf1e543dbb7ce63d57868fdd16f2`.
 Do **not** reuse that run ID for subsequently modified code.
+
+## PR #9 process memory follow-up (2026-10-19)
+
+The optional scan diagnostics now include Windows process Working Set maximum
+(`process_working_set_max_mib`), process Private Bytes maximum
+(`process_private_bytes_max_mib`), and the difference between first and last
+sampled process PageFaultCount (`process_page_fault_delta`). These samples
+occur on the existing completion-driven, two-second resource monitor cadence.
+They do not alter worker policy, model inference, stored scores or upstream
+media. On platforms without these Win32 counters the fields remain null.
+
+**Interpretation:** Windows PageFaultCount includes *soft faults* and must
+not be interpreted as pagefile reads, hard faults, or disk I/O. The difference
+covers only the measured window, not the process's complete lifetime. Both
+Working Set and Private Bytes are per-process, unlike overall RAM percentage.
+To prove hard paging, collect complementary Windows Memory counters or ETW
+traces in a separate, explicitly benchmarked experiment.
+
+Follow the mandatory GitHub Actions build and fixed-run-ID PowerShell rules
+above, including waiting for all checks and verifying the PR artifact.
