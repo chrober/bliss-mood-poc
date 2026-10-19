@@ -243,3 +243,14 @@ Next steps: CI/test validation, identical-path local test with a deliberately
 selected and verified Actions binary, and controlled NAS/local-SSD comparisons.
 Independent timer-driven sampling and phase-specific concurrency are not
 included in this first focused observability change.
+
+
+## Available-RAM diagnostics follow-up
+
+The scanner now records `diagnostics.system_available_ram_min_mib` when
+the OS reports available physical memory. The value is a minimum over existing
+resource sampling points (not a process-private allocation or a paging
+counter), remains optional on unsupported systems, and does **not** influence
+adaptive controller decisions. This intentionally small follow-up helps
+interpret observations of 90%+ system-wide RAM load; detailed process
+Working Set/Private Bytes and Windows paging telemetry remain future work.
