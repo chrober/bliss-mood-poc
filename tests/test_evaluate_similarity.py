@@ -195,33 +195,70 @@ class ReadOnlySimilarityEvaluationTests(unittest.TestCase):
         self.assertEqual(output["models"]["moodtheme"]["model_key"], "moodtheme-new")
         self.assertEqual(output, ev.report(self.dbfile, 4, 10, 12, 2, True, None))
 
-    def test_explicit_labels_discriminate_examples(self):
+    def test_independent_genre_and_mood_labels_do_not_leak(self):
         labels = Path(self.tmp.name) / "judged.csv"
         with labels.open("w", encoding="utf-8", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(("left", "right", "label"))
-            writer.writerow(("Rock/A.flac", "Rock/B.flac", "1"))
-            writer.writerow(("Metal/C.flac", "Metal/D.flac", "1"))
-            writer.writerow(("Rock/A.flac", "Metal/C.flac", "0"))
-            writer.writerow(("Rock/B.flac", "Metal/D.flac", "0"))
-            writer.writerow(("Rock/A.flac", "Unknown/Not In DB.flac", "0"))
+            writer.writerow(("left", "right", "genre_label", "mood_label"))
+            # Synthetic feature vectors are intentionally paired by group.
+            # The mocked human genre judgments agree with that structure;
+            # the mood judgments explicitly DISAGREE to prove separation.
+            writer.writerow(("Rock/A.flac", "Rock/B.flac", "1", "0"))
+            writer.writerow(("Metal/C.flac", "Metal/D.flac", "1", "0"))
+            writer.writerow(("Rock/A.flac", "Metal/C.flac", "0", "1"))
+            writer.writerow(("Rock/B.flac", "Metal/D.flac", "0", "1"))
+            writer.writerow(("Rock/A.flac", "Unknown/Not In DB.flac", "0", ""))
+            writer.writerow(("Rock/A.flac", "Metal/D.flac", "", "1"))
         output = ev.report(self.dbfile, 4, 10, 12, 0, True, labels)
-        self.assertEqual(output["labeled"]["judged_pairs"], 5)
-        for head in ev.MODELS:
-            self.assertEqual(output["labeled"][head]["pairs_missing_compatible_vectors"], 1)
-            for metric, result in output["labeled"][head]["metrics"].items():
-                with self.subTest(head=head, metric=metric):
-                    self.assertEqual(result["roc_auc"], 1)
-                    self.assertEqual(result["positives"]["count"], 2)
-                    self.assertEqual(result["negatives"]["count"], 2)
+        self.assertEqual(output["labeled"]["judged_pairs"], 6)
+        self.assertEqual(output["labeled"]["genre"]["pairs_judged_for_head"], 5)
+        self.assertEqual(output["labeled"]["moodtheme"]["pairs_judged_for_head"], 5)
+        self.assertEqual(output["labeled"]["genre"]["pairs_missing_compatible_vectors"], 1)
+        self.assertEqual(output["labeled"]["moodtheme"]["pairs_missing_compatible_vectors"], 0)
+        for metric in ev.METRICS:
+            with self.subTest(metric=metric):
+                genre = output["labeled"]["genre"]["metrics"][metric]
+                mood = output["labeled"]["moodtheme"]["metrics"][metric]
+                self.assertEqual(genre["roc_auc"], 1)
+                self.assertEqual(mood["roc_auc"], 0)
+                self.assertEqual(genre["positives"]["count"], 2)
+                self.assertEqual(genre["negatives"]["count"], 2)
+                self.assertEqual(mood["positives"]["count"], 3)
+                self.assertEqual(mood["negatives"]["count"], 2)
 
     def test_duplicate_labels_rejected(self):
         file = Path(self.tmp.name) / "labels.csv"
         file.write_text(
-            "left,right,label\nRock/A.flac,Rock/B.flac,1\n"
-            "Rock/B.flac,Rock/A.flac,0\n", encoding="utf8"
+            "left,right,genre_label,mood_label\n"
+            "Rock/A.flac,Rock/B.flac,1,\n"
+            "Rock/B.flac,Rock/A.flac,,0\n", encoding="utf8"
         )
         with self.assertRaisesRegex(ValueError, "Duplicate judged pair"):
+            ev.load_labels(file)
+
+    def test_shared_labels_rejected_and_blank_is_allowed_per_head(self):
+        file = Path(self.tmp.name) / "labels.csv"
+        file.write_text("left,right,label\nRock/A.flac,Rock/B.flac,1\n",
+                        encoding="utf8")
+        with self.assertRaisesRegex(ValueError, "genre_label,mood_label"):
+            ev.load_labels(file)
+        file.write_text(
+            "left,right,genre_label,mood_label\n"
+            "Rock/A.flac,Rock/B.flac,,1\n", encoding="utf8"
+        )
+        parsed = ev.load_labels(file)
+        self.assertEqual(parsed[0][2], {"genre": None, "moodtheme": 1})
+        file.write_text(
+            "left,right,genre_label,mood_label\n"
+            "Rock/A.flac,Rock/B.flac,,\n", encoding="utf8"
+        )
+        with self.assertRaisesRegex(ValueError, "at least one head label"):
+            ev.load_labels(file)
+        file.write_text(
+            "left,right,genre_label,mood_label\n"
+            "Rock/A.flac,Rock/B.flac,2,0\n", encoding="utf8"
+        )
+        with self.assertRaisesRegex(ValueError, "genre_label must"):
             ev.load_labels(file)
 
     def test_missing_db_does_not_create_a_file(self):
