@@ -247,9 +247,41 @@ jobs:
           code=$?
           set -e
           test "$code" -ne 0
-          grep -q 'Feature scan stopped after 2 errors' invalid-limit-errors.txt
+          grep -Eq 'Feature scan stopped after [2-4] errors \(limit 2\)' invalid-limit-errors.txt
           test "$(grep -c '^ANALYSIS FAILED' invalid-limit-errors.txt)" -le 4
           echo "PASS: hard error budget stops bad library scans"
+      - name: Verify adaptive scanner stage diagnostics and identical classifications
+        run: |
+          target/release/bliss-mood scan-features \
+            --bliss-db stress-bliss.db --db adaptive-output.db \
+            --models-dir models --models moodtheme,genre,voice --source-root stress \
+            --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 \
+            --threads 1 --max-new 8 --max-errors 3 --json > adaptive-summary.json
+          python - <<'PY'
+          import json, sqlite3
+          data = json.load(open("adaptive-summary.json"))
+          assert data["analyzed"] == 8 and data["failures"] == 0, data
+          assert data["workers"] == 6, data
+          d = data["diagnostics"]
+          assert d["completed_songs"] == 8, d
+          assert d["initial_workers"] == 6, d
+          assert 4 <= d["final_workers"] <= 8, d
+          assert d["cumulative_decode_seconds"] > 0, d
+          assert d["cumulative_features_seconds"] > 0, d
+          assert d["cumulative_inference_seconds"] > 0, d
+          assert d["cumulative_hash_seconds"] > 0, d
+          assert d["cumulative_model_load_seconds"] > 0, d
+          assert d["system_load_samples"] >= 0
+          if d["system_load_samples"]:
+              assert 0 <= d["system_cpu_average_percent"] <= 100
+              assert 0 <= d["system_ram_max_percent"] <= 100
+          sql = ("SELECT track_file, model_id, model_key, scores_f32_le "
+                 "FROM feature_tracks ORDER BY track_file, model_id")
+          with sqlite3.connect("stress-output.db") as a, \
+               sqlite3.connect("adaptive-output.db") as b:
+              assert a.execute(sql).fetchall() == b.execute(sql).fetchall()
+          print("PASS: adaptive and fixed workers yield identical features; native stage profile present")
+          PY
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()
         uses: actions/upload-artifact@v4

@@ -392,6 +392,7 @@ mod tests {
             timings: crate::Timing {
                 decode_seconds: 0.0,
                 features_seconds: 0.0,
+                hash_seconds: 0.0,
                 model_load_seconds: 0.0,
                 inference_seconds: 0.0,
                 total_seconds: 0.0,

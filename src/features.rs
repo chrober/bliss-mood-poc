@@ -307,15 +307,18 @@ impl FeatureEngine {
                 scores,
             });
         }
+        let at_hash = Instant::now();
+        let audio_hash = sha256_file(path)?;
+        let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(FeatureReport {
             schema_version: 3, preprocessing_version: PREPROCESSING,
             aggregation: AGGREGATION,
             audio_path: path.display().to_string(),
-            audio_sha256: sha256_file(path)?,
+            audio_sha256: audio_hash,
             sample_rate: preprocess::RATE,
             patches_analyzed: count, threads: self.threads,
             timings: Timing {
-                decode_seconds, features_seconds, model_load_seconds,
+                decode_seconds, features_seconds, hash_seconds, model_load_seconds,
                 inference_seconds,
                 total_seconds: started.elapsed().as_secs_f64() + model_load_seconds,
             },
@@ -483,6 +486,56 @@ pub struct ScanSummary {
     elapsed_seconds: f64,
     model_sessions_initialized: bool,
     experimental_results: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostics: Option<ScanDiagnostics>,
+}
+
+
+#[derive(Debug, Default, Serialize)]
+struct ScanDiagnostics {
+    /// Sum of per-song timings; overlapping workers mean these totals are NOT
+    /// wall-clock durations or exclusive CPU time.
+    completed_songs: usize,
+    cumulative_decode_seconds: f64,
+    cumulative_features_seconds: f64,
+    cumulative_inference_seconds: f64,
+    cumulative_hash_seconds: f64,
+    cumulative_model_load_seconds: f64,
+    cumulative_song_seconds: f64,
+    system_load_samples: usize,
+    system_cpu_average_percent: Option<f64>,
+    system_cpu_max_percent: Option<f64>,
+    system_ram_max_percent: Option<f64>,
+    initial_workers: usize,
+    final_workers: usize,
+    peak_workers: usize,
+    adjustments: Vec<crate::parallel::WorkerAdjustment>,
+    #[serde(skip)]
+    cpu_sum: f64,
+}
+
+impl ScanDiagnostics {
+    fn add(&mut self, report: &FeatureReport) {
+        let t = &report.timings;
+        self.completed_songs += 1;
+        self.cumulative_decode_seconds += t.decode_seconds;
+        self.cumulative_features_seconds += t.features_seconds;
+        self.cumulative_inference_seconds += t.inference_seconds;
+        self.cumulative_hash_seconds += t.hash_seconds;
+        self.cumulative_model_load_seconds += t.model_load_seconds;
+        self.cumulative_song_seconds += t.total_seconds;
+    }
+
+    fn sample(&mut self, load: crate::resources::LoadSample) {
+        self.system_load_samples += 1;
+        self.cpu_sum += load.system_cpu_percent;
+        self.system_cpu_average_percent =
+            Some(self.cpu_sum / self.system_load_samples as f64);
+        self.system_cpu_max_percent = Some(self.system_cpu_max_percent
+            .unwrap_or(0.0).max(load.system_cpu_percent));
+        self.system_ram_max_percent = Some(self.system_ram_max_percent
+            .unwrap_or(0.0).max(load.system_ram_percent));
+    }
 }
 
 pub struct ScanOptions<'a> {
@@ -498,6 +551,9 @@ pub struct ScanOptions<'a> {
     pub max_errors: usize,
     pub threads: usize,
     pub workers: usize,
+    pub adaptive_workers: bool,
+    pub min_workers: usize,
+    pub max_workers: usize,
     pub dry_run: bool,
 }
 
@@ -512,6 +568,14 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     }
     if options.workers > 1 && options.threads > 1 {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
+    }
+    if options.adaptive_workers {
+        crate::parallel::AdaptiveWorkers::new(
+            options.workers, options.min_workers, options.max_workers,
+        )?;
+        if options.dry_run {
+            bail!("--adaptive-workers cannot be used with --dry-run");
+        }
     }
     if options.workers > 1 && !options.dry_run {
         return scan_parallel(options, profiles, started);
@@ -537,6 +601,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
+        diagnostics: None,
     };
     for track in tracks {
         // Bound attempted songs, not just successful writes. A broken ONNX
@@ -616,23 +681,47 @@ fn save_completion(
     rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
     conn: &mut Connection,
     summary: &mut ScanSummary,
+    diagnostics: &mut ScanDiagnostics,
+    monitor: &mut crate::resources::ResourceMonitor,
+    adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
+    expected: Option<usize>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
-    match result.and_then(|report| persist_into(conn, &job.track, &report, Some(job.state))) {
-        Ok(()) => {
-            summary.analyzed += 1;
-            eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, summary.pending);
-        }
-        Err(error) => {
+    match result {
+        Ok(report) => match persist_into(conn, &job.track, &report, Some(job.state)) {
+            Ok(()) => {
+                diagnostics.add(&report);
+                summary.analyzed += 1;
+                if let Some(max) = expected {
+                    eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, max);
+                } else {
+                    eprintln!("ANALYZED {} (completed={}, attempted={})",
+                        job.track, summary.analyzed, summary.pending);
+                }
+            }
+            Err(err) => {
+                summary.failures += 1;
+                eprintln!("STORAGE FAILED {}: {err:#}", job.track);
+            }
+        },
+        Err(err) => {
             summary.failures += 1;
-            eprintln!("ANALYSIS FAILED {}: {error:#}", job.track);
+            eprintln!("ANALYSIS FAILED {}: {err:#}", job.track);
+        }
+    }
+    if let Some(load) = monitor.sample() {
+        diagnostics.sample(load);
+        if let Some(controller) = adaptive.as_mut() {
+            controller.observe(summary.analyzed, load);
+            diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
         }
     }
     Ok(())
 }
 
-/// Parallelize across songs, not patches. Each worker lazily loads and reuses
-/// the encoder and all requested heads. Only the coordinator opens SQLite.
+/// Worker sessions are created only when a job arrives, then reused. One
+/// coordinator owns SQLite and controls how many tasks are in flight, so
+/// adjusting the active concurrency never discards in-progress work.
 fn scan_parallel(
     options: ScanOptions<'_>,
     profiles: Vec<Profile>,
@@ -647,30 +736,49 @@ fn scan_parallel(
         }
     }
     let mut conn = storage::open_scan_db(options.db)?;
-    let workers = options.workers.min(tracks.len()).max(1);
+    let pool_size = if options.adaptive_workers {
+        options.max_workers.min(tracks.len()).max(1)
+    } else {
+        options.workers.min(tracks.len()).max(1)
+    };
+    let initial = options.workers.min(pool_size);
+    let mut adaptive = if options.adaptive_workers {
+        Some(crate::parallel::AdaptiveWorkers::new(
+            initial, options.min_workers.min(initial), pool_size,
+        )?)
+    } else {
+        None
+    };
+    let mut diagnostics = ScanDiagnostics {
+        initial_workers: initial,
+        final_workers: initial,
+        peak_workers: initial,
+        ..ScanDiagnostics::default()
+    };
+    let mut monitor = crate::resources::ResourceMonitor::new();
     let mut summary = ScanSummary {
         model_ids: profiles.iter().map(|p| p.descriptor.id.clone()).collect(),
-        workers, bliss_tracks: tracks.len(),
+        workers: initial, bliss_tracks: tracks.len(),
         checked: 0, up_to_date: 0, pending: 0, analyzed: 0,
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
+        diagnostics: None,
     };
 
-    // Only workers jobs may be in flight; completed reports contain full
-    // score vectors, never whole decoded PCM buffers. This bounds memory.
-    let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(workers);
+    // A single bounded task channel; only up to active jobs in flight.
+    // The result channel contains small classification reports, not PCM audio.
+    let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(pool_size);
     let task_rx = Arc::new(Mutex::new(task_rx));
     let (result_tx, result_rx) = mpsc::channel::<FeatureCompletion>();
-    std::thread::scope(|scope| -> Result<()> {
-        for _ in 0..workers {
+    let aborted = std::thread::scope(|scope| -> Result<bool> {
+        for _ in 0..pool_size {
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
             scope.spawn(move || {
                 let mut engine: Option<FeatureEngine> = None;
                 loop {
-                    // Lock only for receiving the next job, never during inference.
                     let task = match rx.lock() {
                         Ok(guard) => match guard.recv() {
                             Ok(task) => task,
@@ -696,32 +804,16 @@ fn scan_parallel(
         }
         drop(result_tx);
         let mut in_flight = 0usize;
+        let mut stopped_for_errors = false;
         for track in tracks {
-            // max-new is an attempt limit even when every track fails.
+            // max-new counts attempted tracks, not only successful writes.
             if options.max_new.is_some_and(|max| summary.pending >= max) {
                 summary.limit_reached = true;
                 break;
             }
             if summary.failures + summary.missing_files >= options.max_errors {
-                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                    summary.failures + summary.missing_files, options.max_errors,
-                    summary.analyzed, summary.pending);
-            }
-            // Avoid successful-commit overshoot from in-flight tracks.
-            if let Some(max) = options.max_new {
-                while in_flight > 0 && summary.analyzed + in_flight >= max {
-                    save_completion(&result_rx, &mut conn, &mut summary)?;
-                    in_flight -= 1;
-                    if summary.failures + summary.missing_files >= options.max_errors {
-                        bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                            summary.failures + summary.missing_files, options.max_errors,
-                            summary.analyzed, summary.pending);
-                    }
-                }
-                if summary.analyzed >= max {
-                    summary.limit_reached = true;
-                    break;
-                }
+                stopped_for_errors = true;
+                break;
             }
             summary.checked += 1;
             let path = match crate::batch::source_path(
@@ -746,36 +838,65 @@ fn scan_parallel(
                 summary.up_to_date += 1;
                 continue;
             }
-            summary.pending += 1;
-            // At most one outstanding task per worker. The coordinator
-            // is also the only SQLite writer; no connection crosses threads.
-            if in_flight >= workers {
-                save_completion(&result_rx, &mut conn, &mut summary)?;
+            // Do not scan ahead of the active concurrency limit; always
+            // receive and persist a result before scheduling another song.
+            while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+                let failures_before = summary.failures;
+                save_completion(
+                    &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                    &mut monitor, &mut adaptive, options.max_new,
+                )?;
                 in_flight -= 1;
-                if summary.failures + summary.missing_files >= options.max_errors {
-                    bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                        summary.failures + summary.missing_files, options.max_errors,
-                        summary.analyzed, summary.pending);
+                if summary.failures > failures_before {
+                    // Stop dispatching new songs on the first inference or
+                    // storage failure. Drain existing work to avoid starting
+                    // a fifth failing song while four are already in flight.
+                    while in_flight > 0 {
+                        save_completion(
+                            &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                            &mut monitor, &mut adaptive, options.max_new,
+                        )?;
+                        in_flight -= 1;
+                    }
                 }
+                if summary.failures + summary.missing_files >= options.max_errors {
+                    stopped_for_errors = true;
+                    break;
+                }
+            }
+            if stopped_for_errors {
+                break;
             }
             task_tx.send(FeatureJob { track, path, state })
                 .context("Feature work queue unexpectedly closed")?;
             summary.model_sessions_initialized = true;
+            summary.pending += 1;
             in_flight += 1;
         }
         drop(task_tx);
+        // Return all in-flight reports before leaving scoped threads.
         while in_flight > 0 {
-            save_completion(&result_rx, &mut conn, &mut summary)?;
+            save_completion(
+                &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                &mut monitor, &mut adaptive, options.max_new,
+            )?;
             in_flight -= 1;
-            if summary.failures + summary.missing_files >= options.max_errors {
-                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                    summary.failures + summary.missing_files, options.max_errors,
-                    summary.analyzed, summary.pending);
-            }
         }
-        Ok(())
+        Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
+    if let Some(controller) = adaptive {
+        diagnostics.final_workers = controller.active;
+        diagnostics.adjustments = controller.adjustments;
+    }
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
+    summary.diagnostics = Some(diagnostics);
+    if aborted {
+        bail!(
+            "Feature scan stopped after {} errors (limit {}). Analyzed={}, attempted={}",
+            summary.failures + summary.missing_files, options.max_errors,
+            summary.analyzed, summary.pending
+        );
+    }
     Ok(summary)
 }
 
@@ -815,7 +936,7 @@ mod tests {
             patches_analyzed: 5, threads: 1,
             timings: Timing {
                 decode_seconds: 0.0, features_seconds: 0.0,
-                model_load_seconds: 0.0, inference_seconds: 0.0,
+                hash_seconds: 0.0, model_load_seconds: 0.0, inference_seconds: 0.0,
                 total_seconds: 0.0,
             },
             classifications: BTreeMap::from([
@@ -841,7 +962,7 @@ mod tests {
             sample_rate: 16000, patches_analyzed: 5, threads: 1,
             aggregation: AGGREGATION, validated_against_essentia: false,
             timings: Timing { decode_seconds: 0.0, features_seconds: 0.0,
-                model_load_seconds: 0.0, inference_seconds: 0.0, total_seconds: 0.0 },
+                hash_seconds: 0.0, model_load_seconds: 0.0, inference_seconds: 0.0, total_seconds: 0.0 },
             scores: (0..56).map(|i| (format!("label{i:03}"), 0.1)).collect(),
         };
         let key = "Artist/Album/song.flac";
