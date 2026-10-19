@@ -132,7 +132,8 @@ The essential validation sequence:
 4. Windows and Linux packaging; Pi/aarch64 compatibility and C++ dependency audits.
 5. Fixed 1/2/4/6 workers vs prior fixed/adaptive benchmarks: throughput,
    process-tree private memory, startup time and NAS I/O.
-6. Timeouts, supervised restart and aggregate resource metrics before Pi rollout.
+6. Validate the new hard timeout / restart under Windows and ARM64, then
+   implement aggregate child-process resource metrics before Pi rollout.
 
 The original C++ algorithms are documented at:
 - https://essentia.upf.edu/reference/std_MonoLoader.html
