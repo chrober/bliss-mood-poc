@@ -319,10 +319,28 @@ mod tests {
     }
 
     #[test]
+    fn hard_deadline_kills_hung_worker_and_allows_restart() {
+        let Some(exe) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else { return };
+        let mut worker = EssentiaWorker::with_timeout(
+            PathBuf::from(exe), Duration::from_millis(250),
+        );
+        let started = std::time::Instant::now();
+        let failure = worker.analyze(Path::new("hang.flac"), None)
+            .err().expect("hung native worker must time out");
+        assert!(format!("{failure:#}").contains("deadline"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(worker.child.is_none());
+        assert_eq!(worker.analyze(Path::new("recovered.wav"), Some(1))
+            .unwrap().patches.len(), 1);
+    }
+
+    #[test]
     fn backend_selection_is_explicit() {
         assert!(matches!(BackendChoice::from_cli("rust", None, 900), Ok(BackendChoice::Rust)));
         assert!(BackendChoice::from_cli("unknown", None, 900).is_err());
         assert!(BackendChoice::from_cli("essentia", None, 900).is_err());
         assert!(BackendChoice::from_cli("rust", Some(Path::new("worker")), 900).is_err());
+        assert!(BackendChoice::from_cli("rust", None, 0).is_err());
+        assert!(BackendChoice::from_cli("rust", None, 7201).is_err());
     }
 }
