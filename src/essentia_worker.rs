@@ -73,8 +73,10 @@ struct ChildIo {
 impl Drop for ChildIo {
     fn drop(&mut self) {
         // On timeout or native failure, close/kill and reap before next song.
+        let pid = self.child.id();
         let _ = self.child.kill();
         let _ = self.child.wait();
+        crate::resources::unregister_native_child(pid);
     }
 }
 
@@ -108,6 +110,7 @@ impl EssentiaWorker {
         let input = child.stdin.take().context("Native worker stdin missing")?;
         let output = child.stdout.take().context("Native worker stdout missing")?;
         // Handshake occurs *under the same hard deadline* as the first request.
+        crate::resources::register_native_child(child.id());
         self.child = Some(ChildIo {
             child, input: Some(input), output: Some(output), hello_pending: true,
         });
