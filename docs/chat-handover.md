@@ -202,3 +202,30 @@ artifact `bliss-mood-windows-x64`, head
 `d34e2c4941d008caae089640dc4b75925da5c3e6`. PR #7 was squash-merged
 into main as `8ee29972999caf1e543dbb7ce63d57868fdd16f2`.
 Do **not** reuse that run ID for subsequently modified code.
+
+
+## PR #10 pre-worker baseline measurement (2026-10-19)
+
+**New benchmark requirement:** capture and report the system's RAM **and CPU
+baseline before any scanner worker starts**, plus available physical RAM
+and analyzer process Working Set and Private Bytes. For CPU, a single
+instantaneous OS counter is meaningless: use a **one-second interval** before
+workers are spawned, and expose the actual elapsed measurement window.
+Do **not** feed this baseline into the adaptive worker controller or
+normal runtime samples. On Linux and Windows this is measured at the start of
+the parallel scan, after opening the input and sidecar DB and before
+creating ONNX worker sessions. The one-second baseline measurement is
+included in wall-clock scan elapsed time.
+
+The JSON location is `diagnostics.baseline`:
+`system_cpu_percent`, `cpu_measurement_seconds`,
+`system_ram_percent`, `system_available_ram_mib`,
+`process_working_set_mib`, `process_private_bytes_mib`.
+These baseline values reflect **pre-worker** machine load, not a completely
+idle Windows system before the application was launched. Compare changes
+with runtime extrema; extrema can occur at different instants and do not
+prove the analyzer was the cause of overall RAM pressure.
+
+Use the mandatory PR-triggered GitHub Actions Windows artifact workflow
+and exact-run PowerShell download rules documented above; never suggest
+local cargo builds.
