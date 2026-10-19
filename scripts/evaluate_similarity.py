@@ -234,21 +234,25 @@ def evaluate_random(sample: dict, pairs: int, seed: int, examples: int) -> dict:
                 score = function(left, right)
                 if score is not None:
                     scores[name].append(score)
-        # Show nearest tracks as *qualitative review prompts*, not labels.
-        seed_file = files[0]
+        # Several reproducibly selected, independently seeded listening prompts.
+        # These are not labels; the reviewer must judge the actual music.
+        seed_files = random.Random(seed + 113).sample(files, min(3, len(files)))
         exemplar = []
-        for name, function in METRIC_FUNCS.items():
-            ranking = []
-            for file in files[1:]:
-                score = function(tracks[seed_file][head], tracks[file][head])
-                if score is not None:
-                    ranking.append((score, file))
-            ranking.sort(key=lambda row: (-row[0], row[1]))
-            exemplar.append({"metric": name, "seed": seed_file,
-                             "neighbors": [
-                                 {"file": file, "score": score}
-                                 for score, file in ranking[:examples]
-                             ]})
+        for seed_file in seed_files:
+            for name, function in METRIC_FUNCS.items():
+                ranking = []
+                for file in files:
+                    if file == seed_file:
+                        continue
+                    score = function(tracks[seed_file][head], tracks[file][head])
+                    if score is not None:
+                        ranking.append((score, file))
+                ranking.sort(key=lambda row: (-row[0], row[1]))
+                exemplar.append({"metric": name, "seed": seed_file,
+                                 "neighbors": [
+                                     {"file": file, "score": score}
+                                     for score, file in ranking[:examples]
+                                 ]})
         output[head] = {"random_pairs": {name: describe(v) for name, v in scores.items()},
                         "nearest_neighbor_examples": exemplar}
     return output
