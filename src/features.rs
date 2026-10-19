@@ -681,23 +681,47 @@ fn save_completion(
     rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
     conn: &mut Connection,
     summary: &mut ScanSummary,
+    diagnostics: &mut ScanDiagnostics,
+    monitor: &mut crate::resources::ResourceMonitor,
+    adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
+    expected: Option<usize>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
-    match result.and_then(|report| persist_into(conn, &job.track, &report, Some(job.state))) {
-        Ok(()) => {
-            summary.analyzed += 1;
-            eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, summary.pending);
-        }
-        Err(error) => {
+    match result {
+        Ok(report) => match persist_into(conn, &job.track, &report, Some(job.state)) {
+            Ok(()) => {
+                diagnostics.add(&report);
+                summary.analyzed += 1;
+                if let Some(max) = expected {
+                    eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, max);
+                } else {
+                    eprintln!("ANALYZED {} (completed={}, attempted={})",
+                        job.track, summary.analyzed, summary.pending);
+                }
+            }
+            Err(err) => {
+                summary.failures += 1;
+                eprintln!("STORAGE FAILED {}: {err:#}", job.track);
+            }
+        },
+        Err(err) => {
             summary.failures += 1;
-            eprintln!("ANALYSIS FAILED {}: {error:#}", job.track);
+            eprintln!("ANALYSIS FAILED {}: {err:#}", job.track);
+        }
+    }
+    if let Some(load) = monitor.sample() {
+        diagnostics.sample(load);
+        if let Some(controller) = adaptive.as_mut() {
+            controller.observe(summary.analyzed, load);
+            diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
         }
     }
     Ok(())
 }
 
-/// Parallelize across songs, not patches. Each worker lazily loads and reuses
-/// the encoder and all requested heads. Only the coordinator opens SQLite.
+/// Worker sessions are created only when a job arrives, then reused. One
+/// coordinator owns SQLite and controls how many tasks are in flight, so
+/// adjusting the active concurrency never discards in-progress work.
 fn scan_parallel(
     options: ScanOptions<'_>,
     profiles: Vec<Profile>,
@@ -712,30 +736,49 @@ fn scan_parallel(
         }
     }
     let mut conn = storage::open_scan_db(options.db)?;
-    let workers = options.workers.min(tracks.len()).max(1);
+    let pool_size = if options.adaptive_workers {
+        options.max_workers.min(tracks.len()).max(1)
+    } else {
+        options.workers.min(tracks.len()).max(1)
+    };
+    let initial = options.workers.min(pool_size);
+    let mut adaptive = if options.adaptive_workers {
+        Some(crate::parallel::AdaptiveWorkers::new(
+            initial, options.min_workers.min(initial), pool_size,
+        )?)
+    } else {
+        None
+    };
+    let mut diagnostics = ScanDiagnostics {
+        initial_workers: initial,
+        final_workers: initial,
+        peak_workers: initial,
+        ..ScanDiagnostics::default()
+    };
+    let mut monitor = crate::resources::ResourceMonitor::new();
     let mut summary = ScanSummary {
         model_ids: profiles.iter().map(|p| p.descriptor.id.clone()).collect(),
-        workers, bliss_tracks: tracks.len(),
+        workers: initial, bliss_tracks: tracks.len(),
         checked: 0, up_to_date: 0, pending: 0, analyzed: 0,
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
+        diagnostics: None,
     };
 
-    // Only workers jobs may be in flight; completed reports contain full
-    // score vectors, never whole decoded PCM buffers. This bounds memory.
-    let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(workers);
+    // A single bounded task channel; only up to active jobs in flight.
+    // The result channel contains small classification reports, not PCM audio.
+    let (task_tx, task_rx) = mpsc::sync_channel::<FeatureJob>(pool_size);
     let task_rx = Arc::new(Mutex::new(task_rx));
     let (result_tx, result_rx) = mpsc::channel::<FeatureCompletion>();
-    std::thread::scope(|scope| -> Result<()> {
-        for _ in 0..workers {
+    let aborted = std::thread::scope(|scope| -> Result<bool> {
+        for _ in 0..pool_size {
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
             scope.spawn(move || {
                 let mut engine: Option<FeatureEngine> = None;
                 loop {
-                    // Lock only for receiving the next job, never during inference.
                     let task = match rx.lock() {
                         Ok(guard) => match guard.recv() {
                             Ok(task) => task,
@@ -761,32 +804,16 @@ fn scan_parallel(
         }
         drop(result_tx);
         let mut in_flight = 0usize;
+        let mut stopped_for_errors = false;
         for track in tracks {
-            // max-new is an attempt limit even when every track fails.
+            // max-new counts attempted tracks, not only successful writes.
             if options.max_new.is_some_and(|max| summary.pending >= max) {
                 summary.limit_reached = true;
                 break;
             }
             if summary.failures + summary.missing_files >= options.max_errors {
-                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                    summary.failures + summary.missing_files, options.max_errors,
-                    summary.analyzed, summary.pending);
-            }
-            // Avoid successful-commit overshoot from in-flight tracks.
-            if let Some(max) = options.max_new {
-                while in_flight > 0 && summary.analyzed + in_flight >= max {
-                    save_completion(&result_rx, &mut conn, &mut summary)?;
-                    in_flight -= 1;
-                    if summary.failures + summary.missing_files >= options.max_errors {
-                        bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                            summary.failures + summary.missing_files, options.max_errors,
-                            summary.analyzed, summary.pending);
-                    }
-                }
-                if summary.analyzed >= max {
-                    summary.limit_reached = true;
-                    break;
-                }
+                stopped_for_errors = true;
+                break;
             }
             summary.checked += 1;
             let path = match crate::batch::source_path(
@@ -811,36 +838,52 @@ fn scan_parallel(
                 summary.up_to_date += 1;
                 continue;
             }
-            summary.pending += 1;
-            // At most one outstanding task per worker. The coordinator
-            // is also the only SQLite writer; no connection crosses threads.
-            if in_flight >= workers {
-                save_completion(&result_rx, &mut conn, &mut summary)?;
+            // Do not scan ahead of the active concurrency limit; always
+            // receive and persist a result before scheduling another song.
+            while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+                save_completion(
+                    &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                    &mut monitor, &mut adaptive, options.max_new,
+                )?;
                 in_flight -= 1;
                 if summary.failures + summary.missing_files >= options.max_errors {
-                    bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                        summary.failures + summary.missing_files, options.max_errors,
-                        summary.analyzed, summary.pending);
+                    stopped_for_errors = true;
+                    break;
                 }
+            }
+            if stopped_for_errors {
+                break;
             }
             task_tx.send(FeatureJob { track, path, state })
                 .context("Feature work queue unexpectedly closed")?;
             summary.model_sessions_initialized = true;
+            summary.pending += 1;
             in_flight += 1;
         }
         drop(task_tx);
+        // Return all in-flight reports before leaving scoped threads.
         while in_flight > 0 {
-            save_completion(&result_rx, &mut conn, &mut summary)?;
+            save_completion(
+                &result_rx, &mut conn, &mut summary, &mut diagnostics,
+                &mut monitor, &mut adaptive, options.max_new,
+            )?;
             in_flight -= 1;
-            if summary.failures + summary.missing_files >= options.max_errors {
-                bail!("Feature scan stopped after {} errors (--max-errors {}). Analyzed={}, attempted={}",
-                    summary.failures + summary.missing_files, options.max_errors,
-                    summary.analyzed, summary.pending);
-            }
         }
-        Ok(())
+        Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
+    if let Some(controller) = adaptive {
+        diagnostics.final_workers = controller.active;
+        diagnostics.adjustments = controller.adjustments;
+    }
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
+    summary.diagnostics = Some(diagnostics);
+    if aborted {
+        bail!(
+            "Feature scan stopped after {} errors (limit {}). Analyzed={}, attempted={}",
+            summary.failures + summary.missing_files, options.max_errors,
+            summary.analyzed, summary.pending
+        );
+    }
     Ok(summary)
 }
 
