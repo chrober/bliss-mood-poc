@@ -39,29 +39,35 @@ def request(proc, path, patch_cap=0):
     return status, (count, values), decoding, frontend
 
 def compare_to_rust_mel(rust_executable, path, patches):
-    """Compare every coefficient of the first full native Mel patch."""
+    """Compare every coefficient of all native patches against Rust reference."""
     output = subprocess.run(
-        [rust_executable, "mel-dump", str(path), "--max-frames", "128"],
+        [rust_executable, "mel-dump", str(path), "--max-frames", "1024"],
         check=True, capture_output=True, text=True, timeout=120,
     )
     parsed = json.loads(output.stdout)
     frames = parsed["frames"]
-    if len(frames) != 128 or any(len(frame) != 96 for frame in frames):
-        raise RuntimeError("Rust reference returned unexpected Mel matrix shape")
-    reference = [x for frame in frames for x in frame]
-    native = patches[1][:128 * 96]
-    errors = [abs(a - b) for a, b in zip(native, reference)]
-    max_error = max(errors)
-    mae = sum(errors) / len(errors)
-    if max_error > 1e-3:
-        worst = errors.index(max_error)
-        raise AssertionError(
-            f"Native original Essentia vs Rust Mel mismatch: MAE={mae:.8g}, "
-            f"max={max_error:.8g} at frame={worst//96} band={worst%96}, "
-            f"native={native[worst]:.8g}, rust={reference[worst]:.8g}"
-        )
-    print(f"Mel parity PASS: {len(errors)} coefficients; "
-          f"MAE={mae:.8g}, max error={max_error:.8g}")
+    if len(frames) != parsed["total_frames"] or any(len(frame) != 96 for frame in frames):
+        raise RuntimeError("Rust reference returned incomplete Mel matrix")
+    starts = list(range(0, len(frames) - 128 + 1, 62))
+    count, native = patches
+    if len(starts) != count:
+        raise AssertionError(f"Native {count} vs Rust {len(starts)} patch count mismatch")
+    errors = []
+    for patch, start in enumerate(starts):
+        for row in range(128):
+            for band in range(96):
+                index = (patch * 128 + row) * 96 + band
+                original = native[index]
+                reference = frames[start + row][band]
+                delta = abs(original - reference)
+                errors.append(delta)
+                if delta > 1e-3 + 1e-3 * abs(reference):
+                    raise AssertionError(
+                        f"Native/Rust Mel mismatch at patch={patch}, frame={row}, "
+                        f"band={band}: C++={original}, Rust={reference}, delta={delta}"
+                    )
+    print(f"Mel parity PASS: {len(errors)} coefficients across {count} patches; "
+          f"MAE={sum(errors) / len(errors):.8g}, max error={max(errors):.8g}")
 
 def main(exe, rust_executable=None):
     with tempfile.TemporaryDirectory() as folder:
