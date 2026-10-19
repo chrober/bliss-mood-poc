@@ -96,6 +96,9 @@ enum Action {
         /// Trusted executable for original Essentia C++ DSP subprocess.
         #[arg(long)]
         essentia_worker: Option<PathBuf>,
+        /// Hard wall-clock limit per C++ worker request, including first handshake.
+        #[arg(long, default_value_t = 900)]
+        essentia_timeout_seconds: u64,
         #[arg(long)]
         max_patches: Option<usize>,
         #[arg(long, default_value_t = 1)]
@@ -142,6 +145,9 @@ enum Action {
         /// Trusted native Essentia C++ worker executable.
         #[arg(long)]
         essentia_worker: Option<PathBuf>,
+        /// Hard wall-clock limit per native worker song/handshake (1..7200 seconds).
+        #[arg(long, default_value_t = 900)]
+        essentia_timeout_seconds: u64,
         /// Opt-in system CPU/RAM-aware concurrency control.
         #[arg(long)]
         adaptive_workers: bool,
@@ -461,13 +467,13 @@ fn main() -> Result<()> {
         }
         Action::AnalyzeFeatures {
             source, models_dir, registry, models, audio_backend,
-            essentia_worker, max_patches, threads, json, db, track_key,
+            essentia_worker, essentia_timeout_seconds, max_patches, threads, json, db, track_key,
         } => {
             if db.is_some() != track_key.is_some() {
                 bail!("--db and --track-key must be specified together");
             }
             let backend = essentia_worker::BackendChoice::from_cli(
-                &audio_backend, essentia_worker.as_deref(),
+                &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
             )?;
             let mut profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
             features::retarget_profiles(&mut profiles, &backend)?;
@@ -494,7 +500,7 @@ fn main() -> Result<()> {
         Action::ScanFeatures {
             bliss_db, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
-            audio_backend, essentia_worker,
+            audio_backend, essentia_worker, essentia_timeout_seconds,
             adaptive_workers, min_workers, max_workers, dry_run, json,
         } => {
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
@@ -511,7 +517,7 @@ fn main() -> Result<()> {
                 parallel::lower_priority_auto();
             }
             let backend = essentia_worker::BackendChoice::from_cli(
-                &audio_backend, essentia_worker.as_deref(),
+                &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
             )?;
             let summary = features::scan(features::ScanOptions {
                 bliss_db: &bliss_db, db: &db, models_dir: &models_dir,
