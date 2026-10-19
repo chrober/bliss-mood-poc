@@ -89,6 +89,7 @@ pub struct EssentiaWorker {
 }
 
 impl EssentiaWorker {
+    #[cfg(test)]
     pub fn new(executable: PathBuf) -> Self {
         Self::with_timeout(executable, Duration::from_secs(900))
     }
