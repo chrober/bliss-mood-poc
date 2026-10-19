@@ -14,7 +14,12 @@ jobs:
       # During initial bootstrap apply formatting so compiler/API errors surface.
       # TODO: enforce a clean git diff after rustfmt once the sources are formatted.
       - run: cargo fmt --all
-      - run: cargo test
+      - name: Compile stand-alone C++ IPC test fixture (no Essentia dependency)
+        run: c++ -std=c++17 -O2 -Wall -Wextra -o /tmp/essentia-ipc-fixture native/protocol_fixture.cpp
+      - name: Run Rust tests, including actual persistent child-process IPC
+        env:
+          ESSENTIA_IPC_FIXTURE_EXE: /tmp/essentia-ipc-fixture
+        run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
 
       - name: Validate read-only quality sampling
