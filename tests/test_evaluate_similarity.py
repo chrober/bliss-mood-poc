@@ -34,6 +34,52 @@ class SimilarityMathTests(unittest.TestCase):
         self.assertEqual(ev.topk_weighted_jaccard(a, c), 0)
         self.assertIsNone(ev.topk_weighted_jaccard(c, c))
 
+    def test_topk_zero_overlap_is_not_falsely_ranked_as_a_neighbor(self):
+        # Zero Jaccard means no shared active class. Do not fabricate a
+        # "top match" by alphabetically sorting equally bad candidates.
+        vectors = {
+            "A.flac": (0.9, 0.01, 0.01, 0.01),
+            "B.flac": (0.01, 0.9, 0.01, 0.01),
+            "C.flac": (0.01, 0.01, 0.9, 0.01),
+        }
+        sample = {"tracks": {
+            key: {"genre": values, "moodtheme": values}
+            for key, values in vectors.items()
+        }}
+        cohorts = {
+            key: {"labels": ["first", "second", "third", "fourth"]}
+            for key in ev.MODELS
+        }
+        result = ev.evaluate_random(sample, 10, 3, 3, cohorts)
+        for head in ev.MODELS:
+            zero_only = [
+                item for item in result[head]["nearest_neighbor_examples"]
+                if item["metric"] == "topk_weighted_jaccard"
+            ]
+            self.assertEqual(len(zero_only), 3)
+            for item in zero_only:
+                self.assertEqual(item["neighbors"], [])
+                self.assertTrue(item["no_positive_overlap"])
+                self.assertEqual(item["zero_score_candidates"], 2)
+                self.assertEqual(item["undefined_score_candidates"], 0)
+            stats = result[head]["random_pairs"]["topk_weighted_jaccard"]
+            self.assertEqual(stats["zero_fraction"], 1.0)
+            profiles = result[head]["track_profiles"]
+            self.assertEqual(len(profiles), 3)
+            self.assertEqual(profiles[0]["top_classes"][0]["label"], "first")
+            self.assertEqual(profiles[0]["active_ge_0_10"], 1)
+
+    def test_profiles_come_from_actual_ordered_model_labels(self):
+        profile = ev.feature_profile(
+            "song", (0.02, 0.8, 0.9, 0.01),
+            ["ambient", "blues", "folk", "rock"],
+        )
+        self.assertEqual(
+            [x["label"] for x in profile["top_classes"][:2]],
+            ["folk", "blues"],
+        )
+        self.assertEqual(profile["active_ge_0_10"], 2)
+
     def test_vectors_must_have_valid_dimensions_and_values(self):
         self.assertIsNone(ev.decode_blob(b"abc", 2))
         self.assertIsNone(ev.decode_blob(struct.pack("<2f", float("nan"), 0.3), 2))
