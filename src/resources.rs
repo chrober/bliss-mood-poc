@@ -41,6 +41,58 @@ pub fn process_memory_diagnostics() -> Option<ProcessMemoryDiagnostics> {
     })
 }
 
+/// System and analyzer resource usage before any scan worker is started.
+///
+/// CPU is an average across a one-second pre-worker interval, not an
+/// instantaneous value. The interval does not contribute to adaptive-worker
+/// load decisions or the scan's ordinary resource samples.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ScanResourceBaseline {
+    pub system_cpu_percent: Option<f64>,
+    pub cpu_measurement_seconds: f64,
+    pub system_ram_percent: Option<f64>,
+    pub system_available_ram_mib: Option<f64>,
+    pub process_working_set_mib: Option<f64>,
+    pub process_private_bytes_mib: Option<f64>,
+}
+
+/// Called after opening the scan's input and sidecar DB, before spawning
+/// workers or dispatching any audio jobs.
+pub fn scan_resource_baseline() -> ScanResourceBaseline {
+    let system_ram_percent = memory_load();
+    let system_available_ram_mib = memory_diagnostics()
+        .map(|memory| memory.available_physical_mib);
+    let process = process_memory_diagnostics();
+
+    let first = cpu_ticks();
+    let start = Instant::now();
+    std::thread::sleep(Duration::from_secs(1));
+    let elapsed = start.elapsed().as_secs_f64();
+    let second = cpu_ticks();
+
+    let system_cpu_percent = match (first, second) {
+        (Some(before), Some(after)) => cpu_usage_between(before, after),
+        _ => None,
+    };
+
+    ScanResourceBaseline {
+        system_cpu_percent,
+        cpu_measurement_seconds: elapsed,
+        system_ram_percent,
+        system_available_ram_mib,
+        process_working_set_mib: process.map(|p| p.working_set_mib),
+        process_private_bytes_mib: process.map(|p| p.private_bytes_mib),
+    }
+}
+
+/// Busy ticks and total ticks must use the same system-wide CPU counter.
+fn cpu_usage_between(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
+    let busy = after.0.saturating_sub(before.0);
+    let total = after.1.saturating_sub(before.1);
+    if total == 0 { return None; }
+    Some((100.0 * busy as f64 / total as f64).clamp(0.0, 100.0))
+}
+
 pub struct ResourceMonitor {
     previous: Option<(u64, u64)>,
     last: Instant,
@@ -61,14 +113,11 @@ impl ResourceMonitor {
         self.last = Instant::now();
         let current = cpu_ticks()?;
         let previous = self.previous.replace(current)?;
-        let busy = current.0.saturating_sub(previous.0);
-        let total = current.1.saturating_sub(previous.1);
+        let cpu = cpu_usage_between(previous, current)?;
         let ram = memory_load()?;
-        if total == 0 || !ram.is_finite() {
-            return None;
-        }
+        if !ram.is_finite() { return None; }
         Some(LoadSample {
-            system_cpu_percent: (100.0 * busy as f64 / total as f64).clamp(0.0, 100.0),
+            system_cpu_percent: cpu,
             system_ram_percent: ram.clamp(0.0, 100.0),
         })
     }
@@ -236,6 +285,13 @@ use native::{cpu_ticks, memory_load};
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cpu_usage_between_handles_empty_and_valid_intervals() {
+        assert_eq!(cpu_usage_between((10, 20), (30, 60)), Some(50.0));
+        assert_eq!(cpu_usage_between((10, 20), (10, 20)), None);
+        assert_eq!(cpu_usage_between((10, 20), (30, 30)), Some(100.0));
+    }
+
     #[test]
     fn memory_and_cpu_queries_are_optional_but_bounded() {
         if let Some(percentage) = memory_load() {
