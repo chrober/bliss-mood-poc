@@ -8,9 +8,6 @@ use std::{
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::mpsc,
     time::Duration,
-    sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
 };
 use crate::{preprocess, sha256_file};
 
@@ -64,12 +61,6 @@ pub struct NativePatches {
     pub patches: Vec<Vec<f32>>,
     pub decode_seconds: f64,
     pub features_seconds: f64,
-}
-
-enum WatchdogCommand {
-    Arm(Duration),
-    Disarm,
-    Stop,
 }
 
 struct ChildIo {
