@@ -132,16 +132,14 @@ def auc(positives: list[float], negatives: list[float]) -> float | None:
 def _catalog(connection: sqlite3.Connection, model: str, experimental: bool) -> dict:
     capability, dims = MODELS[model]
     rows = connection.execute(
-        """SELECT t.model_key, count(*), m.capability_dummy
-           FROM feature_tracks t
-           JOIN (SELECT model_key, NULL AS capability_dummy FROM feature_models) m
-             ON m.model_key = t.model_key
+        """SELECT t.model_key, count(*)
+           FROM feature_tracks t JOIN feature_models m ON m.model_key = t.model_key
            WHERE t.model_id = ? AND t.capability = ?
            GROUP BY t.model_key ORDER BY count(*) DESC, t.model_key""",
         (model, capability),
     ).fetchall()
     # We must not combine outputs from different classifier fingerprints.
-    for key, count, _ in rows:
+    for key, count in rows:
         meta = connection.execute(
             """SELECT aggregation, classes_json, validated_against_essentia,
                       preprocessing_version
