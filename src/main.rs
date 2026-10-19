@@ -3,6 +3,7 @@ mod storage;
 mod engine;
 mod batch;
 mod features;
+mod essentia_worker;
 mod feature_lookup;
 mod parallel;
 mod resources;
@@ -89,6 +90,12 @@ enum Action {
         /// Comma-separated registry model IDs (e.g. moodtheme,genre,voice).
         #[arg(long, default_value = "moodtheme,genre")]
         models: String,
+        /// Explicitly select native C++ Essentia DSP; default preserves Rust/ONNX behavior.
+        #[arg(long, default_value = "rust", value_parser = ["rust", "essentia"])]
+        audio_backend: String,
+        /// Trusted executable for original Essentia C++ DSP subprocess.
+        #[arg(long)]
+        essentia_worker: Option<PathBuf>,
         #[arg(long)]
         max_patches: Option<usize>,
         #[arg(long, default_value_t = 1)]
@@ -129,6 +136,12 @@ enum Action {
         /// Parallel tracks: auto preserves interactive CPU headroom.
         #[arg(long, default_value = "1")]
         workers: String,
+        /// Optional original C++ Essentia frontend per Rust worker (default rust).
+        #[arg(long, default_value = "rust", value_parser = ["rust", "essentia"])]
+        audio_backend: String,
+        /// Trusted native Essentia C++ worker executable.
+        #[arg(long)]
+        essentia_worker: Option<PathBuf>,
         /// Opt-in system CPU/RAM-aware concurrency control.
         #[arg(long)]
         adaptive_workers: bool,
@@ -447,14 +460,18 @@ fn main() -> Result<()> {
             }
         }
         Action::AnalyzeFeatures {
-            source, models_dir, registry, models, max_patches,
-            threads, json, db, track_key,
+            source, models_dir, registry, models, audio_backend,
+            essentia_worker, max_patches, threads, json, db, track_key,
         } => {
             if db.is_some() != track_key.is_some() {
                 bail!("--db and --track-key must be specified together");
             }
-            let profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
-            let mut engine = features::FeatureEngine::new(profiles, threads)?;
+            let backend = essentia_worker::BackendChoice::from_cli(
+                &audio_backend, essentia_worker.as_deref(),
+            )?;
+            let mut profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
+            features::retarget_profiles(&mut profiles, &backend)?;
+            let mut engine = features::FeatureEngine::with_backend(profiles, threads, &backend)?;
             let report = engine.analyze(&source, max_patches)?;
             if let (Some(db), Some(key)) = (db.as_deref(), track_key.as_deref()) {
                 features::persist(db, key, &report, None)?;
@@ -477,6 +494,7 @@ fn main() -> Result<()> {
         Action::ScanFeatures {
             bliss_db, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
+            audio_backend, essentia_worker,
             adaptive_workers, min_workers, max_workers, dry_run, json,
         } => {
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
@@ -492,6 +510,9 @@ fn main() -> Result<()> {
             if (is_auto || adaptive_workers) && !dry_run {
                 parallel::lower_priority_auto();
             }
+            let backend = essentia_worker::BackendChoice::from_cli(
+                &audio_backend, essentia_worker.as_deref(),
+            )?;
             let summary = features::scan(features::ScanOptions {
                 bliss_db: &bliss_db, db: &db, models_dir: &models_dir,
                 registry: registry.as_deref(), models: &models,
@@ -499,7 +520,7 @@ fn main() -> Result<()> {
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
-                adaptive_workers, min_workers, max_workers, dry_run,
+                adaptive_workers, min_workers, max_workers, dry_run, backend,
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
