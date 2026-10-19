@@ -41,8 +41,12 @@ jobs:
           export PKG_CONFIG_PATH="$RUNNER_TEMP/essentia-install/lib/pkgconfig:$RUNNER_TEMP/essentia-install/lib64/pkgconfig:$PKG_CONFIG_PATH"
           cmake -S native -B build/essentia-cpp -DCMAKE_BUILD_TYPE=Release
           cmake --build build/essentia-cpp --parallel 4
-      - name: Exercise original C++ decoder and 96-band Mel patch protocol
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build existing Rust reference Mel frontend
+        run: cargo build --locked
+      - name: Exercise original C++ worker and numeric 12,288-coefficient Rust parity
         shell: bash
         run: |
           export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
-          python3 scripts/test_native_essentia_protocol.py build/essentia-cpp/bliss-essentia-worker
+          python3 scripts/test_native_essentia_protocol.py build/essentia-cpp/bliss-essentia-worker target/debug/bliss-mood
