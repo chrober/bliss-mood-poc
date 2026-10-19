@@ -62,6 +62,21 @@ backend gets its own preprocessing version and the native executable's
 SHA-256 in the feature model fingerprint. Unvalidated results remain
 experimental.
 
+## Windows subprocess regression gate (without installed Essentia)
+
+The `.github/workflows/windows-binary.yml` gate now independently builds
+the test-only `native/protocol_fixture.cpp` with the Windows MSVC C++
+toolchain using `native/protocol-fixture/CMakeLists.txt`, then runs Rust
+tests with `ESSENTIA_IPC_FIXTURE_EXE` pointing at that binary. The
+tests exercise startup, process reuse, crash/restart, a deliberately hung
+request with a hard timeout, and four parallel distinct native processes.
+Windows child-PID memory readings are also probed during concurrent work.
+
+**This fixture is not an original Essentia DLL/EXE.** It proves Windows
+orchestration and native IPC, not Windows Essentia build compatibility.
+The Linux native smoke is separately responsible for compiling and
+running genuine upstream Essentia C++ algorithms.
+
 ## Transport tests vs DSP tests
 
 native/protocol_fixture.cpp is an isolated test-only native program.
