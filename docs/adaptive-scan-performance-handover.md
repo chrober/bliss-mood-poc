@@ -207,6 +207,7 @@ longer inputs or injectable deterministic observations.
 - Explicit `--workers 6` does **not** automatically set BelowNormal
   Windows process priority unless adaptive mode is also enabled; apply
   the same priority to fixed and adaptive runs in the benchmark harness.
-- Never commit the personal NAS paths, file listings, models or SQLite
-  contents as checked-in data. The documentation records only setup
-  details, not audio bytes, raw library rows or keys.
+- Do not commit personal music, detailed file listings, model weights or
+  SQLite contents. The local-machine paths in this handover are setup
+  examples, not real data files. Avoid exposing sensitive local details
+  in additional public artifacts.
