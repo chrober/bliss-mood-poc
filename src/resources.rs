@@ -10,6 +10,18 @@ pub struct LoadSample {
     pub system_ram_percent: f64,
 }
 
+/// Optional diagnostic snapshot; does not affect concurrency decisions.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct MemoryDiagnostics {
+    pub available_physical_mib: f64,
+}
+
+pub fn memory_diagnostics() -> Option<MemoryDiagnostics> {
+    native::available_memory_bytes().map(|bytes| MemoryDiagnostics {
+        available_physical_mib: bytes as f64 / (1024.0 * 1024.0),
+    })
+}
+
 pub struct ResourceMonitor {
     previous: Option<(u64, u64)>,
     last: Instant,
@@ -87,7 +99,7 @@ mod native {
         Some((busy, total))
     }
 
-    pub fn memory_load() -> Option<f64> {
+    fn memory_status() -> Option<MemoryStatusEx> {
         let mut info = MemoryStatusEx {
             length: std::mem::size_of::<MemoryStatusEx>() as u32,
             ..MemoryStatusEx::default()
@@ -96,10 +108,17 @@ mod native {
         if unsafe { GlobalMemoryStatusEx(&mut info) } == 0 {
             return None;
         }
-        if info.total_phys == 0 {
-            return None;
-        }
+        if info.total_phys == 0 { return None; }
+        Some(info)
+    }
+
+    pub fn memory_load() -> Option<f64> {
+        let info = memory_status()?;
         Some(100.0 * (1.0 - info.avail_phys as f64 / info.total_phys as f64))
+    }
+
+    pub fn available_memory_bytes() -> Option<u64> {
+        Some(memory_status()?.avail_phys)
     }
 }
 
@@ -121,6 +140,12 @@ mod native {
         let idle = values[3].saturating_add(values.get(4).copied().unwrap_or(0));
         Some((total.saturating_sub(idle), total))
     }
+    pub fn available_memory_bytes() -> Option<u64> {
+        let stats = fs::read_to_string("/proc/meminfo").ok()?;
+        let line = stats.lines().find(|line| line.starts_with("MemAvailable:"))?;
+        let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        kib.checked_mul(1024)
+    }
     pub fn memory_load() -> Option<f64> {
         let stats = fs::read_to_string("/proc/meminfo").ok()?;
         let get = |prefix: &str| -> Option<f64> {
@@ -138,6 +163,7 @@ mod native {
 mod native {
     pub fn cpu_ticks() -> Option<(u64,u64)> { None }
     pub fn memory_load() -> Option<f64> { None }
+    pub fn available_memory_bytes() -> Option<u64> { None }
 }
 
 use native::{cpu_ticks, memory_load};
@@ -152,6 +178,10 @@ mod tests {
         }
         if let Some((busy, total)) = cpu_ticks() {
             assert!(total >= busy);
+        }
+        if let Some(detail) = memory_diagnostics() {
+            assert!(detail.available_physical_mib.is_finite());
+            assert!(detail.available_physical_mib >= 0.0);
         }
         let mut monitor = ResourceMonitor::new();
         // First sample intentionally waits for a nonzero OS counter interval.
