@@ -29,6 +29,19 @@ production Bliss Mixer, invoke ONNX at mixing time, or silently use
 unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
 is recorded for later and does not block functional integration.
 
+
+## Experimental Mood/Genre guidance SPI v2 prototype
+
+The build also ships a second executable: `bliss-feature-guidance`
+(`.exe` on Windows). This is a read-only JSONL SPI v2 provider that
+scores *only a supplied, already Bliss-qualified candidate batch* against
+the saved schema-v3 `moodtheme` and `genre` vectors. It never opens media,
+runs ONNX or admits new tracks. Trusted `bliss-feature-sqlite-v3` resource
+and exact `database_file` keys must be provided by the host. Unvalidated
+vectors are ignored unless the host explicitly requests a Lab-only
+`include_experimental` preview. This is not yet an installed Lyrion plugin.
+See [Lyrion integration](docs/lyrion-bliss-mood-genre-integration.md).
+
 ## Generic feature models (opt-in)
 
 The **feature analyzer** is separate from the legacy Mood-only commands.
