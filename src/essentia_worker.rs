@@ -168,8 +168,8 @@ fn read_response(input: &mut impl Read, requested_cap: Option<usize>) -> Result<
                 let mut bytes = vec![0u8; VALUES_PER_PATCH * 4];
                 input.read_exact(&mut bytes).context("Truncated native worker patch")?;
                 let mut patch = Vec::with_capacity(VALUES_PER_PATCH);
-                for chunk in bytes.chunks_exact(4) {
-                    let v = f32::from_le_bytes(chunk.try_into()?);
+                for chunk in bytes.as_chunks::<4>().0 {
+                    let v = f32::from_le_bytes(*chunk);
                     if !v.is_finite() || v < 0.0 {
                         bail!("Native worker returned invalid Mel coefficient");
                     }
