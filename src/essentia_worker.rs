@@ -248,7 +248,7 @@ mod tests {
                    "C++ worker must be reused across consecutive songs");
         assert!(worker.analyze(Path::new("fail.flac"), None).is_err());
         assert!(worker.child.is_none(), "native errors retire the process");
-        let after = worker.analyze(Path::new("good-after-failure.flac"), None).unwrap();
+        let after = worker.analyze(Path::new("good-after-error.flac"), None).unwrap();
         assert_eq!(after.patches.len(), 1);
         assert!(worker.analyze(Path::new("crash.flac"), None).is_err());
         assert!(worker.child.is_none(), "native crashes must not poison future jobs");
