@@ -186,6 +186,7 @@ jobs:
             --worker build/windows-native/worker/bliss-essentia-worker.exe \
             --objdump /mingw64/bin/objdump.exe \
             --dll-dir /mingw64/bin \
+            --dll-dir /mingw64/lib \
             --output build/windows-native/original-essentia-closed-bundle
           /usr/bin/python3 scripts/package_essentia_worker_windows.py \
             --verify build/windows-native/original-essentia-closed-bundle
@@ -197,6 +198,109 @@ jobs:
           # EXE must find every non-OS dependency beside itself.
           env PATH=/usr/bin:/bin /usr/bin/python3 scripts/test_native_essentia_protocol.py \
             build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the actual production Rust decoder/Mel reference on Windows CI
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cargo build --release --manifest-path native/rust-mel-reference/Cargo.toml
+            if ($LASTEXITCODE -ne 0) { throw 'Windows Rust Mel reference build failed' }
+            if (-not (Test-Path 'native/rust-mel-reference/target/release/rust-mel-reference.exe')) {
+              throw 'Windows Rust reference EXE missing'
+            }
+          }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      - name: Generate genuine Windows WAV FLAC MP3 fixture inputs
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            python scripts/generate_audio_fixtures.py
+            if ($LASTEXITCODE -ne 0) { throw 'Windows audio fixture generation failed' }
+          }
+      - name: Compare native Windows Essentia against Rust Mel for WAV FLAC MP3
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            python scripts/compare_native_cpp_end_to_end.py `
+              --worker build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe `
+              --rust-reference native/rust-mel-reference/target/release/rust-mel-reference.exe `
+              --report-output results/windows-original-essentia-mel-parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Windows original Essentia multi-codec Mel parity failed' }
+          }
+      - name: Install independent CPU ONNX evaluator for original Windows parity
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python -m pip install --no-cache-dir 'numpy==1.26.4' 'onnxruntime==1.19.2'
+            if ($LASTEXITCODE -ne 0) { throw 'Windows ONNX evaluator install failed' }
+          }
+      - name: Download official ONNX weights and verify Linux-reference SHA256
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            New-Item -ItemType Directory -Force -Path models | Out-Null
+            $base = 'https://essentia.upf.edu/models'
+            $models = @(
+              @{ folder='feature-extractors/discogs-effnet'; file='discogs-effnet-bsdynamic-1.onnx'; sha='a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c' },
+              @{ folder='classification-heads/mtg_jamendo_genre'; file='mtg_jamendo_genre-discogs-effnet-1.onnx'; sha='637acf45315191a2c9a87d5977d48f02da6fc823192fe794a1537c55e7c7ce6a' },
+              @{ folder='classification-heads/mtg_jamendo_moodtheme'; file='mtg_jamendo_moodtheme-discogs-effnet-1.onnx'; sha='7d6270acaa5f4bba4b115a0d6849aca05ed6bd153dcb6d9da4f6ab9f99ef10ff' },
+              @{ folder='classification-heads/voice_instrumental'; file='voice_instrumental-discogs-effnet-1.onnx'; sha='20155e4c439714b0c45c08644b73c8e12d9dccb173bd4ab9934bf1e5aee837ca' }
+            )
+            foreach ($model in $models) {
+              $url = "$base/$($model.folder)/$($model.file)"
+              $destination = Join-Path 'models' $model.file
+              $fetched = $false
+              for ($attempt = 1; $attempt -le 3; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $url -OutFile $destination -TimeoutSec 100
+                  $fetched = $true
+                  break
+                } catch {
+                  Write-Warning "Official ONNX download attempt $attempt failed: $($_.Exception.Message)"
+                  if ($attempt -lt 3) { Start-Sleep -Seconds 4 }
+                }
+              }
+              if (-not $fetched) { throw "Official weight download unavailable: $url" }
+              $observed = (Get-FileHash -Algorithm SHA256 -Path $destination).Hash.ToLowerInvariant()
+              if ($observed -ne $model.sha) {
+                throw "ONNX model SHA256 mismatch for $($model.file): $observed"
+              }
+              Write-Output "Verified official SHA256 $observed $($model.file)"
+            }
+          }
+      - name: Compare original Windows Mel, 1280-D EffNet and all 87/56/2 ONNX heads
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            python scripts/compare_native_cpp_end_to_end.py `
+              --worker build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe `
+              --rust-reference native/rust-mel-reference/target/release/rust-mel-reference.exe `
+              --models-dir models `
+              --report-output results/windows-original-essentia-all-heads-parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Windows original Essentia ONNX parity failed' }
+          }
+      - name: Upload bounded Windows numerical parity reports (no audio or weights)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-essentia-windows-numeric-parity
+          path: |
+            results/windows-original-essentia-mel-parity.json
+            results/windows-original-essentia-all-heads-parity.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload build diagnostics ONLY (not redistributable native binaries)
         if: always()
         uses: actions/upload-artifact@v4
