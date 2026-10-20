@@ -1,5 +1,6 @@
 """No binaries/models required: guard the A/B native benchmark against bias."""
 import sqlite3
+from contextlib import closing
 import struct
 import sys
 from pathlib import Path
@@ -11,6 +12,13 @@ import benchmark_audio_backends as bench
 
 
 class AudioBackendBenchmarkTests(unittest.TestCase):
+    def test_root_mapping_accepts_relative_file_keys_on_windows(self):
+        bench.validate_source_roots(Path(r"\\nas\music"), None)
+        bench.validate_source_roots(None, None)
+        bench.validate_source_roots(Path(r"\\nas\music"), r"Z:\legacy")
+        with self.assertRaisesRegex(ValueError, "--library-root requires"):
+            bench.validate_source_roots(None, r"Z:\legacy")
+
     def test_plan_is_paired_and_alternates_backend_order(self):
         plan = bench.experiment_plan([1, 2, 4, 6], repeats=2, seed=22)
         self.assertEqual(len(plan), 16)
@@ -48,12 +56,12 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
     def test_readonly_bliss_cohort_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "cohort.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 conn.executescript("CREATE TABLE TracksV2 (File TEXT, Ignore INTEGER);")
                 conn.executemany("INSERT INTO TracksV2 VALUES (?, 0)",
                                  ((f"song-{i}.flac",) for i in range(3)))
             self.assertEqual(len(bench.checked_cohort(db)), 3)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 conn.execute("DELETE FROM TracksV2 WHERE File <> 'song-0.flac'")
             with self.assertRaises(ValueError):
                 bench.checked_cohort(db)
@@ -61,7 +69,7 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
     def test_load_little_endian_scores(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "features.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 conn.executescript(
                     "CREATE TABLE feature_tracks (track_file TEXT, model_id TEXT, "
                     "patches_analyzed INTEGER, scores_f32_le BLOB);"
