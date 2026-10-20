@@ -529,12 +529,17 @@ per-class score tolerance. `scripts/verify_resampler_fix_on_existing_wav.py`
 writes a new private report and returns failure if still above
 threshold. Even `PASS_THIS_TRACK` is **not** the 100-song gate.
 
-The fixed Windows analyzer binary must be compiled from a commit
-containing the f32 phase fix. The old kit's `bliss-mood.exe` is v4
-and must NOT be used to test this fix. Download a successful
-`Windows x64 binary` artifact from PR #17, named
-`bliss-mood-windows-x64`, into an **independent folder**. This does
-not need a C++ worker or a full native Windows rebuild.
+The corrected Windows analyzer was already built successfully by
+**Windows x64 Actions run #39450757368**, exact source SHA
+`9ca4d3d2e248a528008e70c9ba0951902b2acc67`
+([link](https://github.com/chrober/bliss-mood-poc/actions/runs/39450757368)),
+and the artifact `bliss-mood-windows-x64` was confirmed available.
+The SHA includes the f32 resampling fix **and** the v5 preprocessing
+cache identity; subsequent commits before this note modified only
+Python helpers, tests, CI and documentation, not Rust. Download this
+**pinned verified** Windows binary into a separate directory. The old
+Essentia dev kit `bliss-mood.exe` is v4 and must not be used here.
+No original C++ binary or full Windows development kit rebuild required.
 
 ```powershell
 & {
@@ -555,19 +560,13 @@ not need a C++ worker or a full native Windows rebuild.
 
     gh --version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI not available' }
-    $head = (git rev-parse HEAD).Trim()
-    $all = gh run list --repo chrober/bliss-mood-poc --branch feat/essentia-cpp-worker-backend --workflow windows-binary.yml --json databaseId,headSha,conclusion --limit 30 | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot list GitHub Action runs' }
-    $run = $all | Where-Object {
-        $_.headSha -eq $head -and $_.conclusion -eq 'success'
-    } | Select-Object -First 1
-    if (-not $run) {
-        throw "No successful Windows x64 binary for commit $head yet. Check PR17 CI."
-    }
+    # Pinned proven successful Windows x64 run 39450757368, SHA 9ca4d3d.
+    # It contains the precise v5 Rust resampler and cache fingerprint change;
+    # subsequent PR17 commits to date changed ONLY scripts/tests/docs/CI.
     if (Test-Path -LiteralPath $kit) {
         throw "Choose fresh separate v5 kit directory, will not overwrite: $kit"
     }
-    gh run download $run.databaseId --repo chrober/bliss-mood-poc --name bliss-mood-windows-x64 --dir $kit
+    gh run download 39450757368 --repo chrober/bliss-mood-poc --name bliss-mood-windows-x64 --dir $kit
     if ($LASTEXITCODE -ne 0) { throw 'Windows binary artifact download failed' }
     $analyzer = Join-Path $kit 'bliss-mood.exe'
     if (-not (Test-Path -LiteralPath $analyzer)) {
