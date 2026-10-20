@@ -34,7 +34,8 @@ WINDOWS_OS_DLLS = {
     "setupapi.dll", "shell32.dll", "shcore.dll", "shlwapi.dll",
     "ucrtbase.dll", "user32.dll", "userenv.dll", "usp10.dll",
     "version.dll", "winhttp.dll", "wininet.dll", "winmm.dll",
-    "winspool.drv", "wldap32.dll", "ws2_32.dll", "avrt.dll",
+    "winspool.drv", "wldap32.dll", "ws2_32.dll", "wsock32.dll",
+    "avrt.dll",
 }
 REJECT_RUNTIME = {"msys-2.0.dll", "cygwin1.dll"}
 
