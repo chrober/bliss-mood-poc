@@ -52,6 +52,24 @@ Without a separate license inventory the bundle is for **development only**. Opt
 
 Essentia itself is AGPLv3; native FFmpeg, FFTW, TagLib, Chromaprint and other linked dependencies have separate licensing obligations. The Rust orchestrator's MIT license does not automatically eliminate these. No native Windows worker package may be described as production-approved or uploaded as a release without an explicit audit.
 
+## Windows executable/DLL packaging smoke: verified
+
+The independent native packaging gate
+[Actions run #39377432281](https://github.com/chrober/bliss-mood-poc/actions/runs/39377432281)
+completed **successfully** on Windows Server 2022. It compiled a genuine
+Windows x64 PE **synthetic IPC fixture** using MSVC, discovered and inspected
+the actual PE imports using MSYS2 MinGW64 GNU objdump, resolved and packaged
+its transitive DLL closure, verified the generated SHA256 manifest and
+launched the *copied, bundled* executable to confirm the exact EFW1 protocol
+handshake. No Essentia C++ source was compiled in this packaging test.
+
+The Rust Windows tests separately verify that missing
+`worker-dependencies.json` and post-packaging changes to a bundled DLL
+prevent backend selection, while a correctly hashed native package
+produces a distinct deployment-based feature model identity. These
+tests guard installation/version drift but are **not** proof of
+original Essentia Windows portability.
+
 ## Remaining release validation gates
 
 1. Build original Essentia C++ and pinned compatible dependencies for native Windows x64; record complete build provenance and package versions.
