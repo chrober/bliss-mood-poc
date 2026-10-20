@@ -51,6 +51,8 @@ def error_stats(lhs, rhs, label):
     if len(lhs) != len(rhs) or not lhs:
         raise AssertionError(f"{label}: incompatible/nonempty arrays")
     errors = [abs(float(a) - float(b)) for a, b in zip(lhs, rhs)]
+    if any(not math.isfinite(err) for err in errors):
+        raise AssertionError(f"{label}: NaN/Inf values in result")
     max_error = max(errors)
     mean_error = sum(errors) / len(errors)
     if max_error > ABS_TOLERANCE:
