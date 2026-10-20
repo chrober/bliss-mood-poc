@@ -91,6 +91,45 @@ def load_feature_rows(db):
     return result
 
 
+def model_fingerprints_by_head(db):
+    """Require one unambiguous model key per head in one isolated sidecar."""
+    with closing(sqlite3.connect(
+        f"file:{db.resolve().as_posix()}?mode=ro", uri=True
+    )) as conn:
+        schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if schema_version != 3:
+            raise AssertionError(f"Expected schema v3: {db} has {schema_version}")
+        rows = conn.execute(
+            "SELECT model_id, model_key FROM feature_tracks"
+        ).fetchall()
+    keys = {}
+    for head, fingerprint in rows:
+        if not fingerprint:
+            raise AssertionError(f"Missing model fingerprint for {head}")
+        if head in keys and keys[head] != fingerprint:
+            raise AssertionError(
+                f"Mixed model fingerprints for head {head} within {db}"
+            )
+        keys[head] = fingerprint
+    if not keys:
+        raise AssertionError(f"No recorded model keys in {db}")
+    return keys
+
+
+def verify_backend_fingerprint_separation(rust_db, essentia_db):
+    old = model_fingerprints_by_head(rust_db)
+    new = model_fingerprints_by_head(essentia_db)
+    if old.keys() != new.keys():
+        raise AssertionError("Rust/Essentia model heads differ")
+    shared = sorted(key for key in old if old[key] == new[key])
+    if shared:
+        raise AssertionError(
+            "Distinct DSP backends must not share feature fingerprint: "
+            + ", ".join(shared)
+        )
+    return sorted(old)
+
+
 def compare_feature_tables(baseline, alternative):
     """Compare identical keys/classes, NEVER require identical model keys."""
     if baseline.keys() != alternative.keys():
@@ -313,6 +352,14 @@ def main():
             prior = load_feature_rows(args.output_dir / partner["sqlite"])
             baseline, native = (scores, prior) if backend == "rust" else (prior, scores)
             comp = compare_feature_tables(baseline, native)
+            rust_db, native_db = (
+                (args.output_dir / record["sqlite"], args.output_dir / partner["sqlite"])
+                if backend == "rust" else
+                (args.output_dir / partner["sqlite"], args.output_dir / record["sqlite"])
+            )
+            comp["fingerprint_heads_checked"] = verify_backend_fingerprint_separation(
+                rust_db, native_db
+            )
             comp.update({"workers": count, "round": round_index})
             comparisons.append(comp)
             if comp["patch_count_mismatches"] or (
