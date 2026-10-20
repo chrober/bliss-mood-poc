@@ -156,6 +156,42 @@ regression gate. The fixture is a deterministic mono 16 kHz PCM16 WAV.
 This proves DSP parity for that fixture, not every codec, all lengths,
 classifier-head quality or Pi compatibility.
 
+## Extended codec-to-classifier parity gate (2026-10-20)
+
+The native C++ workflow now runs `scripts/compare_native_cpp_end_to_end.py`
+on four independently generated, synthetic audio fixtures: mono 16-kHz WAV,
+stereo 44.1-kHz WAV, FLAC and MP3. Each case is processed by the original
+Essentia C++ `MonoLoader`/`FrameCutter`/`TensorflowInputMusiCNN`
+subprocess and by the **same** Rust decode/resample/Mel code that the
+production `bliss-mood` scanner uses. The Rust functions live in the shared
+`src/audio_decode.rs` and `src/preprocess.rs`, which the standalone
+parity harness imports directly. There is no duplicate decoder or DSP
+algorithm to maintain.
+
+The comparator requires identical total patch counts, complete frame
+coverage and a maximum per-coefficient discrepancy <= 1e-3. After DSP
+comparison, the **identical unmodified official ONNX weights** run on
+both sets of patches using Python ONNX Runtime (CPU only) for:
+- Discogs-EffNet 1280-dimensional patch embeddings.
+- 87 independent MTG-Jamendo genre class probabilities.
+- 56 independent MTG-Jamendo mood/theme class probabilities.
+- 2-class voice/instrumental distribution.
+
+It compares each per-patch value and each arithmetically aggregated
+per-song score (maximum absolute discrepancy <= 1e-3), failing closed on
+NaN/Inf or any missing/extra patches. The automated JSON report contains
+aggregate numeric errors and timing samples **only**; neither audio,
+tracks nor model weights are committed or uploaded. Model downloads can
+make this gate unavailable independent of model accuracy, so distinguish
+network/dependency failures from comparison failures when diagnosing CI.
+
+**Interpretation:** This checks differences caused by the C++ vs Rust
+frontend through the same ONNX networks. Python ONNX Runtime is used only
+as an independent evaluation harness; existing CI already validates
+the Rust `ort` model inference separately. An explicit real-audio,
+native Windows release and ARM64 test are still required before declaring
+production equivalence or marking predictions validated.
+
 ## Provenance and rollout gates
 
 The new frontend uses an **independent preprocessing identity** and
