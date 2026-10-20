@@ -762,6 +762,288 @@ with 4/6 workers, cross-codec behavior or licensing/distribution.
 Continue those remaining release gates separately. Keep #17 Draft
 until full acceptance is reviewed; never modify PR #16.
 
+## Adaptive six-worker performance and parity gate on the already passing 100-song cohort
+
+**Checkpoint, 20 October 2026:** The user performed an actual fixed
+**four-Rust-v5-worker** 100-song scan (all MP3) against the saved
+one-worker *original* Essentia C++ reference. **PASS** for all 14,500
+class scores, all 300 track/head rows, and 0 mismatched patch counts:
+
+| Model head | Saved Rust v4 worst error | Actual Rust v5 4-worker worst error |
+| --- | ---: | ---: |
+| Genre | 0.00345522165 | **0.00000539422** |
+| Mood/Theme | 0.00308407843 | **0.00000712276** |
+| Voice | 0.00382420421 | **0.00001269579** |
+
+Fixed four-worker measured elapsed **183.2888138 s** (32.74 songs/min).
+Private baseline reference in user's existing Windows checkout:
+
+    D:\LMS\bliss-mood-poc\benchmark-rust-v5-workers4-20261020-191946\
+
+The previously validated Windows Rust-v5 scanner executable remains
+\`D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe\`. It MUST remain Rust
+v5, not the v4 executable in the original C++ kit.
+
+### Next targeted experiment: exactly ONE NEW adaptive Rust v5 scan
+
+\`scripts/verify_rust_v5_adaptive.py\` starts with six Rust workers and
+dynamically adjusts **active work in flight** between four and eight:
+
+- \`--workers 6 --adaptive-workers --min-workers 4 --max-workers 8\`,
+  **\`--threads 1\`**, \`--audio-backend rust\`, \`--max-new 100\`.
+- Existing 100-song \`sample-100.db\`, historical Rust-v4 sidecar,
+  original Essentia-C++ sidecar, *and* validated fixed-four-worker Rust
+  v5 sidecar remain read-only. All 100 music files and official ONNX
+  models remain read-only. A new v5 sidecar is created in a NEW folder.
+- Before spending time on the NAS, verify the prior 4-worker baseline
+  still passes strict original-C++ parity. After the new scan, require
+  the exact same audio SHA256, 100 song keys, 87/56/2 ONNX heads, v5
+  fingerprints, class order, patch counts, and max absolute class-score
+  difference <= **0.001** against original C++ and fixed Rust v5.
+- Validate adaptive controller telemetry is **actually present**:
+  initial/final/peak worker limit, actual maximum simultaneous song
+  analyses, CPU/RAM metrics, decision counters and adjustment history.
+  Changing from six workers is *not* a required outcome. No
+  change means the load thresholds/hysteresis did not justify one.
+- Retain raw scanner JSON, stderr, one new SQLite, input SHA256 and
+  the full local \`adaptive-parity-and-performance-private.json\`
+  even when score parity fails. The private report may contain music
+  track paths; share **only** the summarized console JSON.
+- Compare elapsed time with the already saved four-worker baseline
+  (183.29 s) and show throughput/speedup **as exploratory**, because
+  separate NAS cache/CPU load can affect runtime. This is NOT a
+  controlled AB/BA performance claim or evidence of C++-backend
+  multiworker scalability.
+
+All Python-only changes use the **already verified** Windows Rust-v5
+binary. No native C++ rebuild, new 4-worker run, new C++ scan,
+similarity metric evaluation or license changes are required.
+
+**Run on Windows PowerShell (outer \`& { ... }\` mandatory):**
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $old = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $fixed = Join-Path $repo 'benchmark-rust-v5-workers4-20261020-191946'
+    $kit = 'D:\LMS\bliss-mood-rust-v5-test'
+    $out = Join-Path $repo ('benchmark-rust-v5-adaptive-' +
+                          (Get-Date -Format 'yyyyMMdd-HHmmss'))
+
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Branchwechsel fehlgeschlagen' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git Pull fehlgeschlagen' }
+
+    Write-Host "\`n=== ADAPTIVE REGRESSIONSTESTS ==="
+    python -m unittest discover -s tests -p 'test_verify_rust_v5_adaptive.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Adaptive Regressionstests fehlgeschlagen' }
+
+    $scanner = Join-Path $kit 'bliss-mood.exe'
+    $buildInfo = Join-Path $kit 'BUILD.txt'
+    $sums = Join-Path $kit 'SHA256SUMS.txt'
+    $expectedMerge = 'a6a5c8607064e95d291cc85a0500472ff20bcc4e'
+    foreach ($file in @($scanner, $buildInfo, $sums)) {
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            throw "Rust-v5-Binary oder Provenienz fehlt: $file"
+        }
+    }
+    if (-not (Get-Content $buildInfo -Raw).Contains($expectedMerge)) {
+        throw 'Falsche Rust-v5-Binary-Version'
+    }
+    $checksumLine = Get-Content $sums -TotalCount 1
+    $expectedHash = [regex]::Match(
+        $checksumLine, '^([0-9a-fA-F]{64})\s+\*?bliss-mood\.exe\s*
+
+Prerequisites: local checkout of the #17 branch, unpacked dev kit
+`D:\LMS\essentia-cli-test`, external ONNX weights in
+`D:\LMS\bliss-mood-poc\models`, and a **real, bounded** Bliss
+`TracksV2` subset (the path below is an example of the existing fixture).
+Set `$music` to the actual read-only NAS root. For relative keys, pass
+`--source-root` alone. For absolute old paths to be remapped, add
+`--library-root <original-prefix>`.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $cohort = Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db'
+    $models = Join-Path $repo 'models'
+    $music = '\\192.168.1.100\music'  # Replace with actual source root
+    $out = Join-Path $repo 'benchmark-essentia-cpp-real-parity'
+    $analyzer = Join-Path $kit 'bliss-mood.exe'
+    $worker = Join-Path $kit 'essentia-worker\bliss-essentia-worker.exe'
+
+    foreach ($path in @($cohort, $analyzer, $worker)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Required file missing: $path"
+        }
+    }
+    foreach ($path in @($models, $music)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            throw "Required directory missing: $path"
+        }
+    }
+    if (Test-Path -LiteralPath $out) {
+        throw "Choose a NEW output directory, never overwrite: $out"
+    }
+    Set-Location $repo
+    git fetch origin
+    if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Git switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+
+    python -m unittest discover -s tests -p 'test_benchmark_audio_backends.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Benchmark Python regression tests failed' }
+
+    $args = @(
+        'scripts/benchmark_audio_backends.py',
+        '--cohort-db', $cohort,
+        '--analyzer', $analyzer,
+        '--essentia-worker', $worker,
+        '--models-dir', $models,
+        '--source-root', $music,
+        '--output-dir', $out,
+        '--models', 'genre,moodtheme,voice',
+        '--workers', '1,2',
+        '--repeats', '1',
+        '--seed', '20261020',
+        '--score-max-tolerance', '0.001'
+    )
+    python @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Real-music backend parity failed; inspect $out"
+    }
+    $r = Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw |
+        ConvertFrom-Json
+    Write-Host 'Numerical parity by worker count:'
+    $r.backend_parity |
+        Select-Object workers,tracks_and_heads,compared_scores,
+            patch_count_mismatches,maximum_absolute_score_difference,
+            mean_absolute_score_difference,fingerprint_heads_checked |
+        Format-List
+    Write-Host "Validated sidecars, reports, and logs: $out"
+}
+```
+
+**If this fails:** inspect the error and the run's `*.stderr.txt`.
+If scores differ beyond tolerance or patch counts drift, the benchmark
+also writes **`parity-failure.json`** with the worst track, class index,
+per-head max/mean errors, observed score values and up to ten patch
+mismatch examples. Do not change the tolerance to force a pass. A
+successful run writes `summary.json` and `runs.csv`. Share only
+sanitized diagnostic excerpts; all raw JSON and SQLite files can
+contain private music file paths and must stay local.
+
+## Reusing the verified Windows test kit
+
+The original **successful and verified** downloadable artifact is from
+run `39421541546`, not an unspecified "latest" run. On Windows with
+`gh` authenticated and the repository checkout at
+`D:\LMS\bliss-mood-poc`, the package can be downloaded reproducibly:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    if (Test-Path -LiteralPath $kit) {
+        throw "Kit directory already exists; inspect instead of overwriting: $kit"
+    }
+    gh run download 39421541546 `
+        --repo chrober/bliss-mood-poc `
+        --name bliss-mood-essentia-windows-x64-dev `
+        --dir $kit
+    if ($LASTEXITCODE -ne 0) { throw 'Kit download failed' }
+    if (-not (Test-Path -LiteralPath (Join-Path $kit 'essentia-worker\worker-dependencies.json'))) {
+        throw 'Expected signed native dependency manifest not found'
+    }
+    Write-Host "Package: $kit"
+}
+```
+
+**Historical note:** the original kit's `bliss-mood.exe` was valid
+for the first 100-song **Rust v4 vs native C++** comparison. It does
+**not** contain the later Rust v5 Float32 resampling fix and must **not**
+be used in the new Rust v5 real-song or cohort parity gate. Reuse
+its already-completed native C++ SQLite sidecar as reference, but use
+the separately verified Rust v5 scanner from Windows x64 run
+`39450757368` for new v5 work (instructions above).
+
+## After real-music parity
+
+Only if these results pass, evaluate the **new Essentia sidecar**, for
+example `round-01-workers-01-essentia.db`, with PR #16's unchanged
+`evaluate_similarity.py` using `--include-experimental`. Keep the
+previous Rust sidecar separate and check the exact track key intersection
+before comparing metric distributions. This is the next investigation,
+not part of the initial compatibility acceptance test.
+
+**Not in scope yet:** production mixing metric selection, subjective
+similarity truth, Linux/macOS/Raspberry Pi distribution, licensing audit,
+or changing the default `--audio-backend rust`.
+
+    )
+    if (-not $expectedHash.Success) { throw 'Ungueltige SHA256SUMS.txt' }
+    if ((Get-FileHash $scanner -Algorithm SHA256).Hash -ine
+        $expectedHash.Groups[1].Value) {
+        throw 'Rust-v5-Binary-Pruefsumme stimmt nicht'
+    }
+    if (Test-Path -LiteralPath $out) {
+        throw "Zielverzeichnis existiert bereits: $out"
+    }
+
+    Write-Host "\`n=== ADAPTIVE RUST V5: START 6, MIN 4, MAX 8 ==="
+    $arguments = @(
+        'scripts/verify_rust_v5_adaptive.py',
+        '--cohort-db',
+        (Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db'),
+        '--old-rust-db',
+        (Join-Path $old 'round-01-workers-01-rust.db'),
+        '--essentia-db',
+        (Join-Path $old 'round-01-workers-01-essentia.db'),
+        '--fixed-db',
+        (Join-Path $fixed 'round-01-workers-04-rust.db'),
+        '--fixed-report',
+        (Join-Path $fixed 'parity-report-private.json'),
+        '--analyzer', $scanner,
+        '--models-dir', (Join-Path $repo 'models'),
+        '--source-root', '\\192.168.1.100\music',
+        '--output-dir', $out,
+        '--workers', '6',
+        '--min-workers', '4',
+        '--max-workers', '8',
+        '--expected-songs', '100',
+        '--score-max-tolerance', '0.001'
+    )
+    python @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Adaptive Scan oder Paritaet fehlgeschlagen; Daten behalten: $out"
+    }
+    Write-Host "\`n=== ADAPTIVE PARITAET BESTANDEN ==="
+    Write-Host "Detailbericht lokal: $out"
+}
+~~~
+
+After this successful gate, inspect specifically
+\`acceptance_status\`, \`controller.adjustments\`,
+\`controller.peak_active_analyses\`,
+\`max_score_diff_vs_original_cpp\`,
+\`worker_invariance_vs_four.maximum_absolute_difference\`, and
+\`performance.adaptive_vs_fixed_four_speedup\` without repeating a scan.
+
+**Important note:** \`--workers auto\` computes an initial worker
+count only; adaptive changes require *also* \`--adaptive-workers\`.
+For this experiment six initial workers are explicitly fixed,
+to preserve traceable 6 -> 4..8 controller behavior. Both modes
+remain available in the production CLI.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
