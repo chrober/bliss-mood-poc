@@ -87,6 +87,11 @@ explicitly configured, never downloaded or executed automatically.
 
 ## Licensing and native dependency provenance
 
+Die plattformübergreifenden Lizenz-, Modell- und Distributionsfragen sowie die
+Optionen zur **separaten Installation von Systembibliotheken** sind in der
+[Essentia-Lizenz- und Distributionsstrategie](essentia-licensing-distribution-strategy.md)
+zusammengefasst. Dies ist ein Prüfdokument, keine rechtliche Freigabe.
+
 The original Essentia C++ library is **AGPLv3** licensed, and its
 dependencies and the separately downloaded model weights have their own
 conditions. Shipping an Essentia-linked child process with an MIT Rust
