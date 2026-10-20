@@ -98,21 +98,42 @@ def model_outputs(patches, sessions):
     outputs = {head: [] for head in HEADS}
     for patch in patches:
         sample = np.asarray(patch, dtype=np.float32).reshape(1, 128, 96)
-        embed = np.asarray(
-            e.run(None, {e.get_inputs()[0].name: sample})[0],
-            dtype=np.float32,
-        ).reshape(-1)
-        if embed.size != 1280 or not np.isfinite(embed).all():
-            raise AssertionError("Embedding must be 1280 finite values")
+        # Discogs-EffNet may expose the original 400-style prediction
+        # alongside its 1,280-D embedding. Match the production Rust
+        # FeatureEngine behavior: choose by exact tensor size, never output 0.
+        candidates = [
+            np.asarray(value, dtype=np.float32).reshape(-1)
+            for value in e.run(None, {e.get_inputs()[0].name: sample})
+        ]
+        matched = [value for value in candidates
+                   if value.size == 1280 and np.isfinite(value).all()]
+        if len(matched) != 1:
+            raise AssertionError(
+                f"Expected one finite 1280-D EffNet embedding; "
+                f"output sizes {[x.size for x in candidates]}"
+            )
+        embed = matched[0]
         embeddings.extend(embed.tolist())
         for head, (_, count) in HEADS.items():
             session = sessions[head]
-            result = np.asarray(session.run(
-                None, {session.get_inputs()[0].name: embed.reshape(1, 1280)}
-            )[0], dtype=np.float32).reshape(-1)
-            if (result.size != count or not np.isfinite(result).all()
-                    or np.any(result < -1e-5) or np.any(result > 1.00001)):
-                raise AssertionError(f"Invalid {head} model output")
+            possible = [
+                np.asarray(value, dtype=np.float32).reshape(-1)
+                for value in session.run(
+                    None, {session.get_inputs()[0].name: embed.reshape(1, 1280)}
+                )
+            ]
+            matching = [
+                values for values in possible if (
+                    values.size == count and np.isfinite(values).all()
+                    and np.all(values >= 0.0) and np.all(values <= 1.0)
+                )
+            ]
+            if len(matching) != 1:
+                raise AssertionError(
+                    f"Invalid {head} head outputs: "
+                    f"tensor sizes {[x.size for x in possible]}"
+                )
+            result = matching[0]
             outputs[head].append(result.tolist())
     return embeddings, outputs
 
