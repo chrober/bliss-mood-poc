@@ -643,7 +643,7 @@ evidence for the root-cause fix, not the complete 100-song acceptance gate.
 ### Next: reuse the already completed original C++ 100-song sidecar
 
 `scripts/verify_rust_v5_cohort.py` runs precisely ONE new
-`scan-features --audio-backend rust --workers 1` against the existing
+`scan-features --audio-backend rust --workers 4` against the existing
 100-track `sample-100.db`. It NEVER invokes the original C++ worker,
 never overwrites saved v4/C++ databases and keeps source music read-only.
 It requires these strict invariants:
@@ -666,6 +666,15 @@ It requires these strict invariants:
 `D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe` with
 `BUILD.txt = Commit: a6a5c8607064e95d291cc85a0500472ff20bcc4e`,
 whose second parent is v5 PR head `9ca4d3d2e248a528008e70c9ba0951902b2acc67`.
+The 4-worker Rust scan still uses exactly **one ONNX thread per
+worker**; model scoring is independent per track and the strict
+comparison is performed using track/head keys, not completion order.
+No adaptive worker changes or further C++ scans are needed. This is
+also an integration check of 4 concurrent Rust workers, but it does not
+replace separate 2/6-worker throughput or adaptive-controller tests.
+If peak RAM becomes a problem, start a NEW output directory with
+`--workers 2` instead of changing the parity tolerance.
+
 The original C++ sidecar remains
 `benchmark-essentia-real-20261020-160351\round-01-workers-01-essentia.db`.
 Do **NOT** use the older v4 `bliss-mood.exe` in the Essentia dev kit.
@@ -730,7 +739,7 @@ Do **NOT** use the older v4 `bliss-mood.exe` in the Essentia dev kit.
         '--models-dir', (Join-Path $repo 'models'),
         '--source-root', '\\192.168.1.100\music',
         '--output-dir', $newOutput,
-        '--workers', '1',
+        '--workers', '4',
         '--expected-songs', '100',
         '--score-max-tolerance', '0.001'
     )
@@ -747,8 +756,8 @@ Send only `numeric_parity_status`, `maximum_absolute_difference`,
 `patch_mismatches` and `per_head_improvement` from console output.
 Do not post private tracks, sidecar paths or the detailed report.
 
-A successful one-worker 100-song numerical comparison does **not** by
-itself establish 2-worker/multi-worker integrity, new backend throughput
+A successful four-worker 100-song numerical comparison does **not** by
+itself establish other worker counts/adaptive-worker behavior, repeatable backend throughput
 with 4/6 workers, cross-codec behavior or licensing/distribution.
 Continue those remaining release gates separately. Keep #17 Draft
 until full acceptance is reviewed; never modify PR #16.
