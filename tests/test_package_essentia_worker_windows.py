@@ -49,16 +49,17 @@ class NativeWindowsPackagingTests(unittest.TestCase):
                 exe.name, one.name, two.name,
             })
 
-    def test_windows_msimg32_and_wsock32_are_os_managed(self):
-        # Both DLLs are part of Windows itself, not MinGW dependencies.
+    def test_windows_msimg32_wsock32_and_gdiplus_are_os_managed(self):
+        # These DLLs are part of Windows itself, not MinGW dependencies.
         # Unrecognized imports must still fail closed.
         self.assertTrue(package.system_dll("msimg32.dll"))
         self.assertTrue(package.system_dll("wsock32.dll"))
+        self.assertTrue(package.system_dll("gdiplus.dll"))
         self.assertFalse(package.system_dll("unrecognized-vendor.dll"))
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
             exe = fake_pe(d / "bliss-essentia-worker.exe")
-            with patch.object(package, "imports", return_value=["msimg32.dll", "wsock32.dll", "kernel32.dll"]):
+            with patch.object(package, "imports", return_value=["msimg32.dll", "wsock32.dll", "gdiplus.dll", "kernel32.dll"]):
                 self.assertEqual(set(package.collect(exe, [d], d / "objdump.exe")), {exe.name})
             with patch.object(package, "imports", return_value=["unrecognized-vendor.dll"]):
                 with self.assertRaises(FileNotFoundError):
