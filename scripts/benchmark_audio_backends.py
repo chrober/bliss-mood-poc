@@ -130,7 +130,8 @@ def verify_backend_fingerprint_separation(rust_db, essentia_db):
     return sorted(old)
 
 
-def compare_feature_tables(baseline, alternative, expected_models=None):
+def compare_feature_tables(baseline, alternative, expected_models=None,
+                           expected_tracks=None):
     """Strict per-track/head parity with actionable per-head error diagnostics.
 
     Compare numeric arrays, not backend-specific model fingerprint keys.
@@ -145,6 +146,17 @@ def compare_feature_tables(baseline, alternative, expected_models=None):
         )
 
     dimensions = {"genre": 87, "moodtheme": 56, "voice": 2}
+    if expected_tracks is not None:
+        if len(expected_tracks) != len(set(expected_tracks)):
+            raise AssertionError("Expected real-music cohort contains duplicate keys")
+        observed = {file for file, _ in baseline}
+        if observed != set(expected_tracks):
+            missing = sorted(set(expected_tracks) - observed)
+            extra = sorted(observed - set(expected_tracks))
+            raise AssertionError(
+                "Feature sidecar does not match exact Bliss cohort: "
+                f"missing={missing[:5]}, extra={extra[:5]}"
+            )
     if expected_models is not None:
         expected_models = tuple(expected_models)
         if not expected_models or len(expected_models) != len(set(expected_models)):
@@ -418,7 +430,8 @@ def main():
             prior = load_feature_rows(args.output_dir / partner["sqlite"])
             baseline, native = (scores, prior) if backend == "rust" else (prior, scores)
             comp = compare_feature_tables(
-                baseline, native, expected_models=args.models.split(",")
+                baseline, native, expected_models=args.models.split(","),
+                expected_tracks=cohort,
             )
             rust_db, native_db = (
                 (args.output_dir / record["sqlite"], args.output_dir / partner["sqlite"])
