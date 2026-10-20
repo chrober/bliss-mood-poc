@@ -1,12 +1,12 @@
 # Windows x64: original Essentia C++ worker packaging
 
-**Status (2026-10-20):** Windows packaging and runtime DLL provenance checks implemented. Original Essentia C++ has NOT yet been successfully built for Windows; no Windows original-Essentia audio test has passed. Our Linux original Essentia C++ + WAV/FLAC/MP3 + all-head ONNX test is green: https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587
+**Verified status (2026-10-20):** The Windows packaging and DLL-provenance tests are green with a **synthetic** C++ fixture and a real imported DLL. The **original Essentia C++ library itself now compiles and links as `essentia.dll` under MinGW64**, but the real worker EXE still fails to link unresolved Essentia symbols. No Windows original-Essentia audio validation has passed. [Latest confirmed linker failure](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896) · [Next-action runbook](handover-essentia-windows-linker-20261020.md). Linux original-Essentia C++ plus WAV/FLAC/MP3 and all-head ONNX comparison remains green: https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587
 
 ## Windows native toolchain and blocker
 
 The current Linux original Essentia C++ implementation uses pinned upstream commit `9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47`, which builds against Ubuntu 22.04's FFmpeg 4.4. Official Windows Essentia documentation recommends MinGW cross-compilation; the resulting MinGW C++ library cannot be directly linked to an MSVC Rust binary. Our subprocess IPC intentionally avoids C++ ABI sharing.
 
-Current October 2026 MSYS2 MinGW64 distributes FFmpeg 9, incompatible with the pinned 2023 Essentia FFmpeg APIs. Newer MSYS2 Eigen/TagLib versions also require compatibility review. Do not claim a plain `pacman -S mingw-w64-x86_64-ffmpeg` installation produces a valid Windows Essentia worker. Either build a fully audited matching older native dependency set for this pinned original revision, or select a newer pinned original upstream revision and **re-run full C++/Rust DSP and model parity**.
+Current October 2026 MSYS2 MinGW64 distributes FFmpeg 9, incompatible with the pinned **2023 Linux reference** Essentia FFmpeg APIs. The experimental Windows workflow instead builds **original upstream Essentia at `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` (unmerged upstream PR #1540)**, with `--std=gnu++14 --lightweight=libav,libsamplerate,fftw`. This upstream library build **succeeded** in run #39382026896, but the separate real worker EXE **failed to link**. This newer source revision requires independent Windows DSP and ONNX numerical parity before release; a successful DLL alone is not enough. MSYS2 dependencies are rolling and must be recorded and audited.
 
 References:
 - https://essentia.upf.edu/installing.html
@@ -72,10 +72,10 @@ original Essentia Windows portability.
 
 ## Remaining release validation gates
 
-1. Build original Essentia C++ and pinned compatible dependencies for native Windows x64; record complete build provenance and package versions.
+1. **Fix original Essentia C++ Windows worker EXE linking** to the already built original `essentia.dll`: inspect exports, MinGW import library, CMake link line and ABI. Record full build provenance.
 2. Create a self-contained package, then start it in a clean Windows environment **without** relying on a global MSYS2 directory in PATH. Verify handshake, multiple audio jobs and restart.
 3. Re-run WAV/FLAC/MP3, Mel, 1280-D EffNet, 87+56+2 ONNX classification parity on Windows.
 4. Run paired 1/2/4/6 Rust vs Essentia backend tests on the SAME bounded Bliss track cohort, observing CPU, combined private/RSS and cache effects.
 5. Perform an independent license review and target-specific binary distribution validation. ARM64/piCorePlayer remains separate.
 
-**Important:** CI currently tests the packager with synthetic Windows PE files and the multi-process Windows behavior with the standalone test fixture. These tests are not a successful original Essentia Windows build, and do not establish numerical parity for an unbuilt native Windows binary.
+**Important:** The synthetic native DLL-closure smoke is validated, and the original upstream Essentia library now builds on Windows. Neither result proves that the **real Essentia-linked worker EXE** links or runs; Windows original-Essentia audio and full numeric parity remain open.
