@@ -14,7 +14,7 @@ production Windows/macOS/Linux release.
 | Same real MP3 cohort, 100 tracks / 14,500 values, 4 Rust-v5 workers | **PASS** | Max class-score delta 1.2695789337158203e-5 vs saved original C++, tolerance 1e-3; 0 patch mismatches |
 | Rust-v5 worker invariance, adaptive enabled 6 vs fixed 4 | **PASS** | 0.0 score difference across all 14,500 scores, identical patch counts and official model SHA. Controller sampled resources but made 0 adjustments |
 | Adaptive-policy increase/decrease and stabilization on real music | **NOT DEMONSTRATED** | Actual run held 6 workers throughout; deterministic Rust unit tests cover simulated high/low loads, but dynamic changes under real controlled load have not been measured |
-| Short/long real WAV and FLAC vs original C++ and Rust-v5 DSP | **OPEN** | Run new `verify_lossless_codec_parity.py` on ONE known real song, using common 24-bit PCM in WAV/FLAC; separate naturally occurring lossless-song coverage is still required |
+| Controlled real-song PCM24 WAV vs FLAC using same original signal | **PASS** | User's 20 October 2026 run: PCM24 SHA equal, 837 patches, both backends WAV vs FLAC score difference 0.0; C++ vs Rust v5 max 6.3700000000332935e-6 in each format (limit 1e-3). **Source was MP3-derived; not independent FLAC coverage.** |
 | Windows x64 native C++ worker synthetic WAV/FLAC/MP3 fixture | **PASS (CI fixture)** | Verified original worker/ONNX handoff in native Windows workflow; does not substitute for real music |
 | Real independent FLAC/WAV songs from the library | **OPEN** | A small, explicitly bounded and legally available sample with mixed rates/channels/bit depths, fresh Rust/C++ isolated sidecars, same ONNX SHA256 and max 1e-3 drift |
 | Linux x86_64 original Essentia native smoke | **Partially validated** | Existing Linux CI numeric fixture, but portable packages, loader/library ABI and target distro matrix not release-qualified |
@@ -29,6 +29,34 @@ or advertise cross-platform/codec guarantees based solely on existing 100 MP3
 parity. A merge of experimental code can be a separate explicit engineering
 decision from bundling or distributing third-party binaries or model weights.
 PR #16 similarity work remains separate.
+
+## Verified controlled WAV24 / FLAC result — 20 October 2026
+
+The user's real-song test **PASSED** on the exact source WAV and verified Rust-v5
+and original C++ worker already present in the local Windows test kits:
+
+| Measurement | Real outcome |
+| --- | ---: |
+| `status` | **PASS** |
+| `pcm24_sha_equal` | **true** (bit-identical 24-bit PCM after independent decoding) |
+| Patches, both backends / both formats | **837** |
+| Original Essentia C++ vs corrected Rust v5 — WAV24 | **6.3700000000332935e-6** maximum class-score deviation |
+| Original Essentia C++ vs corrected Rust v5 — FLAC | **6.3700000000332935e-6** |
+| Rust v5 — WAV vs FLAC | **0.0** across class scores |
+| Original C++ — WAV vs FLAC | **0.0** across class scores |
+
+**Private report is local only** at
+`D:\LMS\bliss-mood-poc\benchmark-real-wav-flac-v5-20261020-204139\private-codec-report.json`.
+The controlled WAV24/FLAC pair comes from a **real song originally stored as MP3**.
+The shared PCM control proves codec/container agreement for that signal,
+but does not prove native independently sourced FLAC/WAV library coverage,
+non-Windows portability or redistribution rights. **Do not re-run this
+already PASSing gate** merely to check the report again.
+
+The next data gap is a small set of **original, unmodified** FLAC/WAV files
+sampled from the music NAS; see the native-lossless cohort gate below.
+
+---
 
 ## First next gate: bit-exact decoded PCM across one real-song WAV24 and FLAC
 
