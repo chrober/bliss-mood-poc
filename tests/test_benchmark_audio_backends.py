@@ -46,6 +46,48 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
         result = bench.compare_feature_tables(ref, {("track", "genre"): (4, (0.1, 0.2))})
         self.assertEqual(result["patch_count_mismatches"], 1)
 
+    def test_fingerprints_must_be_distinct_between_backends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rust_db = Path(tmp) / "rust.db"
+            cpp_db = Path(tmp) / "essentia.db"
+
+            def create(path, keys):
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute("PRAGMA user_version=3")
+                    conn.execute(
+                        "CREATE TABLE feature_tracks "
+                        "(track_file TEXT, model_id TEXT, model_key TEXT)"
+                    )
+                    conn.executemany(
+                        "INSERT INTO feature_tracks VALUES (?,?,?)",
+                        [(f"track-{n}.flac", head, key)
+                         for head, key in keys
+                         for n in range(2)]
+                    )
+
+            create(rust_db, [("genre", "rust-genre"),
+                             ("moodtheme", "rust-mood")])
+            create(cpp_db, [("genre", "cpp-genre"),
+                            ("moodtheme", "cpp-mood")])
+            self.assertEqual(
+                bench.verify_backend_fingerprint_separation(rust_db, cpp_db),
+                ["genre", "moodtheme"],
+            )
+            with closing(sqlite3.connect(cpp_db)) as conn:
+                conn.execute(
+                    "UPDATE feature_tracks SET model_key='rust-genre' "
+                    "WHERE model_id='genre'"
+                )
+            with self.assertRaisesRegex(AssertionError, "must not share"):
+                bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
+            with closing(sqlite3.connect(cpp_db)) as conn:
+                conn.execute(
+                    "UPDATE feature_tracks SET model_key='extra-model' "
+                    "WHERE track_file='track-0.flac' AND model_id='genre'"
+                )
+            with self.assertRaisesRegex(AssertionError, "Mixed model fingerprints"):
+                bench.model_fingerprints_by_head(cpp_db)
+
     def test_fail_closed_on_incomplete_result(self):
         bench.validate_report({"analyzed": 5, "pending": 5,
                                "failures": 0, "missing_files": 0}, 5)
