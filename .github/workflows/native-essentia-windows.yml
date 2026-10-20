@@ -415,6 +415,78 @@ jobs:
             & $nativePython @args
             if ($LASTEXITCODE -ne 0) { throw 'Real Windows PR 16 similarity sidecar handoff failed' }
           }
+      - name: Inventory installed upstream and MSYS2 native dependency licenses
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 scripts/inventory_essentia_windows_licenses.py \
+            --bundle build/windows-native/original-essentia-closed-bundle \
+            --mingw /mingw64 \
+            --essentia-source build/windows-native/essentia-source \
+            --project-license LICENSE \
+            --output build/windows-native/local-binary-notices
+      - name: Stage real Windows Essentia CLI development kit with native dependencies
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = 'build/windows-native/bliss-mood-essentia-win64-dev'
+            $worker = Join-Path $kit 'essentia-worker'
+            $scripts = Join-Path $kit 'scripts'
+            New-Item -ItemType Directory -Force -Path $worker, $scripts | Out-Null
+            Copy-Item -Path 'build/windows-native/original-essentia-closed-bundle/*' -Destination $worker -Recurse -Force
+            Copy-Item -LiteralPath 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe' -Destination $kit
+            Get-ChildItem 'target/x86_64-pc-windows-msvc/release' -File -Filter 'onnxruntime*.dll' | Copy-Item -Destination $kit
+            Copy-Item -LiteralPath 'scripts/download-models.ps1' -Destination $scripts
+            Copy-Item -Path 'build/windows-native/local-binary-notices/*' -Destination $kit -Recurse -Force
+            Copy-Item -LiteralPath 'docs/windows-essentia-local-test-kit.md' -Destination (Join-Path $kit 'README.md')
+            Copy-Item -LiteralPath 'build/windows-native/pacman-package-lock-observed.txt' -Destination $kit
+            $main = Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $kit 'bliss-mood.exe')
+            $native = Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $worker 'bliss-essentia-worker.exe')
+            @(
+              "bliss-mood.exe SHA256 $($main.Hash.ToLowerInvariant())",
+              "essentia-worker/bliss-essentia-worker.exe SHA256 $($native.Hash.ToLowerInvariant())",
+              "Git commit $env:GITHUB_SHA",
+              "DEVELOPMENT ONLY - license audit and release approval incomplete"
+            ) | Set-Content -LiteralPath (Join-Path $kit 'BUILD-PROVENANCE.txt') -Encoding utf8
+            python scripts/package_essentia_worker_windows.py --verify $worker
+            if ($LASTEXITCODE -ne 0) { throw 'Staged Essentia worker DLL hashes invalid' }
+            if ((Get-ChildItem -LiteralPath $worker -File -Filter '*.dll').Count -lt 10) {
+              throw 'Staged Essentia native dependencies missing'
+            }
+            if ((Get-ChildItem -LiteralPath $kit -Recurse -File -Include '*.onnx','*.flac','*.mp3','*.db').Count -ne 0) {
+              throw 'Test kit must not embed ONNX model weights, audio, or SQLite DBs'
+            }
+          }
+      - name: Verify exact downloadable kit using isolated Windows PATH and PR 16 evaluator
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = (Resolve-Path 'build/windows-native/bliss-mood-essentia-win64-dev').Path
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+            $workerExe = Join-Path $kit 'essentia-worker/bliss-essentia-worker.exe'
+            & $nativePython scripts/test_native_essentia_protocol.py $workerExe
+            if ($LASTEXITCODE -ne 0) { throw 'Staged worker failed isolated PATH smoke' }
+            $testArgs = @(
+              'scripts/validate_windows_essentia_similarity_handoff.py',
+              '--scanner', (Join-Path $kit 'bliss-mood.exe'),
+              '--worker', $workerExe,
+              '--models-dir', 'models', '--fixtures-dir', 'fixtures',
+              '--evaluator', 'build/windows-native/pr16-readonly/evaluate_similarity.py',
+              '--work-dir', 'build/windows-native/pr16-compatibility-staged'
+            )
+            & $nativePython @testArgs
+            if ($LASTEXITCODE -ne 0) { throw 'Actual downloadable Windows kit PR16 handoff failed' }
+          }
+      - name: Upload verified original Essentia C++ Windows x64 CLI development kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: bliss-mood-essentia-windows-x64-dev
+          path: build/windows-native/bliss-mood-essentia-win64-dev/
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload bounded Windows numerical parity reports (no audio or weights)
         if: always()
         uses: actions/upload-artifact@v4
