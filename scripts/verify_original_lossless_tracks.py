@@ -64,16 +64,34 @@ def probe(path):
     }
 
 
-def acceptable(path, info, minimum, maximum, max_bytes):
-    if not minimum <= info["duration_seconds"] <= maximum:
-        return False
-    if not 8000 <= info["sample_rate"] <= 192000:
-        return False
+def limit_reasons(path, info, minimum, maximum, max_bytes):
+    """Explain pre-inference size/duration/rate filters without leaking song path."""
+    reasons = []
+    duration = info["duration_seconds"]
+    rate = info["sample_rate"]
+    if not minimum <= duration <= maximum:
+        reasons.append(
+            f"duration={duration:.2f}s outside [{minimum:.2f}, {maximum:.2f}]s"
+        )
+    if not 8000 <= rate <= 192000:
+        reasons.append(f"sample_rate={rate}Hz outside [8000, 192000]Hz")
     try:
-        stat = path.stat()
-    except OSError:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise ValueError("Could not stat original source file") from exc
+    if not 4096 <= size <= max_bytes:
+        reasons.append(
+            f"file_size={size / (1024 * 1024):.2f}MiB outside "
+            f"[0.004, {max_bytes / (1024 * 1024):.2f}]MiB"
+        )
+    return reasons
+
+
+def acceptable(path, info, minimum, maximum, max_bytes):
+    try:
+        return not limit_reasons(path, info, minimum, maximum, max_bytes)
+    except (OSError, ValueError):
         return False
-    return 4096 <= stat.st_size <= max_bytes
 
 
 def validate_file(root, key):
@@ -143,10 +161,18 @@ def select_sources(args):
             if args.track:
                 raise
             continue
-        if not acceptable(path, metadata, args.min_seconds, args.max_seconds,
-                          args.max_file_mib * 1024 * 1024):
+        violations = limit_reasons(
+            path, metadata, args.min_seconds, args.max_seconds,
+            args.max_file_mib * 1024 * 1024,
+        )
+        if violations:
             if args.track:
-                raise ValueError(f"Explicit {suffix} outside bounded duration/size/rate limits")
+                raise ValueError(
+                    f"Explicit {suffix} exceeds preflight limits: "
+                    + "; ".join(violations)
+                    + ". Adjust --max-seconds/--max-file-mib within the "
+                    "hard bounded limits only after inspecting file metadata."
+                )
             continue
         selected[suffix] = (key, path, metadata)
         if len(selected) == 2:
@@ -235,8 +261,14 @@ def run(args):
         raise FileExistsError("Output must be a NEW private folder; never overwrite")
     if not math.isfinite(args.tolerance) or not 0 < args.tolerance < 0.1:
         raise ValueError("Invalid numeric tolerance")
-    if not 20 <= args.min_seconds < args.max_seconds <= 900:
-        raise ValueError("Require explicit bounded song durations 20..900 seconds")
+    # Longer user-provided jazz recordings are permitted only through
+    # explicitly selected, bounded source keys, never automatic discovery.
+    hard_duration_limit = 1800 if args.track else 900
+    if not 20 <= args.min_seconds < args.max_seconds <= hard_duration_limit:
+        raise ValueError(
+            f"Require bounded song durations 20..{hard_duration_limit} seconds; "
+            "1800-second exception requires two explicit --track values"
+        )
     if not 8 <= args.max_file_mib <= 512:
         raise ValueError("Require bounded file size 8..512 MiB")
     for path in (
@@ -330,7 +362,8 @@ def main():
     parser.add_argument("--max-entries", type=int, default=6000)
     parser.add_argument("--max-depth", type=int, default=6)
     parser.add_argument("--min-seconds", type=float, default=30.0)
-    parser.add_argument("--max-seconds", type=float, default=420.0)
+    parser.add_argument("--max-seconds", type=float, default=420.0,
+                        help="Maximum song duration (default 420s, hard cap 900s for discovery / 1800s for explicit --track)")
     parser.add_argument("--max-file-mib", type=int, default=150)
     parser.add_argument("--reference-wav", type=Path, required=True)
     parser.add_argument("--reference-cpp-json", type=Path, required=True)
