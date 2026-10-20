@@ -31,6 +31,21 @@ production Bliss Mixer, invoke ONNX at mixing time, or silently use
 unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
 is recorded for later and does not block functional integration.
 
+## Essentia C++ development handover (2026-10-20)
+
+For continuation of **draft PR #17**, start with the [current original
+Essentia C++ handover](docs/handover-essentia-cpp-20261020.md) and the
+[Windows linker diagnosis and next actions](docs/handover-essentia-windows-linker-20261020.md).
+**Confirmed:** Original Essentia C++ itself compiles as a Windows
+`essentia.dll`, but the real `bliss-essentia-worker.exe` fails at
+link time with unresolved upstream C++ symbols
+([CI run 39382026896](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896)).
+This branch has **7/8 green CI gates** at pre-handover commit
+`efda3f27e196`. Linux original-Essentia model parity passed, while
+Windows real Essentia audio smoke has not run. The newer Windows
+upstream SHA differs from the pinned Linux reference; do not assume
+cross-version numeric parity. `main` stays unchanged; PR remains Draft.
+
 ## Experimental original Essentia C++ frontend (feature branch only)
 
 The [Essentia C++ worker architecture](docs/essentia-cpp-worker-architecture.md)
@@ -44,12 +59,17 @@ frontend; the C++ backend is explicitly selected using
 `--audio-backend essentia --essentia-worker <trusted-executable>`
 for `analyze-features` or `scan-features`.
 
-**Not production-ready:** Rust CI tests the process protocol with a dummy
-C++ worker, **not original Essentia DSP**. Native Essentia builds for
-Windows and Pi, actual spectral parity, subprocess watchdog and
-process-tree RAM diagnostics remain required. Do not enable unattended
-large-library scans against this backend yet. Feature identities include
-the worker binary digest, so switching backends invalidates stale cache.
+**Not production-ready:** Linux CI has verified genuine original-Essentia
+DSP patches against Rust (WAV/FLAC/MP3) through EffNet and all 87/56/2
+classification heads. Windows separately validates the Rust subprocess
+protocol and DLL packaging using a **synthetic** worker. The Windows
+original-Essentia DLL builds, but the **real C++ worker EXE fails to link**
+(see handover above); its audio smoke, Windows numerical parity and
+Pi/ARM64 distribution remain open. Native subprocess watchdogs,
+restarts and process-tree RAM sampling are implemented and exercised in
+CI; real-world resource ceilings are not yet benchmarked. Do not run
+unattended large-library scans with this backend. Native executable and
+on-Windows deployment-manifest hashes distinguish feature cache keys.
 
 ## Generic feature models (opt-in)
 
