@@ -10,6 +10,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(ESSENTIA REQUIRED IMPORTED_TARGET essentia)
 add_executable(bliss-essentia-worker essentia_cpp_worker.cpp)
 target_link_libraries(bliss-essentia-worker PRIVATE PkgConfig::ESSENTIA)
+if(MINGW)
+    # Windows C runtime hides M_PI/M_LN2 under strict ISO C++ modes.
+    # This does not alter any Essentia DSP formulas.
+    target_compile_definitions(bliss-essentia-worker PRIVATE _USE_MATH_DEFINES)
+endif()
 if(MSVC)
     target_compile_options(bliss-essentia-worker PRIVATE /W4)
 else()
