@@ -191,11 +191,22 @@ tracks nor model weights are committed or uploaded. Model downloads can
 make this gate unavailable independent of model accuracy, so distinguish
 network/dependency failures from comparison failures when diagnosing CI.
 
-**Interpretation:** This checks differences caused by the C++ vs Rust
-frontend through the same ONNX networks. Python ONNX Runtime is used only
-as an independent evaluation harness; existing CI already validates
-the Rust `ort` model inference separately. An explicit real-audio,
-native Windows release and ARM64 test are still required before declaring
+**Verified result:** The pinned original C++ native CI
+[run #39373185587](https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587)
+is **green** on 2026-10-20. For all four synthetic fixtures, Mel patches
+and patch counts passed, followed by all **1280 embedding dimensions** and
+per-patch plus track-mean **87 genre + 56 mood/theme + 2 voice** outputs
+with the unchanged official ONNX weights. The report is archived in the
+workflow artifact `original-essentia-cpp-codec-parity` (run's artifacts).
+The signal-specific Mel maxima were 2.5511e-5 (mono WAV), 6.5823e-4
+(stereo WAV and lossless FLAC), and 3.1980e-3 (MP3), with MP3 MAE
+1.3608e-5. Lossy MP3 uses the separate bounded max/mean thresholds.
+
+**Interpretation:** This checks differences caused by C++ vs Rust frontend
+through the **same** ONNX networks. Python ONNX Runtime is used only as an
+independent evaluation harness; existing CI already validates Rust `ort`
+inference separately. An explicit real-audio benchmark, native Windows
+Essentia deployment and ARM64 test are still required before declaring
 production equivalence or marking predictions validated.
 
 ## Provenance and rollout gates
