@@ -125,6 +125,27 @@ def inspect_results(reports, source_sha, source_cpp, source_v5,
         cpp = reports[fmt]["essentia"]
         if cpp.get("preprocessing_version") != CPP_PREPROCESSING:
             raise AssertionError("Not the original C++ Essentia DSP")
+        # Every analysis must use the exact same Rust/C++ deployment and
+        # model fingerprint as the previously PASSing real-WAV control.
+        # Checking just the shared ONNX hashes would not catch replacement
+        # of the original native C++ worker executable.
+        for head in REQUIRED_HEADS:
+            for reference, fresh, backend in (
+                (source_cpp, cpp, "essentia"),
+                (source_v5, rust, "rust"),
+            ):
+                a = reference["classifications"][head]
+                b = fresh["classifications"][head]
+                for field in ("model_key", "models_sha256", "embedding_model",
+                              "classification_model", "aggregation", "output_type"):
+                    if a[field] != b[field]:
+                        raise AssertionError(
+                            f"{fmt} {backend} changed verified reference {field} for {head}"
+                        )
+                if set(a["scores"]) != set(b["scores"]):
+                    raise AssertionError(
+                        f"{fmt} {backend} changed class labels for {head}"
+                    )
         converted_sha = reports[fmt]["source_sha256"]
         result = audit_pair(cpp, rust, converted_sha, FIXED_RUST_PREPROCESSING)
         passed = all(
