@@ -328,8 +328,13 @@ jobs:
         run: |
           & {
             $ErrorActionPreference = 'Stop'
+            # The MinGW bin path contains a DIFFERENT python.exe; choose the
+            # exact setup-python interpreter that received pip/onnxruntime.
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            & $nativePython -c 'import numpy, onnxruntime; print("Validated ONNX Python:", onnxruntime.__version__)'
+            if ($LASTEXITCODE -ne 0) { throw 'Expected Windows Python ONNX environment unavailable' }
             $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
-            python scripts/compare_native_cpp_end_to_end.py `
+            & $nativePython scripts/compare_native_cpp_end_to_end.py `
               --worker build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe `
               --rust-reference native/rust-mel-reference/target/release/rust-mel-reference.exe `
               --models-dir models `
