@@ -36,5 +36,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_diagnose_mp3_wav_control.py'
       - name: Validate shared-PCM frontend Mel and ONNX comparison
         run: python3 -m unittest discover -s tests -p 'test_diagnose_pcm_frontend.py'
+      - name: Validate corrected Rust resampler against preserved original C++ reports
+        run: python3 -m unittest discover -s tests -p 'test_verify_resampler_fix_on_existing_wav.py'
       - name: Validate original Essentia Windows PE packaging and DLL licence safety
         run: python3 -m unittest discover -s tests -p 'test_package_essentia_worker_windows.py'
