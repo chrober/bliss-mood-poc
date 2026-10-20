@@ -7,6 +7,7 @@ on:
     paths:
       - "src/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_full_essentia.py"
       - "scripts/generate_audio_fixtures.py"
       - ".github/workflows/full-audio-parity.yml"
@@ -55,7 +56,7 @@ jobs:
           test "$(stat -c%s models/discogs-effnet-bs64-1.pb)" -gt 17000000
           sha256sum models/*
       - name: Build Rust release
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Full end-to-end comparison, all 56 classes and patch counts
         shell: bash
         run: |

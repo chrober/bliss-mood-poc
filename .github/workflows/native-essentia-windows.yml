@@ -6,6 +6,11 @@ on:
     paths:
       - "native/essentia_cpp_worker.cpp"
       - "native/CMakeLists.txt"
+      - "native/rust-mel-reference/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/audio_decode.rs"
+      - "src/preprocess.rs"
       - ".github/workflows/native-essentia-windows.yml"
       - "docs/essentia-cpp-windows-native-build.md"
       - "scripts/package_essentia_worker_windows.py"
@@ -278,7 +283,7 @@ jobs:
         run: |
           & {
             $ErrorActionPreference = 'Stop'
-            cargo build --release --manifest-path native/rust-mel-reference/Cargo.toml
+            cargo build --locked --release --manifest-path native/rust-mel-reference/Cargo.toml
             if ($LASTEXITCODE -ne 0) { throw 'Windows Rust Mel reference build failed' }
             if (-not (Test-Path 'native/rust-mel-reference/target/release/rust-mel-reference.exe')) {
               throw 'Windows Rust reference EXE missing'
@@ -371,7 +376,7 @@ jobs:
         run: |
           & {
             $ErrorActionPreference = 'Stop'
-            cargo build --release --target x86_64-pc-windows-msvc
+            cargo build --locked --release --target x86_64-pc-windows-msvc
             if ($LASTEXITCODE -ne 0) { throw 'Real Windows Rust scanner build failed' }
             & 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe' scan-features --help | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Real Windows scanner CLI failed to start' }

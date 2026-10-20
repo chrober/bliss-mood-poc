@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/**'
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/model-smoke.yml'
   workflow_dispatch:
 
@@ -37,7 +38,7 @@ jobs:
           ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=4 -ac 1 -ar 16000 -y test.wav
       - name: Run real ONNX inference
         run: |
-          cargo run --release -- analyze test.wav --models-dir models --max-patches 1 --threads 1 --json > report.json
+          cargo run --locked --release -- analyze test.wav --models-dir models --max-patches 1 --threads 1 --json > report.json
       - name: Verify output schema and label count
         run: |
           python3 - <<'PY'

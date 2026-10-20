@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - "native/**"
+      - "src/audio_decode.rs"
+      - "src/preprocess.rs"
       - "scripts/test_native_essentia_protocol.py"
       - "scripts/compare_native_cpp_end_to_end.py"
       - "scripts/generate_audio_fixtures.py"
@@ -69,8 +71,11 @@ jobs:
           cmake --build build/essentia-cpp --parallel 4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/rust-mel-reference -> target
       - name: Compile existing Rust Mel source without heavyweight ONNX Runtime
-        run: cargo build --release --manifest-path native/rust-mel-reference/Cargo.toml
+        run: cargo build --locked --release --manifest-path native/rust-mel-reference/Cargo.toml
       - name: Exercise original C++ worker and full four-patch Rust parity
         shell: bash
         run: |
