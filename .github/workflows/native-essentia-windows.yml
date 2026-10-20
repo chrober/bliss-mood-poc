@@ -40,7 +40,6 @@ jobs:
             mingw-w64-x86_64-ffmpeg
             mingw-w64-x86_64-libsamplerate
             mingw-w64-x86_64-taglib
-            mingw-w64-x86_64-chromaprint
             mingw-w64-x86_64-binutils
       - name: Log full build provenance and prepare original MTG sources
         shell: msys2 {0}
