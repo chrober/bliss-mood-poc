@@ -1,5 +1,50 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## Post-parity release-readiness checkpoint: WAV24/FLAC and rights (20 Oct 2026)
+
+The previous fixed-four and adaptive-enabled-six worker real 100-song
+MP3 numeric checks are **PASSED**. Do not repeatedly analyze those 100
+tracks; the original Essentia C++ and Rust v4/v5 sidecars are immutable
+references.
+
+**New controlled cross-codec diagnostic in PR #17:**
+
+- `scripts/verify_lossless_codec_parity.py` processes the **already
+  saved real 837-patch float32 PCM WAV**, not the NAS music.
+  It quantizes **once** to PCM24 WAV; creates FLAC from *that WAV*.
+  FFmpeg decodes WAV and FLAC to raw signed PCM24, and their **actual
+  decoded SHA256 + byte length must match** before any inference.
+- Runs only **four full-song analyses** on those two created files:
+  same validated Rust v5 CLI with `--audio-backend rust` and with
+  `--audio-backend essentia` plus the existing genuine original C++
+  worker. Compares official ONNX SHA256/labels, frontend cache
+  fingerprints, all Mel patch counts and all class scores at 1e-3.
+- The complete release gate matrix plus a single self-checking
+  Windows PowerShell recipe lives in
+  [docs/release-qualification-gates.md](release-qualification-gates.md).
+  It uses `benchmark-essentia-real-20261020-160351\
+  mp3-wav-control-20261020-164836` and
+  `rust-v5-one-track-20261020-190110` already present on the
+  Windows machine. Do not re-download/rebuild Rust v5 or C++ worker.
+- Unit tests `tests/test_verify_lossless_codec_parity.py` exercise
+  strict PCM equality, code and model identity, patch counts, and
+  tolerance failures. **Five new tests passed in GitHub Rust CI** for
+  commit `d4465e48443b0282a2e88c855331ab4d322f0d3e`, both
+  Rust-check workflows green. Real WAV/FLAC result awaits the
+  user's Windows execution.
+- This is a **controlled codec** test on one authentic music signal,
+  *not* evidence of independently sourced FLAC/WAV library tracks.
+  Genuine mixed-samplerate naturally occurring lossless examples
+  would be the subsequent, explicitly bounded codec gate.
+
+**No redistribution clearance is implied.** The separate
+[docs/essentia-licensing-distribution-strategy.md](essentia-licensing-distribution-strategy.md)
+still has outstanding AGPL/FFmpeg/ONNX model rights and native DLL
+dependency-closure questions. Windows native fixture passing is
+functional evidence only. Keep PR #17 Draft, separate from #16/main.
+
+---
+
 ## Real 100-song adaptive Rust-v5 run: PASS, numerically invariant (20 October 2026)
 
 **Measured locally by user; real source results, not synthetic unit tests.**
