@@ -3,6 +3,8 @@
 **Status:** experimental opt-in, not production-ready (2026-10-19).
 **Decision:** set aside essentia-rs; reuse original Essentia C++ algorithms directly while keeping the existing Rust scheduler, adaptive worker policy, ONNX Runtime, model registry and single SQLite writer. Do not merge into main without explicit user instruction.
 
+**Cross-platform target matrix:** [Lyrion-compatible hosts and validation requirements](platform-support-lyrion.md). Windows, Linux, macOS and Raspberry Pi/piCorePlayer builds are independently qualified; Windows CI proof does not certify ARM64 or macOS.
+
 ## Architecture
 
 ```mermaid

@@ -1,81 +1,94 @@
 # Windows x64: original Essentia C++ worker packaging
 
-**Verified status (2026-10-20):** The Windows packaging and DLL-provenance tests are green with a **synthetic** C++ fixture and a real imported DLL. The **original Essentia C++ library itself now compiles and links as `essentia.dll` under MinGW64**, but the real worker EXE still fails to link unresolved Essentia symbols. No Windows original-Essentia audio validation has passed. [Latest confirmed linker failure](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896) · [Next-action runbook](handover-essentia-windows-linker-20261020.md). Linux original-Essentia C++ plus WAV/FLAC/MP3 and all-head ONNX comparison remains green: https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587
+**Actual verified status (2026-10-20):** The **original** Windows x64 Essentia
+library and `bliss-essentia-worker.exe` now build, link and process real
+synthetic audio. The complete development-only DLL-closure contains **100**
+native EXE/DLL files, is SHA256-verified and passes startup/repeated audio
+jobs with MinGW removed from `PATH`. WAV/FLAC/MP3 Mel and the full
+1280-D EffNet plus 87/56/2 classifier-head comparisons against production
+Rust preprocessing all passed in
+[Actions run #39413454780](https://github.com/chrober/bliss-mood-poc/actions/runs/39413454780).
+This is the real Essentia-backed Windows worker, **not** the synthetic fixture.
 
-## Windows native toolchain and blocker
+For the broader Linux, macOS, Raspberry Pi/piCorePlayer and other
+Lyrion-host targets, see [platform support contract](platform-support-lyrion.md).
 
-The current Linux original Essentia C++ implementation uses pinned upstream commit `9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47`, which builds against Ubuntu 22.04's FFmpeg 4.4. Official Windows Essentia documentation recommends MinGW cross-compilation; the resulting MinGW C++ library cannot be directly linked to an MSVC Rust binary. Our subprocess IPC intentionally avoids C++ ABI sharing.
+## Native sources and packaging boundary
 
-Current October 2026 MSYS2 MinGW64 distributes FFmpeg 9, incompatible with the pinned **2023 Linux reference** Essentia FFmpeg APIs. The experimental Windows workflow instead builds **original upstream Essentia at `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` (unmerged upstream PR #1540)**, with `--std=gnu++14 --lightweight=libav,libsamplerate,fftw`. This upstream library build **succeeded** in run #39382026896, but the separate real worker EXE **failed to link**. This newer source revision requires independent Windows DSP and ONNX numerical parity before release; a successful DLL alone is not enough. MSYS2 dependencies are rolling and must be recorded and audited.
+- Upstream original Windows Essentia candidate:
+  `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` (upstream PR #1540
+  candidate, FFmpeg 9 compatible; **not a custom DSP port**).
+- MSYS2 MinGW64 original Essentia `essentia.dll` requires Waf's
+  `-Wl,--export-all-symbols` export policy and MinGW
+  `--enable-auto-import/--enable-runtime-pseudo-reloc` for original globals.
+- `scripts/package_essentia_worker_windows.py` inspects actual PE imports
+  using GNU `objdump -p`, validates x64 PE architecture, recursively copies
+  non-OS DLLs from explicit trusted directories and hashes their bytes.
+- **System DLL classification:** Native x64 Windows Python calls the Win32
+  `GetSystemDirectoryW` API to identify the real `System32` directory.
+  Alongside a conservative well-known OS/API-set allowlist, only an
+  architecture-valid PE actually present in the true System32 may be skipped
+  as OS-managed. This replaces brittle manual additions (`msimg32.dll`,
+  `wsock32.dll`, `gdiplus.dll`, `dwrite.dll`, etc.). Unknown non-OS DLLs
+  must resolve from trusted runtime roots; any missing/conflicting DLL,
+  wrong architecture, unsafe symlink, MSYS/Cygwin dependency, oversized
+  file graph or checksum mismatch fails closed.
+- Windows CI invokes the packager with **native Windows Python**, not MSYS
+  Python. Final ONNX comparison explicitly reuses the same native Python
+  interpreter to which `onnxruntime` was installed; prepending MinGW's bin
+  path must not silently select a different `python.exe`.
 
-References:
-- https://essentia.upf.edu/installing.html
-- https://github.com/MTG/essentia/blob/master/FAQ.md
-- https://packages.msys2.org/packages/mingw-w64-x86_64-ffmpeg
+Example for your **own** Windows x64 environment, after building original
+Essentia and the worker (replace paths as appropriate):
 
-## Packaging after a real native EXE exists
-
-`scripts/package_essentia_worker_windows.py` is a PE/DLL dependency packager, NOT an Essentia compiler. It requires a real original-Essentia x64 worker, GNU `objdump -p` and explicit, trusted dependency directories containing all transitive native runtime DLLs.
-
-Example, PowerShell, from the project root:
-
-~~~powershell
+```powershell
 & {
     $ErrorActionPreference = 'Stop'
-    Set-Location 'D:\LMS\bliss-mood-poc'
-    $worker = 'D:\native-build\bliss-essentia-worker.exe'
-    $objdump = 'C:\msys64\mingw64\bin\objdump.exe'
-    $mingwDllDir = 'C:\msys64\mingw64\bin'
-    $nativeDllDir = 'D:\native-build\lib'
-    $out = 'D:\LMS\essentia-worker-x64-experimental'
+    $worker = 'D:\\native-build\\bliss-essentia-worker.exe'
+    $objdump = 'C:\\msys64\\mingw64\\bin\\objdump.exe'
+    $mingwDllDir = 'C:\\msys64\\mingw64\\bin'
+    $essentiaDllDir = 'C:\\msys64\\mingw64\\lib'
+    $out = 'D:\\LMS\\essentia-worker-x64-experimental'
 
-    py -3 .\scripts\package_essentia_worker_windows.py `
+    py -3 .\\scripts\\package_essentia_worker_windows.py `
         --worker $worker `
         --objdump $objdump `
         --dll-dir $mingwDllDir `
-        --dll-dir $nativeDllDir `
+        --dll-dir $essentiaDllDir `
         --output $out
-    if ($LASTEXITCODE -ne 0) { throw 'Native Essentia DLL closure incomplete' }
+    if ($LASTEXITCODE -ne 0) { throw 'Original Windows native closure failed' }
 
-    py -3 .\scripts\package_essentia_worker_windows.py --verify $out
-    if ($LASTEXITCODE -ne 0) { throw 'Native worker package hash mismatch' }
+    py -3 .\\scripts\\package_essentia_worker_windows.py --verify $out
+    if ($LASTEXITCODE -ne 0) { throw 'Windows native bundle verification failed' }
 }
-~~~
+```
 
-The packager recursively parses the Windows x64 PE import tables, refuses missing/ambiguous DLLs, path escapes, wrong architectures, MSYS/Cygwin runtime dependencies, and oversized DLL sets. It writes a versioned `worker-dependencies.json` with SHA-256 and file sizes for the original worker and all copied non-system DLLs. The worker EXE and DLLs are copied side-by-side. It never searches arbitrary PATH directories for dependencies.
+The generated `worker-dependencies.json` is mandatory for the Rust
+scanner's opt-in original Essentia backend on Windows. Runtime hashes guard
+against DLL or EXE replacement and change the model/feature cache identity.
 
-**On Windows the Rust scanner requires that manifest** for explicit `--audio-backend essentia`. It checks all named EXE/DLL bytes before selecting the backend. The generated native deployment manifest SHA256 is included in the model identity *in addition to* the existing native worker executable SHA256. Updating a native DLL invalidates stale feature-cache identities; altering a file without updating the manifest fails before analysis. The existing Rust backend remains the default and needs no C++ libraries.
+## Status of native test binaries and redistribution
 
-## Licensing
+**Windows test binaries are built and executed in GitHub Actions.** A passing
+CI job proves that its authentic EXE/DLL development bundle runs and
+matches Rust numerically. The bundle is not yet a downloadable project
+release. The current manifest records `license_inventory_complete=false`
+and `release_approved=false`; dependency packages remain rolling MSYS2
+inputs and need lockfile/licence provenance review.
 
-Without a separate license inventory the bundle is for **development only**. Optionally pass `--license-map inventory.json`, mapping every lowercase binary name to `{"spdx":"SPDX-Identifier","notice_file":"relative-path.txt"}`. The packager validates the file inventory and copies the supplied license notices to `LICENSES/`. The manifest always contains `release_approved=false`: a complete mechanical inventory is **NOT** a legal release review.
+The original Essentia library is AGPLv3 and its FFmpeg/other dependencies
+have independent conditions. A complete license inventory and notices,
+redistribution terms and target-specific release validation are required
+before any public Windows installer/EXE-DLL artifact is provided. Do not
+commit or upload model weights, audio library content or private DB files.
 
-Essentia itself is AGPLv3; native FFmpeg, FFTW, TagLib, Chromaprint and other linked dependencies have separate licensing obligations. The Rust orchestrator's MIT license does not automatically eliminate these. No native Windows worker package may be described as production-approved or uploaded as a release without an explicit audit.
+## Remaining work
 
-## Windows executable/DLL packaging smoke: verified
-
-The independent native packaging gate
-[Actions run #39377432281](https://github.com/chrober/bliss-mood-poc/actions/runs/39377432281)
-completed **successfully** on Windows Server 2022. It compiled a genuine
-Windows x64 PE **synthetic IPC fixture** using MSVC, discovered and inspected
-the actual PE imports using MSYS2 MinGW64 GNU objdump, resolved and packaged
-its transitive DLL closure, verified the generated SHA256 manifest and
-launched the *copied, bundled* executable to confirm the exact EFW1 protocol
-handshake. No Essentia C++ source was compiled in this packaging test.
-
-The Rust Windows tests separately verify that missing
-`worker-dependencies.json` and post-packaging changes to a bundled DLL
-prevent backend selection, while a correctly hashed native package
-produces a distinct deployment-based feature model identity. These
-tests guard installation/version drift but are **not** proof of
-original Essentia Windows portability.
-
-## Remaining release validation gates
-
-1. **Fix original Essentia C++ Windows worker EXE linking** to the already built original `essentia.dll`: inspect exports, MinGW import library, CMake link line and ABI. Record full build provenance.
-2. Create a self-contained package, then start it in a clean Windows environment **without** relying on a global MSYS2 directory in PATH. Verify handshake, multiple audio jobs and restart.
-3. Re-run WAV/FLAC/MP3, Mel, 1280-D EffNet, 87+56+2 ONNX classification parity on Windows.
-4. Run paired 1/2/4/6 Rust vs Essentia backend tests on the SAME bounded Bliss track cohort, observing CPU, combined private/RSS and cache effects.
-5. Perform an independent license review and target-specific binary distribution validation. ARM64/piCorePlayer remains separate.
-
-**Important:** The synthetic native DLL-closure smoke is validated, and the original upstream Essentia library now builds on Windows. Neither result proves that the **real Essentia-linked worker EXE** links or runs; Windows original-Essentia audio and full numeric parity remain open.
+1. Revalidate on a bounded set of real (private/local) songs and compare
+   fixed 1/2/4/6-worker throughput, peak process-tree RAM and I/O vs Rust.
+2. Validate cross-platform targets independently, starting with
+   Raspberry Pi 4B / piCorePlayer 11 64-bit and macOS (see matrix).
+3. Audit/lock Windows runtime dependency versions, licence notices and
+   distribution obligations before external test-bundle delivery.
+4. Keep the original Rust backend as default. No merge to main without
+   explicit instruction.
