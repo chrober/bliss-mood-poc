@@ -130,33 +130,99 @@ def verify_backend_fingerprint_separation(rust_db, essentia_db):
     return sorted(old)
 
 
-def compare_feature_tables(baseline, alternative):
-    """Compare identical keys/classes, NEVER require identical model keys."""
+def compare_feature_tables(baseline, alternative, expected_models=None):
+    """Strict per-track/head parity with actionable per-head error diagnostics.
+
+    Compare numeric arrays, not backend-specific model fingerprint keys.
+    Keep worst offending file keys in local JSON only; never upload it.
+    """
     if baseline.keys() != alternative.keys():
         missing = sorted(baseline.keys() - alternative.keys())
         extra = sorted(alternative.keys() - baseline.keys())
         raise AssertionError(
-            f"Different analyzed cohorts: missing={len(missing)}, extra={len(extra)}"
+            f"Different analyzed cohorts: missing={len(missing)}, extra={len(extra)} "
+            f"examples_missing={missing[:3]} examples_extra={extra[:3]}"
         )
-    max_error, sum_error, observations = 0.0, 0.0, 0
-    count_mismatches = 0
-    for key in baseline:
-        a_count, a = baseline[key]
-        b_count, b = alternative[key]
+
+    dimensions = {"genre": 87, "moodtheme": 56, "voice": 2}
+    if expected_models is not None:
+        expected_models = tuple(expected_models)
+        if not expected_models or len(expected_models) != len(set(expected_models)):
+            raise ValueError("Expected model names must be distinct and nonempty")
+        if len(baseline) % len(expected_models):
+            raise AssertionError("Partial model-head coverage in feature sidecar")
+        track_count = len(baseline) // len(expected_models)
+        files = {track for track, _ in baseline}
+        if len(files) != track_count or any(
+            (file, head) not in baseline for file in files
+            for head in expected_models
+        ):
+            raise AssertionError("Some tracks lack requested model heads")
+    stats = {}
+    patch_mismatches = []
+    worst = None
+    total_sum, total_count = 0.0, 0
+    for (file, head), (a_count, a) in sorted(baseline.items()):
+        b_count, b = alternative[file, head]
         if a_count != b_count:
-            count_mismatches += 1
+            patch_mismatches.append({
+                "track_file": file, "head": head,
+                "rust_patches": a_count, "essentia_patches": b_count,
+            })
         if len(a) != len(b):
-            raise AssertionError(f"Class-vector dimension mismatch: {key}")
-        diffs = [abs(x - y) for x, y in zip(a, b)]
-        max_error = max(max_error, *diffs)
-        sum_error += sum(diffs)
-        observations += len(diffs)
+            raise AssertionError(f"Class-vector dimension mismatch: {file}, {head}")
+        if head in dimensions and len(a) != dimensions[head]:
+            raise AssertionError(
+                f"Invalid known head dimension {file}, {head}: {len(a)}"
+            )
+        if not all(math.isfinite(x) for x in (*a, *b)):
+            raise AssertionError(f"Nonfinite model output at {file}, {head}")
+        errors = [abs(x - y) for x, y in zip(a, b)]
+        head_stats = stats.setdefault(head, {
+            "track_count": 0, "score_count": 0,
+            "maximum_absolute_score_difference": 0.0, "score_error_sum": 0.0,
+            "max_error_track": None, "max_error_class_index": None,
+        })
+        head_stats["track_count"] += 1
+        head_stats["score_count"] += len(errors)
+        head_stats["score_error_sum"] += sum(errors)
+        for index, error in enumerate(errors):
+            if error > head_stats["maximum_absolute_score_difference"]:
+                head_stats["maximum_absolute_score_difference"] = error
+                head_stats["max_error_track"] = file
+                head_stats["max_error_class_index"] = index
+            if worst is None or error > worst["absolute_error"]:
+                worst = {
+                    "track_file": file, "head": head, "class_index": index,
+                    "rust_score": a[index], "essentia_score": b[index],
+                    "absolute_error": error,
+                }
+        total_sum += sum(errors)
+        total_count += len(errors)
+
+    if not total_count:
+        raise AssertionError("Empty feature comparison")
+    per_head = {}
+    for head, item in sorted(stats.items()):
+        per_head[head] = {
+            "tracks": item["track_count"],
+            "compared_scores": item["score_count"],
+            "maximum_absolute_score_difference":
+                item["maximum_absolute_score_difference"],
+            "mean_absolute_score_difference":
+                item["score_error_sum"] / item["score_count"],
+            "worst_track": item["max_error_track"],
+            "worst_class_index": item["max_error_class_index"],
+        }
     return {
         "tracks_and_heads": len(baseline),
-        "compared_scores": observations,
-        "patch_count_mismatches": count_mismatches,
-        "maximum_absolute_score_difference": max_error,
-        "mean_absolute_score_difference": sum_error / observations if observations else None,
+        "compared_scores": total_count,
+        "patch_count_mismatches": len(patch_mismatches),
+        "patch_count_mismatch_examples": patch_mismatches[:10],
+        "maximum_absolute_score_difference": worst["absolute_error"],
+        "mean_absolute_score_difference": total_sum / total_count,
+        "worst_score_difference": worst,
+        "per_head": per_head,
     }
 
 
@@ -351,7 +417,9 @@ def main():
         if partner:
             prior = load_feature_rows(args.output_dir / partner["sqlite"])
             baseline, native = (scores, prior) if backend == "rust" else (prior, scores)
-            comp = compare_feature_tables(baseline, native)
+            comp = compare_feature_tables(
+                baseline, native, expected_models=args.models.split(",")
+            )
             rust_db, native_db = (
                 (args.output_dir / record["sqlite"], args.output_dir / partner["sqlite"])
                 if backend == "rust" else
@@ -366,8 +434,23 @@ def main():
                 comp["maximum_absolute_score_difference"]
                 > args.score_max_tolerance
             ):
+                diagnostic = {
+                    "status": "failed",
+                    "reason": "Real audio Rust/Essentia parity outside configured bounds",
+                    "maximum_allowed_score_difference": args.score_max_tolerance,
+                    "comparison": comp,
+                    "round": round_index,
+                    "workers": count,
+                    "input_cohort_sha256": original_cohort_sha,
+                }
+                failure_file = args.output_dir / "parity-failure.json"
+                failure_file.write_text(
+                    json.dumps(diagnostic, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
                 raise AssertionError(
-                    f"Backend drift at {count} workers, round {round_index}: {comp}"
+                    f"Backend drift at {count} workers, round {round_index}. "
+                    f"See {failure_file} for per-head diagnostics and worst track."
                 )
 
     if digest(args.cohort_db) != original_cohort_sha:
