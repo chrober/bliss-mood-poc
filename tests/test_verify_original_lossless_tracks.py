@@ -111,6 +111,76 @@ class NaturalLosslessTracksTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "one eligible original"):
                     gate.select_sources(args)
 
+    def test_explicit_flac_preflight_reports_exact_failed_limits(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "sample.flac").write_bytes(b"x" * 4096)
+            (root / "sample.wav").write_bytes(b"x" * 4096)
+            args = SimpleNamespace(
+                source_root=root, track=["sample.flac", "sample.wav"],
+                max_entries=100, max_depth=4, min_seconds=30,
+                max_seconds=420, max_file_mib=150,
+            )
+            metadata = {
+                "sample_rate": 48000, "channels": 2,
+                "duration_seconds": 530,
+            }
+            with patch.object(gate, "probe", return_value=metadata):
+                with self.assertRaisesRegex(
+                    ValueError, r"Explicit \.flac.*duration=530\.00s.*420\.00"
+                ):
+                    gate.select_sources(args)
+            args.max_seconds = 900
+            with patch.object(gate, "probe", return_value=metadata):
+                self.assertEqual(
+                    set(gate.select_sources(args)), {".flac", ".wav"}
+                )
+
+    def test_explicit_file_size_rejection_shows_mebibytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            audio = root / "sample.flac"
+            audio.write_bytes(b"x" * 4096)
+            info = {"duration_seconds": 600, "sample_rate": 48000}
+            reasons = gate.limit_reasons(audio, info, 30, 420, 2048)
+            self.assertEqual(len(reasons), 2)
+            self.assertTrue(any("600.00s" in s for s in reasons))
+            self.assertTrue(any("file_size=" in s and "MiB" in s for s in reasons))
+
+    def test_extended_bound_only_for_explicit_two_tracks(self):
+        # No filesystem actions: reject an implicit discovery request
+        # before reference scanning or modifying output directories.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            args = SimpleNamespace(
+                output_dir=root / "new-scan", tolerance=0.001,
+                min_seconds=30, max_seconds=1500,
+                max_file_mib=512, track=None,
+                reference_wav=root / "missing",
+            )
+            with self.assertRaisesRegex(ValueError, "900 seconds"):
+                gate.run(args)
+            self.assertFalse(args.output_dir.exists())
+
+    def test_ffprobe_chooses_audio_stream_not_embedded_cover_art(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wav = Path(temp) / "sample.wav"
+            recorded = []
+            def fake_run(command, **kwargs):
+                recorded.extend(command)
+                return SimpleNamespace(returncode=0, stdout=(
+                    '{"streams":[{"sample_rate":"44100","channels":2,'
+                    '"bits_per_raw_sample":"N/A"}],'
+                    '"format":{"duration":"180.5"}}'
+                ))
+            with patch.object(gate.subprocess, "run", side_effect=fake_run):
+                result = gate.probe(wav)
+            self.assertEqual(result["sample_rate"], 44100)
+            self.assertEqual(result["channels"], 2)
+            self.assertEqual(result["duration_seconds"], 180.5)
+            self.assertEqual(recorded[recorded.index("-select_streams")+1],
+                             "a:0")
+
     def test_no_unsupported_rate_or_large_file(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "sample.flac"
