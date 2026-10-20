@@ -1,0 +1,116 @@
+name: Native original Essentia C++ Windows x64 (experimental)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "native/essentia_cpp_worker.cpp"
+      - "native/CMakeLists.txt"
+      - ".github/workflows/native-essentia-windows.yml"
+      - "docs/essentia-cpp-windows-native-build.md"
+      - "scripts/package_essentia_worker_windows.py"
+      - "scripts/test_native_essentia_protocol.py"
+      - "scripts/generate_audio_fixtures.py"
+
+permissions:
+  contents: read
+
+jobs:
+  original-essentia-win64:
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install original Essentia C++ build dependencies for MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            python
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-eigen3
+            mingw-w64-x86_64-libyaml
+            mingw-w64-x86_64-fftw
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-libsamplerate
+            mingw-w64-x86_64-taglib
+            mingw-w64-x86_64-chromaprint
+            mingw-w64-x86_64-binutils
+      - name: Log full build provenance and prepare original MTG sources
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p build/windows-native
+          pacman -Q > build/windows-native/pacman-package-lock-observed.txt
+          gcc --version
+          cmake --version
+          pkg-config --modversion libavcodec libavformat libavutil samplerate eigen3
+          git clone --quiet https://github.com/MTG/essentia.git build/windows-native/essentia-source
+          cd build/windows-native/essentia-source
+          git checkout --detach b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          test "$(git rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          git status --porcelain
+      - name: Configure/build original Essentia via upstream waf, not an in-house port
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd build/windows-native/essentia-source
+          # MSYS Python gives a POSIX host environment; GCC and pkgconf
+          # are explicitly selected from the MINGW64 target toolchain.
+          export CC=/mingw64/bin/gcc
+          export CXX=/mingw64/bin/g++
+          export PKG_CONFIG=/mingw64/bin/pkg-config
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          /usr/bin/python3 waf configure --prefix=/mingw64 --std=c++17
+          /usr/bin/python3 waf -j 4
+          /usr/bin/python3 waf install
+          pkg-config --modversion essentia
+      - name: Compile our original Essentia C++ IPC process with MinGW x64
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export CC=/mingw64/bin/gcc
+          export CXX=/mingw64/bin/g++
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          cmake -S native -B build/windows-native/worker -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/windows-native/worker --parallel 4
+          file build/windows-native/worker/bliss-essentia-worker.exe
+      - name: Test original native Essentia against real synthetic WAV
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 scripts/test_native_essentia_protocol.py \
+            build/windows-native/worker/bliss-essentia-worker.exe
+      - name: Stage actual original Essentia PE and all imported MinGW DLLs
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 scripts/package_essentia_worker_windows.py \
+            --worker build/windows-native/worker/bliss-essentia-worker.exe \
+            --objdump /mingw64/bin/objdump.exe \
+            --dll-dir /mingw64/bin \
+            --output build/windows-native/original-essentia-closed-bundle
+          /usr/bin/python3 scripts/package_essentia_worker_windows.py \
+            --verify build/windows-native/original-essentia-closed-bundle
+      - name: Re-test genuine native worker from isolated DLL-closed bundle
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # Keep the global Mingw runtime outside PATH: the packaged
+          # EXE must find every non-OS dependency beside itself.
+          env PATH=/usr/bin:/bin /usr/bin/python3 scripts/test_native_essentia_protocol.py \
+            build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe
+      - name: Upload build diagnostics ONLY (not redistributable native binaries)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-essentia-windows-build-diagnostics
+          path: build/windows-native/pacman-package-lock-observed.txt
+          if-no-files-found: warn
+          retention-days: 14
