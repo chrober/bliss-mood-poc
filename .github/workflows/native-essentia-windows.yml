@@ -52,7 +52,10 @@ jobs:
           pkg-config --modversion libavcodec libavformat libavutil samplerate eigen3
           git clone --quiet https://github.com/MTG/essentia.git build/windows-native/essentia-source
           cd build/windows-native/essentia-source
-          git checkout --detach b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          # This commit currently lives in an unmerged PR, not master.
+          # Fetch GitHub's immutable PR-head ref explicitly, then verify SHA.
+          git fetch --no-tags --depth=1 origin refs/pull/1540/head
+          git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
           git status --porcelain
       - name: Configure/build original Essentia via upstream waf, not an in-house port
