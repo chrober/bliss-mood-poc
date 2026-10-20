@@ -192,12 +192,25 @@ jobs:
           cmake -S native -B build/windows-native/worker -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/windows-native/worker --parallel 4 --verbose
           file build/windows-native/worker/bliss-essentia-worker.exe
+          # Waf installs the DLL in /mingw64/lib, which is not the loader PATH.
+          # Keep a byte-identical original copy beside the native smoke EXE.
+          cp /mingw64/lib/essentia.dll build/windows-native/worker/essentia.dll
+          cmp /mingw64/lib/essentia.dll build/windows-native/worker/essentia.dll
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
       - name: Test original native Essentia against real synthetic WAV
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          set -euo pipefail
-          /usr/bin/python3 scripts/test_native_essentia_protocol.py \
-            build/windows-native/worker/bliss-essentia-worker.exe
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            # Native Windows Python writes true Win32 temp paths over REQ1.
+            python scripts/test_native_essentia_protocol.py `
+              build/windows-native/worker/bliss-essentia-worker.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia audio smoke failed' }
+          }
       - name: Stage actual original Essentia PE and all imported MinGW DLLs
         shell: msys2 {0}
         run: |
@@ -211,13 +224,18 @@ jobs:
           /usr/bin/python3 scripts/package_essentia_worker_windows.py \
             --verify build/windows-native/original-essentia-closed-bundle
       - name: Re-test genuine native worker from isolated DLL-closed bundle
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          set -euo pipefail
-          # Keep the global Mingw runtime outside PATH: the packaged
-          # EXE must find every non-OS dependency beside itself.
-          env PATH=/usr/bin:/bin /usr/bin/python3 scripts/test_native_essentia_protocol.py \
-            build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe
+          & {
+            $ErrorActionPreference = 'Stop'
+            # Use native Windows Python by absolute path and prevent PATH from
+            # hiding any missing packaged MinGW DLL dependencies.
+            $pythonExe = (Get-Command python -ErrorAction Stop).Source
+            $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+            & $pythonExe scripts/test_native_essentia_protocol.py `
+              build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated original Essentia bundle smoke failed' }
+          }
       - uses: dtolnay/rust-toolchain@stable
       - name: Build the actual production Rust decoder/Mel reference on Windows CI
         shell: pwsh
@@ -230,10 +248,6 @@ jobs:
               throw 'Windows Rust reference EXE missing'
             }
           }
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          architecture: 'x64'
       - name: Generate genuine Windows WAV FLAC MP3 fixture inputs
         shell: pwsh
         run: |
