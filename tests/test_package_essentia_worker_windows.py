@@ -49,6 +49,20 @@ class NativeWindowsPackagingTests(unittest.TestCase):
                 exe.name, one.name, two.name,
             })
 
+    def test_windows_msimg32_is_os_managed_but_unknown_dll_is_not(self):
+        # The original Essentia/FFmpeg Windows import graph includes this
+        # built-in Windows GDI DLL; it must not be bundled from MinGW.
+        self.assertTrue(package.system_dll("msimg32.dll"))
+        self.assertFalse(package.system_dll("unrecognized-vendor.dll"))
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            exe = fake_pe(d / "bliss-essentia-worker.exe")
+            with patch.object(package, "imports", return_value=["msimg32.dll", "kernel32.dll"]):
+                self.assertEqual(set(package.collect(exe, [d], d / "objdump.exe")), {exe.name})
+            with patch.object(package, "imports", return_value=["unrecognized-vendor.dll"]):
+                with self.assertRaises(FileNotFoundError):
+                    package.collect(exe, [d], d / "objdump.exe")
+
     def test_fail_closed_on_missing_dll_and_msys_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)

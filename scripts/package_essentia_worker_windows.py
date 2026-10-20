@@ -27,6 +27,7 @@ WINDOWS_OS_DLLS = {
     "combase.dll", "comctl32.dll", "comdlg32.dll", "crypt32.dll",
     "cryptbase.dll", "dwmapi.dll", "dnsapi.dll", "gdi32.dll",
     "gdi32full.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll",
+    "msimg32.dll",  # Windows built-in GDI alpha-blending DLL, not a MinGW dependency.
     "kernelbase.dll", "mpr.dll", "msvcrt.dll", "ncrypt.dll",
     "normaliz.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
     "powrprof.dll", "psapi.dll", "rpcrt4.dll", "secur32.dll",
