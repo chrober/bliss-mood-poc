@@ -42,8 +42,13 @@ def compare_to_rust_mel(rust_executable, path, patches):
     """Every f32 in every native EffNet patch must agree with Rust frontend."""
     output = subprocess.run(
         [rust_executable, "mel-dump", str(path), "--max-frames", "1024"],
-        check=True, capture_output=True, text=True, timeout=120,
+        check=False, capture_output=True, text=True, timeout=120,
     )
+    if output.returncode:
+        raise RuntimeError(
+            f"Rust reference failed with exit={output.returncode}: "
+            f"{output.stderr[-4000:]}"
+        )
     parsed = json.loads(output.stdout)
     frames = parsed["frames"]
     count, native = patches
