@@ -25,10 +25,19 @@ The final command should write exactly four bytes (ASCII EFW1) and then
 exit cleanly. If original Essentia logs to stdout during initialization,
 the handshake will fail; correct that before attempting integration.
 
-Windows native Essentia dependencies may require cross-compilation with
-MinGW. Since this helper is a separate process it **does not link to the
-MSVC-compiled Rust program**. Audit all dependent DLLs and licenses.
-Neither an x86_64 Linux build nor a successful Rust CI test establishes
+**Windows native packaging is now a separate audited gate**:
+[Windows original Essentia packaging instructions](../docs/essentia-cpp-windows-packaging.md).
+The Python packaging tool closes the Windows x64 PE/DLL import graph,
+checks all native dependency hashes and writes a required Windows
+`worker-dependencies.json`. On Windows the Rust scanner checks the
+entire manifest and includes its SHA256 in the feature identity in
+addition to the EXE hash. Missing DLLs / changed binaries fail early.
+**This does NOT mean Essentia C++ compiles for Windows**: the pinned
+upstream Essentia revision needs older compatible FFmpeg APIs than the
+current MSYS2 FFmpeg 9 distribution. A reproducible original upstream
+Windows build and genuine native audio parity are still outstanding.
+Since this is a separate EXE it does **not** link to the MSVC Rust process.
+Neither the x64 Linux build nor a Windows mock-worker run establishes
 Pi/aarch64 compatibility.
 
 ## Explicit opt-in (Windows PowerShell)
@@ -90,9 +99,12 @@ current workflow compared all four 128x96 patches to the Rust reference
 numerically **successfully** (49,152 floating-point coefficients;
 MAE 1.7774358e-7, maximum error 8.4042549e-6; GitHub run
 39295089664). This parity test is distinct from the earlier
-protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity,
-Windows native C++ packaging, ARM64 and real-world acoustic validation
-remain separate mandatory gates.
+protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity against the original Linux
+Essentia C++ worker are **now green**, including 1280 EffNet embedding
+dimensions and 87/56/2-class classification heads
+([run 39373185587](https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587)).
+Windows **original Essentia build** and native full-codec parity, ARM64
+and real-world acoustic validation remain separate mandatory gates.
 
 Rust now enforces a hard per-song timeout with
 `--essentia-timeout-seconds` (default 900, allowed 1..7200), including
