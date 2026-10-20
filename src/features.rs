@@ -13,7 +13,7 @@ use std::{
 use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
 use crate::essentia_worker::{BackendChoice, EssentiaWorker};
 
-const PREPROCESSING: &str = "experimental-essentia-audio-v4-unvalidated";
+const PREPROCESSING: &str = crate::audio_decode::RUST_PREPROCESSING;
 const AGGREGATION: &str = "arithmetic_mean_of_per_patch_sigmoid_scores";
 const SOFTMAX_AGGREGATION: &str = "arithmetic_mean_of_per_patch_softmax_scores";
 
