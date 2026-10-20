@@ -1,8 +1,16 @@
 # Windows original Essentia C++ linker — first task after 2026-10-20 handover
 
-**Problem:** The original `MTG/essentia` C++ library now **compiles and links into a DLL** under Windows MinGW64 in [CI run #39382026896](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896), but the downstream `bliss-essentia-worker.exe` cannot link to the C++ symbols. This run is red; native Windows audio/parity/packaging steps were skipped.
+**Problem:** The original `MTG/essentia` C++ library **compiles as a DLL** under Windows MinGW64, but the downstream `bliss-essentia-worker.exe` cannot link to several essential C++ symbols. The latest confirmed failure is [run #39389850876](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850876). This run is red; native Windows audio/parity/packaging steps were skipped.
 
 Use the [overall handover](handover-essentia-cpp-20261020.md) first. **Do not merge, modify `main`, or replace the original Essentia DSP with another port.**
+
+## Latest confirmation at source SHA `e011e99f1dc38790ec441720b696a2f3fe4602e1`
+
+**The same Windows linker defect persists** in [native Windows run 39389850876](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850876): the original Essentia MinGW64 DLL successfully builds, the worker source compiles, but its final EXE link fails. The same unresolved `essentia::init()`, `shutdown()`, `Logger::debug()`, `ParameterMap::add()`, `nameOfType()` and logging-variable symbols recur. There is **no evidence yet** that any preceding linker fix actually resolved exports/imports. Earlier [run 39382026896](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896) is useful historical context, not the current failed CI head.
+
+GitHub PR #17 remains **Draft**, `main` unchanged. The latest Linux native gate has a **separate** external official-ONNX-model HTTP connection timeout, [run 39389850681](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850681), after native Mel parity succeeded. Do **not** label that failure an Essentia DSP regression. Older full synthetic Linux model parity remains green in [run 39373185587](https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587).
+
+**First repair action:** compare the **actual** exported symbols and import archive from the Windows `essentia.dll` against undefined worker object symbols, inspect full `pkg-config --libs essentia` and CMake verbose link arguments, then change only the proven problem. Check for GNU C++ ABI mismatch, incorrect static/import library selection, or MinGW auto-export behavior. Do not introduce fake implementations of missing upstream functions or modify classifier/DSP algorithms to make CI pass.
 
 ## Exact failure evidence
 
