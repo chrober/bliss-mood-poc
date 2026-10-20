@@ -42,5 +42,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_verify_rust_v5_cohort.py'
       - name: Validate adaptive Rust v5 real-cohort parity, resource telemetry, and immutable references
         run: python3 -m unittest discover -s tests -p 'test_verify_rust_v5_adaptive.py'
+      - name: Validate real PCM24 WAV/FLAC cross-codec parity gate invariants
+        run: python3 -m unittest discover -s tests -p 'test_verify_lossless_codec_parity.py'
       - name: Validate original Essentia Windows PE packaging and DLL licence safety
         run: python3 -m unittest discover -s tests -p 'test_package_essentia_worker_windows.py'
