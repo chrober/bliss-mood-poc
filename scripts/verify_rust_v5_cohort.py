@@ -97,8 +97,10 @@ def compare_versions(cohort, old_db, cpp_db, new_db, threshold):
         raise AssertionError("Rust-v5 model fingerprint aliases native Essentia")
 
     # Old and new must both preserve *actual* ONNX weights/labels/aggregations.
-    assert verify_backend_fingerprint_separation(old_db, cpp_db) == sorted(HEADS)
-    assert verify_backend_fingerprint_separation(new_db, cpp_db) == sorted(HEADS)
+    if verify_backend_fingerprint_separation(old_db, cpp_db) != sorted(HEADS):
+        raise AssertionError("Historical v4/C++ model heads differ")
+    if verify_backend_fingerprint_separation(new_db, cpp_db) != sorted(HEADS):
+        raise AssertionError("New v5/C++ model heads differ")
     previous = compare_feature_tables(
         load_feature_rows(old_db), load_feature_rows(cpp_db),
         expected_models=HEADS, expected_tracks=cohort,
