@@ -83,7 +83,7 @@ class NativeWindowsPackagingTests(unittest.TestCase):
             target = base / "dist"
             with patch.object(package, "imports", side_effect=lambda p, _: names[p.name]):
                 manifest = package.package(exe, [src], base / "objdump.exe", target)
-            self.assertFalse(manifest["distribution_ready"])
+            self.assertFalse(manifest["license_inventory_complete"])
             self.assertEqual(len(manifest["files"]), 2)
             self.assertEqual(package.verify(target)["files"], manifest["files"])
             with self.assertRaises(FileExistsError):
@@ -121,7 +121,7 @@ class NativeWindowsPackagingTests(unittest.TestCase):
                 ["libessentia.dll"] if p.name == exe.name else [])):
                 report = package.package(exe, [inp], base / "objdump",
                                          base / "dist", license_map=mapping)
-            self.assertTrue(report["distribution_ready"])
+            self.assertTrue(report["license_inventory_complete"])
             self.assertTrue((base / "dist" / "LICENSES" /
                              (lib.name + ".txt")).is_file())
 
