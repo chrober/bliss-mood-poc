@@ -762,6 +762,60 @@ with 4/6 workers, cross-codec behavior or licensing/distribution.
 Continue those remaining release gates separately. Keep #17 Draft
 until full acceptance is reviewed; never modify PR #16.
 
+## Real adaptive Rust v5 run: PASS and bitwise worker-score invariance (20 Oct 2026)
+
+**This result supersedes the prospective adaptive-run instructions below.**
+The user ran `scripts/verify_rust_v5_adaptive.py` against the **same
+100-song MP3 cohort**. It passed all 14,500 numerical score comparisons
+to the saved original Essentia C++ sidecar at max tolerance 0.001:
+max error **0.000012695789337158203**, 0 patch-count mismatches,
+and Genre/Mood/Voice max differences respectively
+`5.3942203521728516e-6`, `7.12275505065918e-6`,
+`1.2695789337158203e-5`. It also passed the **Rust-v5 fixed-four
+versus adaptive-six worker-invariance gate**, with **0.0 maximum
+difference over every stored score and identical patch counts**.
+No new C++ analysis was needed.
+
+The adaptive controller started with 6 workers, permitted 4–8,
+ended at 6, and reached 6 concurrently active song analyses. It
+observed **32 load samples** (0 high, 4 low, 28 neutral) but made
+**zero adjustments**. Thus runtime evidence verifies real multiworker
+execution, output reproducibility and controller telemetry;
+it does **not** prove the physical increase/decrease policy was
+activated during real load. CPU mean/peak 47.76%/67.93%; peak
+system RAM load 84.81%; peak scanner working set 999.85 MiB; minimum
+available RAM 2385.83 MiB. The reported 10.8M page-fault delta
+includes **soft faults**; it cannot be interpreted as pagefile I/O
+or evidence of harmful thrashing.
+
+**Exploratory, NOT controlled speedup:** adaptive-enabled six-worker
+run **92.8667371 s**, saved fixed-four-worker run **183.2888138 s**,
+ratio **1.9736756x**. The controller **did not adjust**, so this is
+effectively a six-worker fixed-concurrency observation at lower
+Windows process priority compared with the previous four-worker run,
+with uncontrolled NAS/SMB caches/background loads. The ratio even
+exceeds the nominal 1.5x worker-count ratio, indicating non-concurrency
+factors may be material. No causal claim for adaptive benefit,
+and no threshold retuning is justified by this one sample.
+
+**Local immutable evidence:**
+`D:\LMS\bliss-mood-poc\benchmark-rust-v5-adaptive-20261020-193942\adaptive-parity-and-performance-private.json`.
+Adjacent JSON/stderr/v5 SQLite contain full diagnostic details.
+Existing four-worker Rust v5, original C++ and old Rust v4 databases
+must be kept as historical references; do not rerun expensive scans.
+
+**Acceptance status:** The specific real-cohort numeric gate (100 MP3
+songs; fixed four *and* adaptive-enabled six Rust workers against
+original C++) is **passed**. Outstanding items for a portable
+redistribution/release: representative non-MP3 real tracks/platforms,
+original Essentia native packaging/dependency and licensing review,
+and optional **replicated** worker performance tests if a speedup
+guarantee is needed. Leave PR #17 Draft until those are assessed.
+This result can unblock local similarity work in separate PR #16
+without conflating parity acceptance with redistribution permission.
+
+---
+
 ## Adaptive six-worker performance and parity gate on the already passing 100-song cohort
 
 **Checkpoint, 20 October 2026:** The user performed an actual fixed
