@@ -117,12 +117,24 @@ jobs:
           missing=0
           for symbol in 'essentia::init()' 'essentia::shutdown()' \
             'essentia::Logger::debug' 'essentia::ParameterMap::add' \
-            'essentia::nameOfType' 'essentia::loggerInstance' \
-            'essentia::debugIndentLevel' 'essentia::activatedDebugLevels'; do
+            'essentia::nameOfType'; do
             if grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
               printf 'FOUND: %s\\n' "$symbol"
             else
               printf 'NOT EXPORTED: %s\\n' "$symbol"
+              missing=1
+            fi
+          done
+          # Import archives leave global data in mangled __imp_ form even
+          # under nm -C; verify BOTH the actual PE exports and import thunks.
+          for mangled in _ZN8essentia14loggerInstanceE \
+            _ZN8essentia16debugIndentLevelE \
+            _ZN8essentia20activatedDebugLevelsE; do
+            if grep -Fq "__imp_$mangled" "$diagnostics/essentia-import-nm.txt" \
+              && grep -Fq "$mangled" "$diagnostics/essentia-dll-pe.txt"; then
+              echo "FOUND exported PE data + import thunk: $mangled"
+            else
+              echo "NOT EXPORTED PE data / import thunk: $mangled"
               missing=1
             fi
           done
@@ -154,10 +166,18 @@ jobs:
           echo "=== Require linkable original Essentia C++ public symbols ==="
           for symbol in 'essentia::init()' 'essentia::shutdown()' \
             'essentia::Logger::debug' 'essentia::ParameterMap::add' \
-            'essentia::nameOfType' 'essentia::loggerInstance' \
-            'essentia::debugIndentLevel' 'essentia::activatedDebugLevels'; do
+            'essentia::nameOfType'; do
             if ! grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
               echo "ERROR: even after export-policy correction import archive lacks $symbol" >&2
+              exit 1
+            fi
+          done
+          for mangled in _ZN8essentia14loggerInstanceE \
+            _ZN8essentia16debugIndentLevelE \
+            _ZN8essentia20activatedDebugLevelsE; do
+            if ! grep -Fq "__imp_$mangled" "$diagnostics/essentia-import-nm.txt" \
+              || ! grep -Fq "$mangled" "$diagnostics/essentia-dll-pe.txt"; then
+              echo "ERROR: missing native PE data export or import thunk: $mangled" >&2
               exit 1
             fi
           done

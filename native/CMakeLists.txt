@@ -16,6 +16,10 @@ if(MINGW)
     set_property(TARGET bliss-essentia-worker PROPERTY CXX_STANDARD 14)
     # Windows CRT also hides math constants under strict ISO C++ modes.
     target_compile_definitions(bliss-essentia-worker PRIVATE _USE_MATH_DEFINES)
+    # Original Essentia exports globals without dllimport declarations.
+    # MinGW must auto-import the real DLL data; never define copies in worker.
+    target_link_options(bliss-essentia-worker PRIVATE
+        "-Wl,--enable-auto-import" "-Wl,--enable-runtime-pseudo-reloc")
 endif()
 if(MSVC)
     target_compile_options(bliss-essentia-worker PRIVATE /W4)
