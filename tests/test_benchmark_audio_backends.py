@@ -93,7 +93,7 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
         self.assertEqual(stats["worst_score_difference"]["class_index"], 86)
         partial = dict(baseline)
         del partial["track-b", "moodtheme"]
-        with self.assertRaisesRegex(AssertionError, "Some tracks lack"):
+        with self.assertRaisesRegex(AssertionError, "Partial model-head coverage"):
             bench.compare_feature_tables(partial, partial, ("genre", "moodtheme"))
         invalid = {("track-a", "genre"): (2, (0.2,) * 86)}
         with self.assertRaisesRegex(AssertionError, "Invalid known head dimension"):
