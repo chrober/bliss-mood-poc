@@ -22,8 +22,8 @@ references.
 - The complete release gate matrix plus a single self-checking
   Windows PowerShell recipe lives in
   [docs/release-qualification-gates.md](release-qualification-gates.md).
-  It uses `benchmark-essentia-real-20261020-160351\
-  mp3-wav-control-20261020-164836` and
+  It reuses the directories `benchmark-essentia-real-20261020-160351`,
+  `mp3-wav-control-20261020-164836` and
   `rust-v5-one-track-20261020-190110` already present on the
   Windows machine. Do not re-download/rebuild Rust v5 or C++ worker.
 - Unit tests `tests/test_verify_lossless_codec_parity.py` exercise
