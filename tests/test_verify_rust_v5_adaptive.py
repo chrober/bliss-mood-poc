@@ -1,5 +1,6 @@
 """Offline tests for adaptive v5 cohort: no original DB or private audio rescans."""
-from contextlib import closing
+from contextlib import closing, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 import json
@@ -150,8 +151,12 @@ class AdaptiveRealCohortTests(unittest.TestCase):
                     "diagnostics": synthetic_telemetry(changed=False),
                 }, 6, 4, 8, 2)
 
+            printed = StringIO()
             with patch.object(audit, "invoke_once", side_effect=stub_once) as run_mock:
-                report = audit.run(args)
+                with redirect_stdout(printed):
+                    report = audit.run(args)
+            self.assertNotIn("artist/song-", printed.getvalue())
+            self.assertIn('"per_head_cpp_max_difference"', printed.getvalue())
             run_mock.assert_called_once()
             self.assertEqual(report["acceptance_status"], "PASS")
             self.assertEqual(report["worker_count_invariance_vs_fixed_four"]["status"], "PASS")
