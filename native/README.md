@@ -32,10 +32,15 @@ checks all native dependency hashes and writes a required Windows
 `worker-dependencies.json`. On Windows the Rust scanner checks the
 entire manifest and includes its SHA256 in the feature identity in
 addition to the EXE hash. Missing DLLs / changed binaries fail early.
-**This does NOT mean Essentia C++ compiles for Windows**: the pinned
-upstream Essentia revision needs older compatible FFmpeg APIs than the
-current MSYS2 FFmpeg 9 distribution. A reproducible original upstream
-Windows build and genuine native audio parity are still outstanding.
+**Updated 2026-10-20:** The original upstream **Essentia library now
+compiles and links as `essentia.dll` under Windows MinGW64** using the
+separately pinned FFmpeg-9-compatible upstream candidate
+`b0661db99be4a8e2c6fabbe90a996f89786fdd8e`. The actual
+`bliss-essentia-worker.exe` still **fails to link** because symbols
+such as `essentia::init()` and `essentia::Logger::debug()` are unresolved.
+See [confirmed CI run](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896)
+and [focused linker handover](../docs/handover-essentia-windows-linker-20261020.md).
+Genuine native Windows audio parity is therefore still outstanding.
 Since this is a separate EXE it does **not** link to the MSVC Rust process.
 Neither the x64 Linux build nor a Windows mock-worker run establishes
 Pi/aarch64 compatibility.
@@ -103,8 +108,9 @@ protocol-only smoke. Full WAV/FLAC/MP3 and ONNX head parity against the original
 Essentia C++ worker are **now green**, including 1280 EffNet embedding
 dimensions and 87/56/2-class classification heads
 ([run 39373185587](https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587)).
-Windows **original Essentia build** and native full-codec parity, ARM64
-and real-world acoustic validation remain separate mandatory gates.
+Windows **original Essentia-linked worker EXE linkage**, native full-codec
+parity, ARM64 and real-world acoustic validation remain mandatory gates.
+The upstream Windows Essentia library build itself is now complete.
 
 Rust now enforces a hard per-song timeout with
 `--essentia-timeout-seconds` (default 900, allowed 1..7200), including
