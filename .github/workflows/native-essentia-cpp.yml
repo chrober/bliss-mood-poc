@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            build-essential cmake pkg-config python3 python3-numpy ffmpeg \
+            build-essential cmake pkg-config python3 python3-numpy python3-pip ffmpeg \
             libeigen3-dev libyaml-dev libfftw3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
             libsamplerate0-dev libtag1-dev libchromaprint-dev
@@ -64,11 +64,41 @@ jobs:
             --worker build/essentia-cpp/bliss-essentia-worker \
             --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
             --report-output results/native-codec-mel-parity.json
+      - name: Install minimal ONNX Runtime CPU evaluator (no TensorFlow)
+        run: python3 -m pip install --user --no-cache-dir "numpy<2" "onnxruntime==1.19.2"
+      - name: Fetch official, unmodified ONNX models for all three heads
+        shell: bash
+        run: |
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-delay 3 \
+              --connect-timeout 15 --max-time 180 \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
+          test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
+          sha256sum models/*.onnx
+      - name: Compare full native C++ and Rust DSP through EffNet, Genre, Mood and Voice
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          python3 scripts/compare_native_cpp_end_to_end.py \
+            --worker build/essentia-cpp/bliss-essentia-worker \
+            --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
+            --models-dir models \
+            --report-output results/native-codec-all-heads-parity.json
       - name: Upload synthetic codec parity report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: original-essentia-cpp-codec-parity
-          path: results/native-codec-mel-parity.json
+          path: |
+            results/native-codec-mel-parity.json
+            results/native-codec-all-heads-parity.json
           if-no-files-found: warn
           retention-days: 14
