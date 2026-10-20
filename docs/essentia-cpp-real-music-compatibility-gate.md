@@ -325,6 +325,84 @@ be uploaded. The tool returns successfully for **diagnostic completeness**;
 the boolean \`wav_control_within_tolerance\` is the actual WAV-numerical gate.
 Neither value alone certifies full-library or cross-codec parity.
 
+## Real MP3 shared-WAV result and targeted short PCM frontend comparison
+
+On **2026-10-20**, the *worst* of the 100 real MP3 tracks was decoded
+once to lossless PCM float32 WAV, then analyzed by both backends using
+the same ONNX weights. The absolute maximum score deviations remained
+essentially **identical** to the original MP3 scan:
+
+| Model | Real MP3 | Shared decoded WAV |
+| --- | ---: | ---: |
+| Genre | 0.00345522165 | 0.00345524000 |
+| Mood/Theme | 0.00308407843 | 0.00308408000 |
+| Voice | 0.00382420421 | 0.00382420000 |
+
+Both backends reported **837 patches**. This makes differences in MP3
+decoding alone unlikely to be the primary cause. It does NOT yet
+separate downmix, resampling and actual Mel/FFT calculations.
+
+The next bounded test uses the **already existing** decoded shared PCM WAV
+at:
+
+    D:\LMS\bliss-mood-poc\benchmark-essentia-real-20261020-160351\mp3-wav-control-20261020-164836\control-from-mp3-decoded-float32.wav
+
+For two 12-second excerpts at offsets **0** and **120 seconds**, create
+one WAV preserving the original sample rate/channels, and one FFmpeg-
+normalized **16kHz mono float32 WAV**. Analyze each of those 4 short WAVs
+with the **original Windows dev kit**, using BOTH Rust/C++ production
+backends and all three ONNX heads (no rebuild, no original DB changes).
+Also compare the first four [128,96] Mel patches directly using the
+production Rust CLI mel-dump and original native Essentia C++ worker's
+bounded patch protocol. Report mean/max Mel error, worst frame/band, and
+Genre/Mood/Voice score drift.
+
+If the normalized 16k mono WAV agrees but original-rate does not, look
+for differences in Rust's linear resampler/downmix approximation. If both
+fail, the Mel/FFT processing should be examined against the native
+reference. These are diagnostic outcomes, not automatic merge approval.
+
+Run this single **Windows PowerShell** block:
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $inputWav = Join-Path $base 'mp3-wav-control-20261020-164836\control-from-mp3-decoded-float32.wav'
+    $output = Join-Path $base ('pcm-frontend-control-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot switch to PR17 branch' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot update PR17 branch' }
+    python -m unittest discover -s tests -p 'test_diagnose_pcm_frontend.py'
+    if ($LASTEXITCODE -ne 0) { throw 'PCM frontend regression tests failed' }
+    $arguments = @(
+        'scripts/diagnose_pcm_frontend.py',
+        '--input-wav', $inputWav,
+        '--analyzer', (Join-Path $kit 'bliss-mood.exe'),
+        '--essentia-worker',
+        (Join-Path $kit 'essentia-worker\bliss-essentia-worker.exe'),
+        '--models-dir', (Join-Path $repo 'models'),
+        '--output-dir', $output,
+        '--offsets', '0,120',
+        '--duration-seconds', '12'
+    )
+    python @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "PCM frontend diagnostic failed; see local logs: $output"
+    }
+    Write-Host "Private detailed report: $output\private-pcm-diagnostic.json"
+}
+~~~
+
+The script prints four concise per-excerpt results, including Mel and
+ONNX score errors. Generated WAV/JSON/log files remain LOCAL and PRIVATE;
+do not upload music or private file paths. This diagnostic never treats
+a failed numerical parity case as PASS and never modifies PR #16 or main.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
