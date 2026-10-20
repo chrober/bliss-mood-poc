@@ -81,8 +81,43 @@ def execute(command, what, timeout=300):
     return result.stdout
 
 
+# The 2x2 input layout bypasses one processing step at a time:
+# full stereo/rate = downmix+resampling by each backend
+# native-rate mono = only resampling by each backend
+# 16kHz stereo = only downmix by each backend
+# 16kHz mono = neither, isolating FFT/Mel.
+PCM_VARIANTS = {
+    "native-rate": (None, None),
+    "native-rate-mono": (None, 1),
+    "16khz-stereo": (16000, 2),
+    "16khz-mono": (16000, 1),
+}
+
+
+def source_audio_layout(input_wav):
+    output = execute(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=sample_rate,channels",
+         "-of", "json", str(input_wav)],
+        "FFprobe shared PCM source layout", timeout=60,
+    )
+    streams = json.loads(output).get("streams") or []
+    if len(streams) != 1:
+        raise ValueError("Expected exactly one selected first audio stream")
+    rate = int(streams[0].get("sample_rate") or 0)
+    channels = int(streams[0].get("channels") or 0)
+    if rate <= 0 or channels not in (1, 2):
+        raise ValueError("Expected valid mono or stereo PCM input")
+    return rate, channels
+
+
 def create_excerpt(input_wav, output_file, offset_seconds, seconds,
-                   normalized=False):
+                   normalized=False, *, mode=None):
+    if mode is None:
+        mode = "16khz-mono" if normalized else "native-rate"
+    if mode not in PCM_VARIANTS:
+        raise ValueError(f"Unsupported PCM factor-control mode: {mode}")
+    rate, channels = PCM_VARIANTS[mode]
     command = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-n"]
     if offset_seconds:
         command += ["-ss", str(offset_seconds)]
@@ -90,8 +125,10 @@ def create_excerpt(input_wav, output_file, offset_seconds, seconds,
         "-i", str(input_wav), "-t", str(seconds),
         "-map", "0:a:0", "-vn", "-c:a", "pcm_f32le"
     ]
-    if normalized:
-        command += ["-ar", "16000", "-ac", "1"]
+    if rate is not None:
+        command += ["-ar", str(rate)]
+    if channels is not None:
+        command += ["-ac", str(channels)]
     command += [str(output_file)]
     execute(command, f"FFmpeg controlled excerpt {output_file}", timeout=180)
     if not output_file.is_file() or output_file.stat().st_size < 4096:
@@ -177,14 +214,23 @@ def diagnose(args):
         raise ValueError("Select 4..30 second excerpts")
     if len(args.offsets) != len(set(args.offsets)) or len(args.offsets) > 3:
         raise ValueError("Use at most three distinct offsets")
+    rate, channels = source_audio_layout(args.input_wav)
+    if args.factorial and (rate == 16000 or channels != 2):
+        raise ValueError(
+            "Factorial downmix/resampling isolation requires a stereo WAV "
+            "whose original sampling rate differs from 16 kHz"
+        )
     args.output_dir.mkdir(parents=True)
     samples = []
+    modes = tuple(PCM_VARIANTS) if args.factorial else (
+        "native-rate", "16khz-mono"
+    )
     for index, offset in enumerate(args.offsets):
-        for mode in ("native-rate", "16khz-mono"):
+        for mode in modes:
             clip = args.output_dir / f"offset-{index:02d}-{mode}.wav"
             create_excerpt(
                 args.input_wav, clip, offset, args.duration_seconds,
-                normalized=(mode == "16khz-mono"),
+                mode=mode,
             )
             samples.append((f"{index}-{mode}", clip))
     native_patches = native_mel(args.essentia_worker, samples)
@@ -213,12 +259,16 @@ def diagnose(args):
     report = {
         "schema": "controlled-frontends-pcm-short-excerpts-v1",
         "description": (
-            "Shared float32 PCM WAV control clips in original sample rate/channel count "
-            "and 16 kHz mono. Compare four initial Mel patches and full-clip "
-            "ONNX scores. Results are diagnostic, NOT the 100-song parity gate."
+            "Shared float32 PCM WAV clips with controlled input sample rate "
+            "and channel count, including 2x2 stereo/mono x native/16kHz "
+            "factorial isolation when selected. Four initial Mel patches "
+            "and full-clip ONNX scores; not the 100-song parity gate."
         ),
         "offsets_seconds": args.offsets,
         "duration_seconds": args.duration_seconds,
+        "source_sample_rate": rate,
+        "source_channels": channels,
+        "factorial_isolation": args.factorial,
         "cases": cases,
     }
     with (args.output_dir / "private-pcm-diagnostic.json").open(
@@ -254,6 +304,10 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--offsets", type=str, default="0,120")
     parser.add_argument("--duration-seconds", type=float, default=12)
+    parser.add_argument(
+        "--factorial", action="store_true",
+        help="Add native-rate mono and 16kHz stereo to separate downmix from resampling",
+    )
     args = parser.parse_args()
     try:
         args.offsets = [float(part.strip()) for part in args.offsets.split(",")]
