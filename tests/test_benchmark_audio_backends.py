@@ -1,5 +1,6 @@
 """No binaries/models required: guard the A/B native benchmark against bias."""
 import sqlite3
+import json
 from contextlib import closing, contextmanager
 import struct
 import sys
@@ -115,7 +116,7 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
             rust_db = Path(tmp) / "rust.db"
             cpp_db = Path(tmp) / "essentia.db"
 
-            def create(path, keys):
+            def create(path, keys, backend):
                 with writable_db(path) as conn:
                     conn.execute("PRAGMA user_version=3")
                     conn.execute(
@@ -128,12 +129,24 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                         "classification_model TEXT, models_sha256_json TEXT, "
                         "aggregation TEXT, classes_json TEXT)"
                     )
+                    metadata = []
+                    for head, key in keys:
+                        hashes = {
+                            "shared-effnet.onnx": "a" * 64,
+                            f"{head}.onnx": "b" * 64,
+                        }
+                        if backend == "essentia":
+                            hashes["essentia_cpp_worker_binary_sha256"] = "c" * 64
+                            hashes[
+                                "essentia_cpp_native_deployment_manifest_sha256"
+                            ] = "d" * 64
+                        metadata.append((
+                            key, "shared-effnet.onnx", f"{head}.onnx",
+                            json.dumps(hashes), "mean", '["first","second"]'
+                        ))
                     conn.executemany(
                         "INSERT INTO feature_models VALUES (?,?,?,?,?,?)",
-                        [(key, "shared-effnet.onnx", f"{head}.onnx",
-                          '{"encoder":"aa", "head":"bb"}',
-                          "mean", '["first","second"]')
-                         for head, key in keys]
+                        metadata
                     )
                     conn.executemany(
                         "INSERT INTO feature_tracks VALUES (?,?,?)",
@@ -143,9 +156,9 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                     )
 
             create(rust_db, [("genre", "rust-genre"),
-                             ("moodtheme", "rust-mood")])
+                             ("moodtheme", "rust-mood")], "rust")
             create(cpp_db, [("genre", "cpp-genre"),
-                            ("moodtheme", "cpp-mood")])
+                            ("moodtheme", "cpp-mood")], "essentia")
             self.assertEqual(
                 bench.verify_backend_fingerprint_separation(rust_db, cpp_db),
                 ["genre", "moodtheme"],
@@ -169,6 +182,36 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 AssertionError, "Different ONNX model weights, class labels"
             ):
+                bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
+            with writable_db(cpp_db) as conn:
+                conn.execute(
+                    "UPDATE feature_models SET classes_json='[\"first\",\"second\"]' "
+                    "WHERE model_key='cpp-genre'"
+                )
+                modified = json.loads(conn.execute(
+                    "SELECT models_sha256_json FROM feature_models "
+                    "WHERE model_key='cpp-genre'"
+                ).fetchone()[0])
+                modified["genre.onnx"] = "e" * 64
+                conn.execute(
+                    "UPDATE feature_models SET models_sha256_json=? "
+                    "WHERE model_key='cpp-genre'",
+                    (json.dumps(modified),)
+                )
+            with self.assertRaisesRegex(
+                AssertionError, "Different ONNX model weights, class labels"
+            ):
+                bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
+            # Do not accept unrecognized "metadata" keys as cache decorations.
+            with writable_db(cpp_db) as conn:
+                modified["genre.onnx"] = "b" * 64
+                modified["unrecognized"] = "f" * 64
+                conn.execute(
+                    "UPDATE feature_models SET models_sha256_json=? "
+                    "WHERE model_key='cpp-genre'",
+                    (json.dumps(modified),)
+                )
+            with self.assertRaisesRegex(AssertionError, "Unexpected essentia model SHA keys"):
                 bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
             with writable_db(cpp_db) as conn:
                 conn.execute(
