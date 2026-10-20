@@ -1,6 +1,6 @@
 """No binaries/models required: guard the A/B native benchmark against bias."""
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 import struct
 import sys
 from pathlib import Path
@@ -9,6 +9,15 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import benchmark_audio_backends as bench
+
+
+@contextmanager
+def writable_db(path):
+    # sqlite3's transaction context alone does not close Windows file handles;
+    # closing alone rolls back uncommitted INSERT/UPDATE transactions.
+    with closing(sqlite3.connect(path)) as conn:
+        with conn:
+            yield conn
 
 
 class AudioBackendBenchmarkTests(unittest.TestCase):
@@ -52,7 +61,7 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
             cpp_db = Path(tmp) / "essentia.db"
 
             def create(path, keys):
-                with closing(sqlite3.connect(path)) as conn:
+                with writable_db(path) as conn:
                     conn.execute("PRAGMA user_version=3")
                     conn.execute(
                         "CREATE TABLE feature_tracks "
@@ -73,14 +82,14 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                 bench.verify_backend_fingerprint_separation(rust_db, cpp_db),
                 ["genre", "moodtheme"],
             )
-            with closing(sqlite3.connect(cpp_db)) as conn:
+            with writable_db(cpp_db) as conn:
                 conn.execute(
                     "UPDATE feature_tracks SET model_key='rust-genre' "
                     "WHERE model_id='genre'"
                 )
             with self.assertRaisesRegex(AssertionError, "must not share"):
                 bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
-            with closing(sqlite3.connect(cpp_db)) as conn:
+            with writable_db(cpp_db) as conn:
                 conn.execute(
                     "UPDATE feature_tracks SET model_key='extra-model' "
                     "WHERE track_file='track-0.flac' AND model_id='genre'"
@@ -98,12 +107,12 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
     def test_readonly_bliss_cohort_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "cohort.db"
-            with closing(sqlite3.connect(db)) as conn:
+            with writable_db(db) as conn:
                 conn.executescript("CREATE TABLE TracksV2 (File TEXT, Ignore INTEGER);")
                 conn.executemany("INSERT INTO TracksV2 VALUES (?, 0)",
                                  ((f"song-{i}.flac",) for i in range(3)))
             self.assertEqual(len(bench.checked_cohort(db)), 3)
-            with closing(sqlite3.connect(db)) as conn:
+            with writable_db(db) as conn:
                 conn.execute("DELETE FROM TracksV2 WHERE File <> 'song-0.flac'")
             with self.assertRaises(ValueError):
                 bench.checked_cohort(db)
@@ -111,7 +120,7 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
     def test_load_little_endian_scores(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "features.db"
-            with closing(sqlite3.connect(db)) as conn:
+            with writable_db(db) as conn:
                 conn.executescript(
                     "CREATE TABLE feature_tracks (track_file TEXT, model_id TEXT, "
                     "patches_analyzed INTEGER, scores_f32_le BLOB);"
