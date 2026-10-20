@@ -132,9 +132,9 @@ def collect(executable, dependency_dirs, objdump):
 
 
 def package(executable, dependency_dirs, objdump, output, license_map=None):
-    entries = collect(executable, dependency_dirs, objdump)
     if output.exists():
         raise FileExistsError(f"Refuse existing package path: {output}")
+    entries = collect(executable, dependency_dirs, objdump)
     distribution_ready = license_map is not None
     # Validating license records BEFORE copying prevents half-made packages.
     licensed = {}
@@ -170,7 +170,8 @@ def package(executable, dependency_dirs, objdump, output, license_map=None):
         "schema_version": 1,
         "platform": "windows-x86_64-mingw64",
         "verified_with": "PE x86_64 plus transitive imported DLL inspection",
-        "distribution_ready": distribution_ready,
+        "license_inventory_complete": distribution_ready,
+        "release_approved": False,
         "requires_distribution_license_review": True,
         "worker_executable": executable.name.lower(),
         "files": manifest_files,
@@ -198,7 +199,8 @@ def verify(output):
         raise ValueError("Native bundle contains missing or unexpected executables/DLLs")
     for name, entry in manifest["files"].items():
         path = output / name
-        if (not NAME.fullmatch(name) and not name.endswith(".exe")):
+        if (not NAME.fullmatch(name)
+                and not re.fullmatch(r"[a-zA-Z0-9_.+-]+\.exe", name, re.I)):
             raise ValueError("Invalid native bundle file name")
         check_pe_x64(path)
         if path.stat().st_size != entry["size_bytes"] or sha256(path) != entry["sha256"]:
@@ -231,9 +233,8 @@ def main():
     )
     print(f"Native Windows bundle staged: {args.output} / "
           f"{len(manifest['files'])} binaries / "
-          f"distribution_ready={manifest['distribution_ready']}")
-    if not manifest["distribution_ready"]:
-        print("NOT FOR REDISTRIBUTION: missing license inventory/review")
+          f"license_inventory_complete={manifest['license_inventory_complete']}")
+    print("NOT RELEASE APPROVED: independent licensing/dependency review is required")
 
 
 if __name__ == "__main__":
