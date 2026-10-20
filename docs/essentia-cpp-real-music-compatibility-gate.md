@@ -36,13 +36,16 @@ PR #16 similarity evaluator.
    executable, model weights, worker count and inference settings.
    Write every run to separate, newly created schema-v3 feature sidecars.
    Keep `bliss.db`, NAS audio, prior 100-track feature DB and all models read-only.
-3. No missing/errors; same `(track_file, model_id)` set, dimensions and
-   analyzed Mel patch counts; **max absolute per-class score drift <= 1e-3**
-   across all pairs (report actual mean and max errors, not just PASS).
+3. No missing/errors; the **exact cohort keys**, requested model-head
+   coverage (87D Genre, 56D Mood, 2D Voice), and analyzed Mel patch
+   counts must match. **Max absolute per-class score drift <= 1e-3**
+   across all pairs. Report per-head mean/max differences and worst
+   class/track, not just PASS.
 4. Both sides must have **different model fingerprint keys** per head
-   (different audio frontends); no single sidecar may mix fingerprints
-   for the same head. The benchmark asserts this while comparing numeric
-   scores independently of the fingerprints.
+   (different audio frontends); no single sidecar may mix fingerprints.
+   Check that underlying ONNX file hashes, exact class-label order and
+   aggregation metadata match **despite** the distinct frontend keys.
+   The benchmark asserts all these conditions.
 5. Run at 1 and 2 workers first (single and persistent multiworker),
    then extend to 1/2/4/6 and two balanced AB/BA repeats only after
    the numerical gate is green and resource use is acceptable.
@@ -131,9 +134,46 @@ Set `$music` to the actual read-only NAS root. For relative keys, pass
 }
 ```
 
-**If this fails:** report the exact error and optionally sanitized
-`summary.json` / `*.stderr.txt` excerpts. Keep private filenames,
-uncensored JSON and SQLite databases local.
+**If this fails:** inspect the error and the run's `*.stderr.txt`.
+If scores differ beyond tolerance or patch counts drift, the benchmark
+also writes **`parity-failure.json`** with the worst track, class index,
+per-head max/mean errors, observed score values and up to ten patch
+mismatch examples. Do not change the tolerance to force a pass. A
+successful run writes `summary.json` and `runs.csv`. Share only
+sanitized diagnostic excerpts; all raw JSON and SQLite files can
+contain private music file paths and must stay local.
+
+## Reusing the verified Windows test kit
+
+The original **successful and verified** downloadable artifact is from
+run `39421541546`, not an unspecified "latest" run. On Windows with
+`gh` authenticated and the repository checkout at
+`D:\LMS\bliss-mood-poc`, the package can be downloaded reproducibly:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    if (Test-Path -LiteralPath $kit) {
+        throw "Kit directory already exists; inspect instead of overwriting: $kit"
+    }
+    gh run download 39421541546 `
+        --repo chrober/bliss-mood-poc `
+        --name bliss-mood-essentia-windows-x64-dev `
+        --dir $kit
+    if ($LASTEXITCODE -ne 0) { throw 'Kit download failed' }
+    if (-not (Test-Path -LiteralPath (Join-Path $kit 'essentia-worker\worker-dependencies.json'))) {
+        throw 'Expected signed native dependency manifest not found'
+    }
+    Write-Host "Package: $kit"
+}
+```
+
+The `bliss-mood.exe` from this immutable artifact is sufficient for the
+next **real-data** run because subsequent PR #17 fixes were confined to
+the Python benchmark and accompanying tests/docs. This does **not**
+claim that a rebuilt CLI at a newer commit has already passed CI.
 
 ## After real-music parity
 
