@@ -76,43 +76,6 @@ jobs:
           /usr/bin/python3 waf -j 4
           /usr/bin/python3 waf install
           pkg-config --modversion essentia
-      - name: Diagnose original Essentia DLL exports and MinGW import archive
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
-          mkdir -p build/windows-native
-          log=build/windows-native/essentia-link-diagnostics.txt
-          {
-            echo "=== Original upstream Essentia / MinGW provenance ==="
-            git -C build/windows-native/essentia-source rev-parse HEAD
-            /mingw64/bin/g++ --version | head -n 1
-            echo "=== pkg-config ==="
-            pkg-config --variable=prefix essentia
-            pkg-config --variable=libdir essentia
-            pkg-config --libs essentia
-            pkg-config --cflags essentia
-            echo "=== Installed Essentia libraries ==="
-            find /mingw64/lib /mingw64/bin -maxdepth 2 \\( -iname '*essentia*.a' -o -iname '*essentia*.dll' \\) -print
-            echo "=== Actual imported library file and architecture ==="
-            ls -l /mingw64/lib/essentia.dll.a /mingw64/lib/essentia.dll
-            file /mingw64/lib/essentia.dll.a /mingw64/lib/essentia.dll
-            echo "=== PE export table (complete, no truncation) ==="
-            /mingw64/bin/objdump -p /mingw64/lib/essentia.dll | sed -n '/The Export Tables/,/The Import Tables/p'
-            echo "=== Import archive demangled public symbols ==="
-            /mingw64/bin/nm -gC /mingw64/lib/essentia.dll.a | grep -E 'essentia::(init\\(|shutdown\\(|Logger::debug\\(|ParameterMap::add\\(|loggerInstance|debugIndentLevel|activatedDebugLevels)' || true
-            echo "=== Import archive mangled symbol table ==="
-            /mingw64/bin/nm -g /mingw64/lib/essentia.dll.a | grep -E '_ZN8essentia(4init|8shutdown|14loggerInstance|16debugIndentLevel|20activatedDebugLevels)' || true
-          } 2>&1 | tee "$log"
-          # If the DLL cannot export even the basic original API, fail here,
-          # before a misleading downstream linker error. Keep full raw
-          # diagnostics for inspection; never substitute dummy symbols.
-          /mingw64/bin/objdump -p /mingw64/lib/essentia.dll > build/windows-native/essentia-pe-headers.txt
-          /mingw64/bin/nm -gC /mingw64/lib/essentia.dll.a > build/windows-native/essentia-import-symbols.txt
-          if ! grep -q 'essentia::init()' build/windows-native/essentia-import-symbols.txt; then
-            echo "ERROR: original Essentia import archive has no essentia::init() export" >&2
-            exit 1
-          fi
       - name: Inspect actual upstream Essentia PE exports and MinGW import linkage
         shell: msys2 {0}
         run: |
@@ -150,6 +113,55 @@ jobs:
             "$diagnostics/essentia-dll-nm.txt" | head -n 50 || true
           echo "=== Symbol table sizes ==="
           wc -l "$diagnostics/essentia-dll-pe.txt" "$diagnostics/essentia-import-nm.txt" "$diagnostics/essentia-dll-nm.txt"
+          echo "=== Check all core symbol imports against exact installed archive ==="
+          missing=0
+          for symbol in 'essentia::init()' 'essentia::shutdown()' \
+            'essentia::Logger::debug' 'essentia::ParameterMap::add' \
+            'essentia::nameOfType' 'essentia::loggerInstance' \
+            'essentia::debugIndentLevel' 'essentia::activatedDebugLevels'; do
+            if grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
+              printf 'FOUND: %s\\n' "$symbol"
+            else
+              printf 'NOT EXPORTED: %s\\n' "$symbol"
+              missing=1
+            fi
+          done
+          if (( missing )); then
+            # The import archive genuinely lacks core public C++ API symbols.
+            # GNU ld disables automatic exports when a DEF file or explicit
+            # dllexport is present. Force PE exports in the ORIGINAL upstream
+            # Waf shared build, without modifying any source or DSP algorithm.
+            # Capture both sides of the test and require all symbols afterward.
+            echo "=== Testing explicit MinGW PE export-all policy (original upstream Waf only) ==="
+            cp "$diagnostics/essentia-dll-pe.txt" "$diagnostics/essentia-dll-pe-before.txt"
+            cp "$diagnostics/essentia-import-nm.txt" "$diagnostics/essentia-import-nm-before.txt"
+            (
+              cd build/windows-native/essentia-source
+              test "$(git rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+              export CC=/mingw64/bin/gcc CXX=/mingw64/bin/g++
+              export PKG_CONFIG=/mingw64/bin/pkg-config
+              export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+              export LDFLAGS=-Wl,--export-all-symbols
+              /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14 --lightweight=libav,libsamplerate,fftw
+              /usr/bin/python3 waf -j 4
+              /usr/bin/python3 waf install
+              test -z "$(git status --porcelain)"
+            )
+            objdump -p "$dll" > "$diagnostics/essentia-dll-pe.txt"
+            nm -gC "$implib" > "$diagnostics/essentia-import-nm.txt"
+            nm -gC "$dll" > "$diagnostics/essentia-dll-nm.txt"
+          fi
+          echo "=== Require linkable original Essentia C++ public symbols ==="
+          for symbol in 'essentia::init()' 'essentia::shutdown()' \
+            'essentia::Logger::debug' 'essentia::ParameterMap::add' \
+            'essentia::nameOfType' 'essentia::loggerInstance' \
+            'essentia::debugIndentLevel' 'essentia::activatedDebugLevels'; do
+            if ! grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
+              echo "ERROR: even after export-policy correction import archive lacks $symbol" >&2
+              exit 1
+            fi
+          done
+          echo "PASS: native MinGW import library contains all required core API symbols"
       - name: Compile our original Essentia C++ IPC process with MinGW x64
         shell: msys2 {0}
         run: |
@@ -192,8 +204,11 @@ jobs:
           name: original-essentia-windows-build-diagnostics
           path: |
             build/windows-native/pacman-package-lock-observed.txt
-            build/windows-native/essentia-link-diagnostics.txt
-            build/windows-native/essentia-pe-headers.txt
-            build/windows-native/essentia-import-symbols.txt
+            build/windows-native/pkg-config-essentia-libs.txt
+            build/windows-native/essentia-dll-pe.txt
+            build/windows-native/essentia-dll-pe-before.txt
+            build/windows-native/essentia-import-nm.txt
+            build/windows-native/essentia-import-nm-before.txt
+            build/windows-native/essentia-dll-nm.txt
           if-no-files-found: warn
           retention-days: 14
