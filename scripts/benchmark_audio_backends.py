@@ -116,6 +116,31 @@ def model_fingerprints_by_head(db):
     return keys
 
 
+def feature_model_definitions_by_head(db):
+    """Audit shared ONNX/label metadata without requiring identical DSP versions."""
+    with closing(sqlite3.connect(
+        f"file:{db.resolve().as_posix()}?mode=ro", uri=True
+    )) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT t.model_id, m.embedding_model, "
+            "m.classification_model, m.models_sha256_json, "
+            "m.aggregation, m.classes_json "
+            "FROM feature_tracks AS t "
+            "JOIN feature_models AS m ON m.model_key = t.model_key"
+        ).fetchall()
+    models = {}
+    for head, *fields in rows:
+        # Actual hashes, label order and aggregation must be equal. The C++
+        # backend adds its own preprocessing identity to model_key only.
+        definition = tuple(fields)
+        if head in models and models[head] != definition:
+            raise AssertionError(f"Conflicting model definitions for {head}")
+        models[head] = definition
+    if set(models) != set(model_fingerprints_by_head(db)):
+        raise AssertionError("Feature model metadata missing or mismatched")
+    return models
+
+
 def verify_backend_fingerprint_separation(rust_db, essentia_db):
     old = model_fingerprints_by_head(rust_db)
     new = model_fingerprints_by_head(essentia_db)
@@ -126,6 +151,16 @@ def verify_backend_fingerprint_separation(rust_db, essentia_db):
         raise AssertionError(
             "Distinct DSP backends must not share feature fingerprint: "
             + ", ".join(shared)
+        )
+    old_definitions = feature_model_definitions_by_head(rust_db)
+    new_definitions = feature_model_definitions_by_head(essentia_db)
+    if old_definitions != new_definitions:
+        different = sorted(
+            head for head in old_definitions
+            if old_definitions.get(head) != new_definitions.get(head)
+        )
+        raise AssertionError(
+            f"Different ONNX model weights, class labels, or aggregation: {different}"
         )
     return sorted(old)
 
