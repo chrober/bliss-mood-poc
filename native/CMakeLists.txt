@@ -11,8 +11,10 @@ pkg_check_modules(ESSENTIA REQUIRED IMPORTED_TARGET essentia)
 add_executable(bliss-essentia-worker essentia_cpp_worker.cpp)
 target_link_libraries(bliss-essentia-worker PRIVATE PkgConfig::ESSENTIA)
 if(MINGW)
-    # Windows C runtime hides M_PI/M_LN2 under strict ISO C++ modes.
-    # This does not alter any Essentia DSP formulas.
+    # The original library's Windows headers contain a global byte typedef,
+    # which clashes with std::byte under C++17. Match upstream's C++14 ABI.
+    set_property(TARGET bliss-essentia-worker PROPERTY CXX_STANDARD 14)
+    # Windows CRT also hides math constants under strict ISO C++ modes.
     target_compile_definitions(bliss-essentia-worker PRIVATE _USE_MATH_DEFINES)
 endif()
 if(MSVC)
