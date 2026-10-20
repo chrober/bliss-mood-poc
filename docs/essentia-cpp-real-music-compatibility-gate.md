@@ -129,6 +129,105 @@ scenario** with an entirely fresh output directory using the main
 benchmark's `--workers 2 --repeats 1` and the verified dev-kit binaries.
 Avoid repeating the already-completed one-worker scans.
 
+## Numerischer Drift auf echten Songs — Befund 20.10.2026
+
+Der korrigierte strenge Read-only-Vergleich der beiden vorhandenen
+100-Song-Sidecars ist **fehlgeschlagen**: größte bisher gemeldete Abweichung
+in `voice`, Klasse 0, bei
+`Electric Yawn/2021 - Spice Must Flow/07 Tree Of A Thousand Eyes - Part 2.mp3`:
+Rust `0.4835579991340637` gegen original Essentia C++ `0.47973379492759705`;
+absolute Differenz `0.003824204206466675`, größer als das vereinbarte
+Maximum `0.001`. Dieses Ergebnis blockiert den Merge von PR #17,
+bis wir Ursache und akzeptables Paritätskriterium nachvollziehbar bestimmen.
+Nicht die Toleranz erhöhen, um den Test grün zu machen.
+
+**Read-only Diagnose aller 100 Songs:** der neue
+`scripts/diagnose_backend_drift.py` verarbeitet ausschließlich die
+vorhandenen beiden Sidecars, validiert Kohortenschlüssel, Modellidentität,
+Fingerprints und Vektordimensionen und wertet pro Genre/Mood/Voice und
+Dateiendung `.mp3`/`.flac`/`.wav` die mittleren/maximalen sowie
+p50/p90/p95/p99 absoluten Abweichungen aus. Es zählt sowohl betroffene
+Songs als auch Score-Komponenten oberhalb `0.001`. Der komplette
+lokale JSON-Bericht enthält die 25 auffälligsten Track/Head-Paare.
+**`numeric_parity_status: FAIL` bleibt FAIL**, auch wenn das
+Diagnoseprogramm technisch erfolgreich durchgelaufen ist.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $report = Join-Path $base 'real-audio-drift-diagnostics.json'
+    Set-Location $repo
+
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Git branch switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+
+    python -m unittest discover -s tests -p 'test_diagnose_backend_drift.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Diagnostic regression tests failed' }
+    if (Test-Path -LiteralPath $report) {
+        throw "Never overwrite previous diagnostic report: $report"
+    }
+
+    $args = @(
+        'scripts/diagnose_backend_drift.py',
+        '--cohort-db', (Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db'),
+        '--rust-db', (Join-Path $base 'round-01-workers-01-rust.db'),
+        '--essentia-db', (Join-Path $base 'round-01-workers-01-essentia.db'),
+        '--models', 'genre,moodtheme,voice',
+        '--score-max-tolerance', '0.001',
+        '--output', $report
+    )
+    python @args
+    if ($LASTEXITCODE -ne 0) { throw 'Read-only diagnostic failed' }
+
+    $r = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+    Write-Host "`nNumerical parity: $($r.numeric_parity_status)"
+    Write-Host "Songs exceeding threshold: $($r.tracks_exceeding_tolerance_any_head)"
+    Write-Host "Patch mismatches: $($r.patch_mismatch_count)"
+
+    $heads = foreach ($name in @('genre', 'moodtheme', 'voice')) {
+        $x = $r.per_head.$name
+        [pscustomobject]@{
+            Model = $name
+            SongsAffected = $x.tracks_exceeding_tolerance
+            ScoresAffected = $x.scores_exceeding_tolerance
+            MaxAbsError = $x.maximum_absolute_error
+            P95AbsError = $x.p95_absolute_error
+            MeanAbsError = $x.mean_absolute_error
+        }
+    }
+    $heads | Format-Table -AutoSize
+
+    $codecs = foreach ($p in $r.per_extension.PSObject.Properties) {
+        $x = $p.Value
+        [pscustomobject]@{
+            Format = $p.Name
+            Tracks = $x.tracks
+            SongsAffected = $x.tracks_exceeding_tolerance
+            MaxAbsError = $x.maximum_absolute_error
+            P95AbsError = $x.p95_absolute_error
+        }
+    }
+    $codecs | Format-Table -AutoSize
+    Write-Host "Detailed PRIVATE local JSON: $report"
+}
+```
+
+**Keine neue Audioanalyse notwendig**. Die Quell-DBs und die Musik werden
+nur gelesen. Bitte nur die *beiden aggregierten Tabellen* teilen;
+die vollständige JSON-Datei enthält private Pfade und bleibt lokal.
+
+**Interpretationsgrenze:** Die Dateiendung allein beweist keine
+Codec-Ursache. Falls das Sample ausschließlich MP3 enthält, benötigen
+wir für WAV/FLAC-Vergleiche anschließend eine neue sehr kleine, gezielte
+Paritätsstichprobe. Weitere gezielte Ursachenanalyse: native Decoder-Ausgabe
+gegen Rust-FFmpeg, Mel/Patch-Vergleich pro betroffenem Song, anschließend
+Embeddings und Modell-Outputs. Erst nach Erklärung der Differenzen
+entscheiden wir über den PR-17-Merge. Kein automatisch hoher Toleranzwert.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
