@@ -152,6 +152,8 @@ licensing/distribution details are assessed.
 ---
 
 
+Detailed measured pre-cache vs warmed-cache times: [GitHub Actions cache benchmark](github-actions-cache-benchmark-20261020.md).
+
 ## CI caching checkpoint — 2026-10-20
 
 To reduce **GitHub Actions build duration** without changing binaries,
