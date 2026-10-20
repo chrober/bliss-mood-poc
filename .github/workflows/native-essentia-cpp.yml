@@ -6,6 +6,10 @@ on:
     paths:
       - "native/**"
       - "scripts/test_native_essentia_protocol.py"
+      - "scripts/compare_native_cpp_end_to_end.py"
+      - "scripts/generate_audio_fixtures.py"
+      - "src/audio_decode.rs"
+      - "src/preprocess.rs"
       - ".github/workflows/native-essentia-cpp.yml"
 
 permissions:
@@ -21,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            build-essential cmake pkg-config python3 python3-numpy \
+            build-essential cmake pkg-config python3 python3-numpy ffmpeg \
             libeigen3-dev libyaml-dev libfftw3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
             libsamplerate0-dev libtag1-dev libchromaprint-dev
@@ -45,8 +49,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Compile existing Rust Mel source without heavyweight ONNX Runtime
         run: cargo build --release --manifest-path native/rust-mel-reference/Cargo.toml
-      - name: Exercise original C++ worker and numeric 12,288-coefficient Rust parity
+      - name: Exercise original C++ worker and full four-patch Rust parity
         shell: bash
         run: |
           export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
           python3 scripts/test_native_essentia_protocol.py build/essentia-cpp/bliss-essentia-worker native/rust-mel-reference/target/release/rust-mel-reference
+      - name: Generate deterministic multi-codec regression audio
+        run: python3 scripts/generate_audio_fixtures.py
+      - name: Check original C++ vs Rust Mel frontend parity on WAV FLAC MP3
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          python3 scripts/compare_native_cpp_end_to_end.py \
+            --worker build/essentia-cpp/bliss-essentia-worker \
+            --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
+            --report-output results/native-codec-mel-parity.json
+      - name: Upload synthetic codec parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-essentia-cpp-codec-parity
+          path: results/native-codec-mel-parity.json
+          if-no-files-found: warn
+          retention-days: 14
