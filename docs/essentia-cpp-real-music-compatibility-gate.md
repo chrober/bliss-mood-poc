@@ -781,17 +781,17 @@ Private baseline reference in user's existing Windows checkout:
     D:\LMS\bliss-mood-poc\benchmark-rust-v5-workers4-20261020-191946\
 
 The previously validated Windows Rust-v5 scanner executable remains
-\`D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe\`. It MUST remain Rust
+`D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe`. It MUST remain Rust
 v5, not the v4 executable in the original C++ kit.
 
 ### Next targeted experiment: exactly ONE NEW adaptive Rust v5 scan
 
-\`scripts/verify_rust_v5_adaptive.py\` starts with six Rust workers and
+`scripts/verify_rust_v5_adaptive.py` starts with six Rust workers and
 dynamically adjusts **active work in flight** between four and eight:
 
-- \`--workers 6 --adaptive-workers --min-workers 4 --max-workers 8\`,
-  **\`--threads 1\`**, \`--audio-backend rust\`, \`--max-new 100\`.
-- Existing 100-song \`sample-100.db\`, historical Rust-v4 sidecar,
+- `--workers 6 --adaptive-workers --min-workers 4 --max-workers 8`,
+  **`--threads 1`**, `--audio-backend rust`, `--max-new 100`.
+- Existing 100-song `sample-100.db`, historical Rust-v4 sidecar,
   original Essentia-C++ sidecar, *and* validated fixed-four-worker Rust
   v5 sidecar remain read-only. All 100 music files and official ONNX
   models remain read-only. A new v5 sidecar is created in a NEW folder.
@@ -806,7 +806,7 @@ dynamically adjusts **active work in flight** between four and eight:
   Changing from six workers is *not* a required outcome. No
   change means the load thresholds/hysteresis did not justify one.
 - Retain raw scanner JSON, stderr, one new SQLite, input SHA256 and
-  the full local \`adaptive-parity-and-performance-private.json\`
+  the full local `adaptive-parity-and-performance-private.json`
   even when score parity fails. The private report may contain music
   track paths; share **only** the summarized console JSON.
 - Compare elapsed time with the already saved four-worker baseline
@@ -819,7 +819,7 @@ All Python-only changes use the **already verified** Windows Rust-v5
 binary. No native C++ rebuild, new 4-worker run, new C++ scan,
 similarity metric evaluation or license changes are required.
 
-**Run on Windows PowerShell (outer \`& { ... }\` mandatory):**
+**Run on Windows PowerShell (outer `& { ... }` mandatory):**
 
 ~~~powershell
 & {
@@ -838,7 +838,7 @@ similarity metric evaluation or license changes are required.
     git pull --ff-only
     if ($LASTEXITCODE -ne 0) { throw 'Git Pull fehlgeschlagen' }
 
-    Write-Host "\`n=== ADAPTIVE REGRESSIONSTESTS ==="
+    Write-Host "`n=== ADAPTIVE REGRESSIONSTESTS ==="
     python -m unittest discover -s tests -p 'test_verify_rust_v5_adaptive.py'
     if ($LASTEXITCODE -ne 0) { throw 'Adaptive Regressionstests fehlgeschlagen' }
 
@@ -999,7 +999,7 @@ or changing the default `--audio-backend rust`.
         throw "Zielverzeichnis existiert bereits: $out"
     }
 
-    Write-Host "\`n=== ADAPTIVE RUST V5: START 6, MIN 4, MAX 8 ==="
+    Write-Host "`n=== ADAPTIVE RUST V5: START 6, MIN 4, MAX 8 ==="
     $arguments = @(
         'scripts/verify_rust_v5_adaptive.py',
         '--cohort-db',
@@ -1026,20 +1026,20 @@ or changing the default `--audio-backend rust`.
     if ($LASTEXITCODE -ne 0) {
         throw "Adaptive Scan oder Paritaet fehlgeschlagen; Daten behalten: $out"
     }
-    Write-Host "\`n=== ADAPTIVE PARITAET BESTANDEN ==="
+    Write-Host "`n=== ADAPTIVE PARITAET BESTANDEN ==="
     Write-Host "Detailbericht lokal: $out"
 }
 ~~~
 
 After this successful gate, inspect specifically
-\`acceptance_status\`, \`controller.adjustments\`,
-\`controller.peak_active_analyses\`,
-\`max_score_diff_vs_original_cpp\`,
-\`worker_invariance_vs_four.maximum_absolute_difference\`, and
-\`performance.adaptive_vs_fixed_four_speedup\` without repeating a scan.
+`acceptance_status`, `controller.adjustments`,
+`controller.peak_active_analyses`,
+`max_score_diff_vs_original_cpp`,
+`worker_invariance_vs_four.maximum_absolute_difference`, and
+`performance.adaptive_vs_fixed_four_speedup` without repeating a scan.
 
-**Important note:** \`--workers auto\` computes an initial worker
-count only; adaptive changes require *also* \`--adaptive-workers\`.
+**Important note:** `--workers auto` computes an initial worker
+count only; adaptive changes require *also* `--adaptive-workers`.
 For this experiment six initial workers are explicitly fixed,
 to preserve traceable 6 -> 4..8 controller behavior. Both modes
 remain available in the production CLI.
