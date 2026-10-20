@@ -32,5 +32,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_verify_existing_backend_sidecars.py'
       - name: Validate real-song model and codec drift diagnostics
         run: python3 -m unittest discover -s tests -p 'test_diagnose_backend_drift.py'
+      - name: Validate bounded real-MP3 to decoded-WAV control diagnostics
+        run: python3 -m unittest discover -s tests -p 'test_diagnose_mp3_wav_control.py'
       - name: Validate original Essentia Windows PE packaging and DLL licence safety
         run: python3 -m unittest discover -s tests -p 'test_package_essentia_worker_windows.py'
