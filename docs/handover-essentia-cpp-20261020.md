@@ -1,5 +1,50 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## CI caching checkpoint — 2026-10-20
+
+To reduce **GitHub Actions build duration** without changing binaries,
+three complementary layers are now present in draft PR #17:
+
+1. **Rust:** Existing `Swatinem/rust-cache@v2` is already active in
+   `ci.yml`, `windows-binary.yml`, and most other Rust jobs. It was
+   added to `native-essentia-windows.yml` with both root and
+   `native/rust-mel-reference` workspaces. The Windows fixture, Rust
+   unit tests, release binary, CLI smoke tests and checksum checks
+   remain mandatory on cache hits.
+2. **MSYS2:** `msys2/setup-msys2@v2` already has its own
+   **enabled-by-default dependency cache**. We do not duplicate the
+   whole MSYS2 install with a custom cache.
+3. **Original upstream Essentia C++ Waf build:** Both the Linux
+   `native-essentia-cpp.yml` and MinGW
+   `native-essentia-windows.yml` now cache the pinned upstream source
+   **including Waf's compiled objects**, keyed by the pinned Essentia
+   SHA, target OS/toolchain, and a hash of the *installed native package
+   versions* generated at the start of the job. There are intentionally
+   **no broad restore-keys**. All runs still verify the upstream Git SHA
+   and origin URL and execute configure/build/install, native worker
+   linkage, PE/DLL verification, and numerical parity. An invalidated
+   cache triggers the original complete build automatically.
+
+Caches are an acceleration only, **never the published CLI artifact**.
+Do not store private audio, the `bliss.db` library, credentials or
+unreviewed ONNX redistribution payloads in GitHub caches. Official
+model weights remain downloaded and checksum-validated separately.
+Do not remove mandatory checks or change class/model preprocessing
+semantics for caching. In the GitHub Actions logs compare the
+`Restore ... Waf objects` cache hit/miss and `waf -j 4` elapsed time
+between an initial successful cache-producing run and a *subsequent*
+run on the same dependency versions; **no speedup measurement exists
+yet**.
+
+Potential later enhancement: version the currently untracked
+`Cargo.lock` in a **separate reviewed change** to lock Rust
+dependencies and stabilize dependency cache reuse. Do not silently
+resolve/upgrade dependencies while diagnosing backend parity.
+For details see [PR #17](https://github.com/chrober/bliss-mood-poc/pull/17)
+and the actual workflow files.
+
+---
+
 ## Updated checkpoint — Windows original Essentia succeeds; real-song gate next (2026-10-20)
 
 **This checkpoint overrides the older failed-linker history below.** The
