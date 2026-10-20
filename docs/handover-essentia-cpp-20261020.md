@@ -1,5 +1,42 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## 20 Oct 2026: two Bandcamp lossless originals, preflight blocker diagnosed
+
+The user prepared TWO genuine local lossless downloads for the bounded
+original-file test: FLAC **48 kHz / 24-bit / stereo**, WAV **44.1 kHz /
+16-bit / stereo**, of different songs. The WAV ffprobe inventory also
+lists MJPEG (embedded cover artwork); the Python comparator deliberately
+uses the first **audio** stream `a:0` and will ignore image streams.
+Separate NAS MP3 files for the same song titles exist, but are
+**lossy**, cannot be used as bit-identical PCM references, and need
+not be rescanned. Do not publish private per-song NAS paths.
+
+**First attempt did not reach audio inference**: local helper raised
+`Explicit .flac outside bounded duration/size/rate limits`
+inside `select_sources`. The original 48 kHz FLAC samplerate is
+allowed, so a default song duration cap of **420 s** or maximum
+file size of **150 MiB** was likely exceeded; specific file duration/
+bytes were not supplied in the first log. This does **not** change
+the previously PASSing controlled WAV24/FLAC test or the 100-MP3 parity.
+
+**Corrected gate in branch:** `scripts/verify_original_lossless_tracks.py`
+now reports **actual measured seconds/MiB** and exact exceeded bounds.
+For **two explicit** `--track sample.flac --track sample.wav` choices,
+a bounded override can use `--max-seconds 1800 --max-file-mib 512`
+without broadening automatic NAS search. Longer/larger tracks should
+be replaced rather than cropped/transcoded for this original-source
+test. CLI score tolerance remains **0.001**; old music, JSON reference
+and SQLite sidecars remain read-only.
+
+**Docs:** [release-qualification-gates.md](release-qualification-gates.md)
+contains revised local preflight and safe Bandcamp retry. Regression
+tests cover long-track rejection detail, file-size thresholds, audio
+stream selection despite artwork and the distinction between automatic
+and explicit duration hard caps. **Real two-Bandcamp-song parity is
+still pending**, not failed numerically.
+
+---
+
 ## 20 October 2026: controlled real-song WAV24 / FLAC passed; native library codec test ready
 
 **Actual Windows/NAS cross-codec result from user, not CI fixture:**
