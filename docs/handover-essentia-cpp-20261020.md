@@ -1,5 +1,55 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## Real 100-song adaptive Rust-v5 run: PASS, numerically invariant (20 October 2026)
+
+**Measured locally by user; real source results, not synthetic unit tests.**
+One new Rust-v5 scan of the same 100-song MP3 cohort with
+`--workers 6 --adaptive-workers --min-workers 4 --max-workers 8 --threads 1`:
+
+| Metric | Actual result |
+| --- | --- |
+| Numerical parity vs saved original Essentia C++ | **PASS**, all 14,500 scores |
+| Patch-count mismatches | **0** |
+| Max absolute score drift vs C++ | **1.2695789337158203e-5** (limit 1e-3) |
+| Genre / MoodTheme / Voice max drift | 5.3942203521728516e-6 / 7.12275505065918e-6 / 1.2695789337158203e-5 |
+| Compared against fixed-4 Rust v5 sidecar | **PASS, bitwise identical 14,500 class scores**, zero patch differences |
+| Adaptive run elapsed | **92.86673710000468 s** |
+| Saved fixed-4 baseline elapsed | 183.28881380002713 s |
+| Between-run wall-clock speedup | **1.9736756079052322x**, exploratory / unreplicated |
+| Initial / final workers; peak active analyses | 6 / 6; 6 |
+| Controller changes | **0 up / 0 down**, 32 sampled loads (4 low/28 neutral/0 high) |
+| System CPU mean / max | 47.7641% / 67.9338% |
+| System RAM max | 84.8146% |
+| Rust process working-set max | 999.8516 MiB |
+| Minimum available system RAM | 2385.8281 MiB |
+| Page-fault counter delta | 10,798,677 (includes **soft faults**, NOT disk paging I/O) |
+
+**Interpretation:** The controller genuinely ran but **never changed its
+active limit**. This proves parity with six simultaneous Rust analyses
+and controller instrumentation, not performance gains due to adjustment.
+Comparing two distinct runs cannot isolate NAS/SMB cache and system load.
+An observed 1.97x wall-clock difference vs four workers is larger than
+the nominal 1.5x pure-concurrency gain, so uncontrolled conditions
+clearly matter. **Do not change controller thresholds solely based on
+this observation.** The native Rust policy already has deterministic
+high/low-load and cooldown unit tests in `src/parallel.rs`; an actual
+forced adjustment under external load was not observed here.
+
+**Preserved user-local private data:**
+`D:\LMS\bliss-mood-poc\benchmark-rust-v5-adaptive-20261020-193942\adaptive-parity-and-performance-private.json`
+plus `rust-v5-adaptive-workers.db` and raw scanner JSON/stderr.
+Original C++, Rust v4 and 4-worker Rust v5 sidecars are unchanged.
+Do not rerun scans just to summarize these results.
+
+**Release/next-work judgment:** Real MP3 numerical parity is established
+for both fixed 4-worker and adaptive-enabled 6-worker Rust v5 vs the
+unchanged C++ reference, and scores are identical between these Rust
+runs. PR #17 remains Draft while native packaging, platform/codec scope
+and redistribution/license reviews remain open. Performance/control
+optimization must not block separate PR #16 similarity work.
+
+---
+
 ## Verified 100-song Rust v5 parity / adaptive benchmark (20 October 2026)
 
 **Authoritative real-music outcome from user's local machine:** original
@@ -30,7 +80,7 @@ real-music *numerical* gate pass, not proof of non-MP3 or release/licensing.
   `a6a5c8607064e95d291cc85a0500472ff20bcc4e`;
   parent PR head SHA `9ca4d3d2e248a528008e70c9ba0951902b2acc67`.
 
-**Next single intentional new full-song scan:** adaptive Rust v5 with
+**Historical pre-test plan (completed successfully above):** adaptive Rust v5 with
 initial 6, min 4, max 8 song workers and exactly 1 ONNX thread each.
 New `scripts/verify_rust_v5_adaptive.py` checks old reference
 sidecars and fixed-v5 baseline *before running* and then performs exactly
