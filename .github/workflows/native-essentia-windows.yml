@@ -69,9 +69,10 @@ jobs:
           export CXX=/mingw64/bin/g++
           export PKG_CONFIG=/mingw64/bin/pkg-config
           export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
-          # Use GNU C++17 for POSIX-style M_PI/M_LN2 in upstream Essentia
-          # under MinGW CRT; strict ISO mode hides those existing constants.
-          /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++17
+          # Upstream Essentia is written for GNU C++11/14. GNU++14 keeps
+          # M_PI/M_LN2 visible but avoids the C++17 std::byte collision
+          # in Windows RPC headers (legacy global byte typedef).
+          /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14
           /usr/bin/python3 waf -j 4
           /usr/bin/python3 waf install
           pkg-config --modversion essentia
