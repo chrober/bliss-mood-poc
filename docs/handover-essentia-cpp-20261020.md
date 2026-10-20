@@ -1,5 +1,51 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## 20 October 2026: controlled real-song WAV24 / FLAC passed; native library codec test ready
+
+**Actual Windows/NAS cross-codec result from user, not CI fixture:**
+`scripts/verify_lossless_codec_parity.py` **PASS** on the already known
+837-patch real-song PCM signal. Both 24-bit WAV and FLAC independently
+decoded to identical raw PCM (SHA256 and byte count). The
+**original Essentia C++ versus corrected Rust v5** maximum class-score
+difference is **6.3700000000332935e-6** on *each* format, versus
+unchanged **0.001** threshold. Within Rust, WAV-versus-FLAC max
+score difference is **0.0**; within genuine Essentia C++, also **0.0**.
+Exact full local private evidence:
+
+`D:\LMS\bliss-mood-poc\benchmark-real-wav-flac-v5-20261020-204139\private-codec-report.json`.
+
+This represents one authentic song originally stored as MP3, explicitly
+quantized once to WAV24 and then losslessly copied to FLAC. It **does
+not establish naturally existing WAV/FLAC library coverage**.
+**Do not rerun this already passed test.**
+
+**Next bounded original-file gate**:
+`scripts/verify_original_lossless_tracks.py` selects **one actual FLAC
+and one actual WAV already present on the original music NAS**.
+It searches at most 6000 directory entries and six nesting levels,
+without following symlinks. If none is found within this bound, it
+stops before running inference; explicit safe relative
+`--track` overrides are available. It runs only **two songs × Rust-v5
+and original C++** with the existing verified Windows Binaries,
+without transcoding or modifying either source. Real WAV reference
+ONNX weights / model keys / native C++ worker executable SHA are
+checked for identity; 3 heads × (87+56+2) classes per song, same
+source audio SHA, same patch counts, and strict score error ≤0.001.
+New results written locally to an isolated fresh directory; old v4/v5,
+original C++ and 100 MP3 sidecars remain read-only.
+
+[One-block Windows PowerShell and updated release matrix](release-qualification-gates.md)
+now contain the exact paths and options. **Six new native-lossless
+safety regression tests passed in both GitHub Rust CI jobs**
+(`6133fea2ce648f1f1a78df7b747f9d51ec7bdd91`).
+Real native FLAC/WAV outcome **not yet established**.
+
+Licensing, independently supplied model-weight rights and multi-OS
+packaging remain separate explicit release gates. PR #17 stays Draft;
+no edits to PR #16 or `main`.
+
+---
+
 ## Post-parity release-readiness checkpoint: WAV24/FLAC and rights (20 Oct 2026)
 
 The previous fixed-four and adaptive-enabled-six worker real 100-song
@@ -30,8 +76,8 @@ references.
   strict PCM equality, code and model identity, patch counts, and
   tolerance failures. **Five new tests passed in GitHub Rust CI** for
   commit `d4465e48443b0282a2e88c855331ab4d322f0d3e`, both
-  Rust-check workflows green. Real WAV/FLAC result awaits the
-  user's Windows execution.
+  Rust-check workflows green. The controlled Windows WAV/FLAC result
+  has since PASSED as documented above.
 - This is a **controlled codec** test on one authentic music signal,
   *not* evidence of independently sourced FLAC/WAV library tracks.
   Genuine mixed-samplerate naturally occurring lossless examples
