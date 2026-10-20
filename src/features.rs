@@ -180,6 +180,12 @@ pub fn retarget_profiles(profiles: &mut [Profile], backend: &BackendChoice) -> R
                 "essentia_cpp_worker_binary_sha256".to_owned(),
                 worker_hash.to_owned(),
             );
+            if let Some(deployment_hash) = backend.deployment_hash() {
+                profile.hashes.insert(
+                    "essentia_cpp_native_deployment_manifest_sha256".to_owned(),
+                    deployment_hash.to_owned(),
+                );
+            }
             profile.model_key = storage::model_key_for(
                 &profile.descriptor.embedding_model,
                 &profile.descriptor.classification_model,
@@ -1252,7 +1258,8 @@ mod tests {
         assert_eq!(untouched[0].model_key, original_key);
         let mk_backend = |fingerprint: &str| BackendChoice::Essentia {
             executable: PathBuf::from("test-only-worker"),
-            worker_sha256: fingerprint.repeat(64), timeout_seconds: 900,
+            worker_sha256: fingerprint.repeat(64),
+            deployment_sha256: None, timeout_seconds: 900,
         };
         let mut first = vec![original.clone()];
         let mut second = vec![original];
@@ -1261,6 +1268,19 @@ mod tests {
         assert_ne!(first[0].model_key, original_key);
         assert_ne!(second[0].model_key, first[0].model_key);
         assert_eq!(first[0].hashes["essentia_cpp_worker_binary_sha256"], "c".repeat(64));
+        let mut with_dependencies = vec![first[0].clone()];
+        let installed = BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: "c".repeat(64),
+            deployment_sha256: Some("d".repeat(64)),
+            timeout_seconds: 900,
+        };
+        retarget_profiles(&mut with_dependencies, &installed).unwrap();
+        assert_eq!(
+            with_dependencies[0].hashes["essentia_cpp_native_deployment_manifest_sha256"],
+            "d".repeat(64)
+        );
+        assert_ne!(with_dependencies[0].model_key, first[0].model_key);
     }
 
     #[test]
