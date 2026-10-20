@@ -98,6 +98,16 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
         invalid = {("track-a", "genre"): (2, (0.2,) * 86)}
         with self.assertRaisesRegex(AssertionError, "Invalid known head dimension"):
             bench.compare_feature_tables(invalid, invalid)
+        with self.assertRaisesRegex(AssertionError, "exact Bliss cohort"):
+            bench.compare_feature_tables(
+                baseline, alternative, ("genre", "moodtheme"),
+                expected_tracks=["track-a", "track-b", "track-c"]
+            )
+        matched = bench.compare_feature_tables(
+            baseline, alternative, ("genre", "moodtheme"),
+            expected_tracks=["track-b", "track-a"]
+        )
+        self.assertEqual(matched["tracks_and_heads"], 4)
 
 
     def test_fingerprints_must_be_distinct_between_backends(self):
