@@ -1,5 +1,62 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## Verified 100-song Rust v5 parity / adaptive benchmark (20 October 2026)
+
+**Authoritative real-music outcome from user's local machine:** original
+Essentia C++ and corrected original-SRC_LINEAR-compatible Rust **v5**
+match on the exact same **100 MP3 songs** when Rust runs with
+**four fixed parallel song workers, one ONNX thread per worker**.
+All **14,500 class probabilities** and patch counts were compared
+(0 mismatched patch counts), with maximum score difference
+**0.000012695789337158203**, well below the unchanged
+**0.001** gate. Per-head v5 max differences:
+Genre **5.394220352172852e-6**, Mood/Theme **7.12275505065918e-6**,
+Voice **1.2695789337158203e-5**. Measured Rust four-worker
+wall time **183.28881380002713 seconds**. This is a genuine
+real-music *numerical* gate pass, not proof of non-MP3 or release/licensing.
+
+**Existing local evidence, do NOT overwrite or re-scan:**
+- Four-worker Rust v5 full-feature sidecar
+  `D:\LMS\bliss-mood-poc\benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db`
+  and adjacent `parity-report-private.json`.
+- Original C++ and Rust v4 sidecars
+  `D:\LMS\bliss-mood-poc\benchmark-essentia-real-20261020-160351\round-01-workers-01-essentia.db`,
+  and `...-rust.db`.
+- Existing cohort
+  `D:\LMS\bliss-mood-poc\benchmark-workers-20261019-060347\sample-100.db`.
+- Already vetted v5 Windows scanner
+  `D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe`.
+  Original Build.txt contains *PR temporary merge SHA*
+  `a6a5c8607064e95d291cc85a0500472ff20bcc4e`;
+  parent PR head SHA `9ca4d3d2e248a528008e70c9ba0951902b2acc67`.
+
+**Next single intentional new full-song scan:** adaptive Rust v5 with
+initial 6, min 4, max 8 song workers and exactly 1 ONNX thread each.
+New `scripts/verify_rust_v5_adaptive.py` checks old reference
+sidecars and fixed-v5 baseline *before running* and then performs exactly
+one new adaptive 100-song Rust scan. It validates full original
+C++ parity and fixed-four-worker Rust v5 invariance at 0.001,
+all original audio/ONNX/fingerprint/patch identities, plus actual
+adaptive controller decisions, concurrent analyses, CPU/RAM telemetry,
+and exploratory (NOT AB/BA) speedup versus 183.29 s.
+Private output and SQLite are preserved even on score failure.
+
+Full **single self-checking PowerShell command** lives in
+[real-music compatibility gate](essentia-cpp-real-music-compatibility-gate.md)
+under "Adaptive six-worker performance and parity gate".
+Use exactly the known private cohort/source-root paths. The actual user
+must run this NAS-dependent scan locally; CI can test its synthetic
+workflow only, not real music. Unit tests
+`tests/test_verify_rust_v5_adaptive.py` are registered in Rust CI.
+
+**Decisions:** The resampler bug is fixed in Rust v5, no tolerance
+relaxation, no new C++ scan, no change to PR #16 or main. PR #17 remains
+Draft while adaptive throughput, broader platform/codec support and
+licensing/distribution details are assessed.
+
+---
+
+
 ## CI caching checkpoint — 2026-10-20
 
 To reduce **GitHub Actions build duration** without changing binaries,
