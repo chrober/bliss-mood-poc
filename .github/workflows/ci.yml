@@ -24,3 +24,5 @@ jobs:
 
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
+      - name: Validate native C++ codec/model comparator failure handling
+        run: python3 -m unittest discover -s tests -p 'test_native_cpp_end_to_end.py'
