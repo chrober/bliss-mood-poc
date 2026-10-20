@@ -122,6 +122,19 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                         "CREATE TABLE feature_tracks "
                         "(track_file TEXT, model_id TEXT, model_key TEXT)"
                     )
+                    conn.execute(
+                        "CREATE TABLE feature_models "
+                        "(model_key TEXT, embedding_model TEXT, "
+                        "classification_model TEXT, models_sha256_json TEXT, "
+                        "aggregation TEXT, classes_json TEXT)"
+                    )
+                    conn.executemany(
+                        "INSERT INTO feature_models VALUES (?,?,?,?,?,?)",
+                        [(key, "shared-effnet.onnx", f"{head}.onnx",
+                          '{"encoder":"aa", "head":"bb"}',
+                          "mean", '["first","second"]')
+                         for head, key in keys]
+                    )
                     conn.executemany(
                         "INSERT INTO feature_tracks VALUES (?,?,?)",
                         [(f"track-{n}.flac", head, key)
@@ -143,6 +156,19 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                     "WHERE model_id='genre'"
                 )
             with self.assertRaisesRegex(AssertionError, "must not share"):
+                bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
+            with writable_db(cpp_db) as conn:
+                conn.execute(
+                    "UPDATE feature_tracks SET model_key='cpp-genre' "
+                    "WHERE model_id='genre'"
+                )
+                conn.execute(
+                    "UPDATE feature_models SET classes_json='[\"reordered\",\"labels\"]' "
+                    "WHERE model_key='cpp-genre'"
+                )
+            with self.assertRaisesRegex(
+                AssertionError, "Different ONNX model weights, class labels"
+            ):
                 bench.verify_backend_fingerprint_separation(rust_db, cpp_db)
             with writable_db(cpp_db) as conn:
                 conn.execute(
