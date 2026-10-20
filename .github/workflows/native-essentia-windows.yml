@@ -113,6 +113,43 @@ jobs:
             echo "ERROR: original Essentia import archive has no essentia::init() export" >&2
             exit 1
           fi
+      - name: Inspect actual upstream Essentia PE exports and MinGW import linkage
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          diagnostics=build/windows-native
+          dll=/mingw64/lib/essentia.dll
+          implib=/mingw64/lib/essentia.dll.a
+          test -s "$dll"
+          test -s "$implib"
+          echo "=== Installed original DLL and import archive ==="
+          ls -lh "$dll" "$implib"
+          echo "=== pkg-config selects ==="
+          pkg-config --variable=prefix essentia
+          pkg-config --variable=libdir essentia
+          pkg-config --libs essentia
+          pkg-config --cflags essentia
+          pkg-config --modversion essentia
+          pkg-config --libs essentia > "$diagnostics/pkg-config-essentia-libs.txt"
+          echo "=== All candidate Essentia import archives / DLLs ==="
+          find /mingw64/lib /mingw64/bin -maxdepth 1 \
+            \( -iname '*essentia*.a' -o -iname '*essentia*.dll' \) -print
+          objdump -p "$dll" > "$diagnostics/essentia-dll-pe.txt"
+          nm -gC "$implib" > "$diagnostics/essentia-import-nm.txt"
+          nm -gC "$dll" > "$diagnostics/essentia-dll-nm.txt"
+          echo "=== Actual PE export table header ==="
+          grep -A 18 -E '^The Export Tables' "$diagnostics/essentia-dll-pe.txt" || true
+          echo "=== Expected original core symbols in PE exports (mangled) ==="
+          grep -E '(_ZN8essentia(4init|8shutdown|6Logger|12ParameterMap|14loggerInstance|16debugIndentLevel|20activatedDebugLevels)|_ZNK8essentia)' \
+            "$diagnostics/essentia-dll-pe.txt" | head -n 35 || true
+          echo "=== Expected original core symbols in import archive (demangled) ==="
+          grep -E 'essentia::(init\(|shutdown\(|Logger::debug|ParameterMap::add|loggerInstance|debugIndentLevel|activatedDebugLevels|nameOfType)' \
+            "$diagnostics/essentia-import-nm.txt" | head -n 50 || true
+          echo "=== Core symbols in DLL symbol table (may include nonexported symbols) ==="
+          grep -E 'essentia::(init\(|shutdown\(|Logger::debug|ParameterMap::add|loggerInstance|debugIndentLevel|activatedDebugLevels|nameOfType)' \
+            "$diagnostics/essentia-dll-nm.txt" | head -n 50 || true
+          echo "=== Symbol table sizes ==="
+          wc -l "$diagnostics/essentia-dll-pe.txt" "$diagnostics/essentia-import-nm.txt" "$diagnostics/essentia-dll-nm.txt"
       - name: Compile our original Essentia C++ IPC process with MinGW x64
         shell: msys2 {0}
         run: |
