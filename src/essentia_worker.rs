@@ -20,7 +20,76 @@ pub const CPP_PREPROCESSING: &str = "experimental-essentia-cpp-dsp-v1-unvalidate
 #[derive(Clone, Debug)]
 pub enum BackendChoice {
     Rust,
-    Essentia { executable: PathBuf, worker_sha256: String, timeout_seconds: u64 },
+    Essentia {
+        executable: PathBuf,
+        worker_sha256: String,
+        deployment_sha256: Option<String>,
+        timeout_seconds: u64,
+    },
+}
+
+
+/// Prevent Windows DLL changes from silently reusing an older feature cache.
+/// The mandatory generated manifest lists EVERY explicitly bundled native
+/// dependency and its checksum, not just the worker executable.
+#[cfg(windows)]
+fn verify_windows_deployment(exe: &Path) -> Result<String> {
+    use serde::Deserialize;
+    use std::collections::BTreeMap;
+
+    #[derive(Deserialize)]
+    struct BundleFile {
+        sha256: String,
+        size_bytes: u64,
+    }
+    #[derive(Deserialize)]
+    struct Bundle {
+        schema_version: u32,
+        platform: String,
+        worker_executable: String,
+        files: BTreeMap<String, BundleFile>,
+    }
+    let dir = exe.parent().context("Worker directory missing")?;
+    let file = dir.join("worker-dependencies.json");
+    if !file.is_file() {
+        bail!("Native Essentia C++ Windows backend requires a complete worker-dependencies.json beside the EXE; run scripts/package_essentia_worker_windows.py");
+    }
+    let content = fs::read(&file)
+        .with_context(|| format!("Cannot read native deployment manifest {}", file.display()))?;
+    if content.len() > 512 * 1024 { bail!("Native manifest exceeds size limit"); }
+    let bundle: Bundle = serde_json::from_slice(&content)
+        .context("Invalid native Essentia Windows deployment manifest")?;
+    if bundle.schema_version != 1 || bundle.platform != "windows-x86_64-mingw64" {
+        bail!("Unsupported Essentia Windows native bundle identity");
+    }
+    let actual_exe = exe.file_name().and_then(|x| x.to_str())
+        .context("Worker filename must be UTF-8")?.to_ascii_lowercase();
+    if bundle.worker_executable != actual_exe ||
+        bundle.files.len() > 256 || !bundle.files.contains_key(&actual_exe)
+    {
+        bail!("Worker EXE is not correctly identified in the native bundle");
+    }
+    for (name, entry) in &bundle.files {
+        if name.is_empty() || name.contains('/') || name.contains('\\') ||
+            name.contains("..") || name != &name.to_ascii_lowercase() ||
+            !(name.ends_with(".dll") || name.ends_with(".exe"))
+        {
+            bail!("Invalid DLL/EXE name in native bundle manifest");
+        }
+        let path = dir.join(name);
+        if !path.is_file() || fs::canonicalize(&path)?.parent() != Some(dir) {
+            bail!("Native library missing or outside checked bundle: {name}");
+        }
+        let on_disk = fs::metadata(&path)?.len();
+        if on_disk != entry.size_bytes ||
+            !sha256_file(&path)?.eq_ignore_ascii_case(&entry.sha256)
+        {
+            bail!("Native dependency changed since packaging: {name}");
+        }
+    }
+    // Cache provenance includes the manifest's SHA256 as a *separate* hash,
+    // preserving the existing independently hashed native executable entry.
+    sha256_file(&file)
 }
 
 impl BackendChoice {
@@ -38,7 +107,13 @@ impl BackendChoice {
                 let executable = fs::canonicalize(path)
                     .with_context(|| format!("Invalid Essentia worker path {}", path.display()))?;
                 let worker_sha256 = sha256_file(&executable)?;
-                Ok(Self::Essentia { executable, worker_sha256, timeout_seconds })
+                #[cfg(windows)]
+                let deployment_sha256 = Some(verify_windows_deployment(&executable)?);
+                #[cfg(not(windows))]
+                let deployment_sha256 = None;
+                Ok(Self::Essentia {
+                    executable, worker_sha256, deployment_sha256, timeout_seconds,
+                })
             }
             ("rust", Some(_)) => bail!("--essentia-worker requires --audio-backend essentia"),
             ("essentia", None) => bail!("--audio-backend essentia requires --essentia-worker"),
@@ -54,6 +129,12 @@ impl BackendChoice {
     }
     pub fn worker_hash(&self) -> Option<&str> {
         match self { Self::Rust => None, Self::Essentia { worker_sha256, .. } => Some(worker_sha256) }
+    }
+    pub fn deployment_hash(&self) -> Option<&str> {
+        match self {
+            Self::Rust => None,
+            Self::Essentia { deployment_sha256, .. } => deployment_sha256.as_deref(),
+        }
     }
 }
 
