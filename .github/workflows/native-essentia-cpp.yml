@@ -74,6 +74,14 @@ jobs:
         with:
           workspaces: |
             native/rust-mel-reference -> target
+      - name: Diagnose independent Mel Cargo.lock resolution (strict)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path native/rust-mel-reference/Cargo.toml --format-version 1 > /dev/null
+          echo '=== Cargo resolution changes, if any ==='
+          git diff -- native/rust-mel-reference/Cargo.lock
+          git diff --exit-code -- native/rust-mel-reference/Cargo.lock
       - name: Compile existing Rust Mel source without heavyweight ONNX Runtime
         run: cargo build --locked --release --manifest-path native/rust-mel-reference/Cargo.toml
       - name: Exercise original C++ worker and full four-patch Rust parity
