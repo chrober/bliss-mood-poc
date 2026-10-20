@@ -541,6 +541,20 @@ Python helpers, tests, CI and documentation, not Rust. Download this
 Essentia dev kit `bliss-mood.exe` is v4 and must not be used here.
 No original C++ binary or full Windows development kit rebuild required.
 
+**Build provenance clarification:** In the initial downloaded artifact
+from successful Actions run `39450757368`, `BUILD.txt` records
+GitHub's **pull-request merge checkout**
+`a6a5c8607064e95d291cc85a0500472ff20bcc4e`, **not**
+the PR branch SHA `9ca4d3d2e248a528008e70c9ba0951902b2acc67`.
+The merge commit's *second parent* is exactly that source SHA
+(confirmed via GitHub Commit API and workflow checkout logs).
+Matching `BUILD.txt` directly against the head SHA caused a
+**false-negative verification**, NOT an invalid v5 executable.
+The above script **reuses the already downloaded v5 kit**,
+checks the known merge SHA and the binary's included SHA256SUMS.
+Future builds record both the PR HEAD and tested merge SHA separately
+in `BUILD.txt`.
+
 ```powershell
 & {
     $ErrorActionPreference = 'Stop'
@@ -558,19 +572,183 @@ No original C++ binary or full Windows development kit rebuild required.
     python -m unittest discover -s tests -p 'test_verify_resampler_fix_on_existing_wav.py'
     if ($LASTEXITCODE -ne 0) { throw 'Report verifier tests failed' }
 
-    gh --version | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI not available' }
-    # Pinned proven successful Windows x64 run 39450757368, SHA 9ca4d3d.
-    # It contains the precise v5 Rust resampler and cache fingerprint change;
-    # subsequent PR17 commits to date changed ONLY scripts/tests/docs/CI.
-    if (Test-Path -LiteralPath $kit) {
-        throw "Choose fresh separate v5 kit directory, will not overwrite: $kit"
-    }
-    gh run download 39450757368 --repo chrober/bliss-mood-poc --name bliss-mood-windows-x64 --dir $kit
-    if ($LASTEXITCODE -ne 0) { throw 'Windows binary artifact download failed' }
+    # Already downloaded Windows v5 scanner from successful run
+    # https://github.com/chrober/bliss-mood-poc/actions/runs/39450757368
+    # Pull-request checkout uses a TEMPORARY MERGE commit in BUILD.txt.
+    $expectedHead = '9ca4d3d2e248a528008e70c9ba0951902b2acc67'
+    $expectedMerge = 'a6a5c8607064e95d291cc85a0500472ff20bcc4e'
     $analyzer = Join-Path $kit 'bliss-mood.exe'
-    if (-not (Test-Path -LiteralPath $analyzer)) {
-        throw 'New v5 scanner binary missing in Windows artifact'
+    $build = Join-Path $kit 'BUILD.txt'
+    $sums = Join-Path $kit 'SHA256SUMS.txt'
+    foreach ($file in @($analyzer, $build, $sums)) {
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            throw "Missing previously downloaded v5 artifact file: $file"
+        }
+    }
+    $buildText = Get-Content -LiteralPath $build -Raw
+    if (-not $buildText.Contains($expectedMerge)) {
+        throw "Not the pinned PR merge build for v5 Rust HEAD $expectedHead"
+    }
+    $hashLine = (Get-Content -LiteralPath $sums -TotalCount 1)
+    if ($hashLine -notmatch '^([0-9a-fA-F]{64})\s+\*?bliss-mood\.exe\s*
+    $arguments = @(
+        'scripts/verify_resampler_fix_on_existing_wav.py',
+        '--wav', (Join-Path $control 'control-from-mp3-decoded-float32.wav'),
+        '--old-rust-json', (Join-Path $control 'rust-wav.json'),
+        '--essentia-json', (Join-Path $control 'essentia-wav.json'),
+        '--analyzer', $analyzer,
+        '--models-dir', (Join-Path $repo 'models'),
+        '--output-dir', $out,
+        '--score-max-tolerance', '0.001'
+    )
+    python @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "v5 still fails one-song strict parity or verifier; local report $out"
+    }
+    Write-Host "Single full-song v5 vs saved original C++ PASS; $out"
+}
+```
+
+Do not merge #17 solely from this single-track result: once the
+new v5 analyzer validates this root cause, check a representative
+same-cohort 100-song real-music gate with saved original C++ sidecars
+and new Rust v5 data. **Do not alter PR #16 or main.**
+
+## Windows PowerShell quick compatibility test
+
+Prerequisites: local checkout of the #17 branch, unpacked dev kit
+`D:\LMS\essentia-cli-test`, external ONNX weights in
+`D:\LMS\bliss-mood-poc\models`, and a **real, bounded** Bliss
+`TracksV2` subset (the path below is an example of the existing fixture).
+Set `$music` to the actual read-only NAS root. For relative keys, pass
+`--source-root` alone. For absolute old paths to be remapped, add
+`--library-root <original-prefix>`.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $cohort = Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db'
+    $models = Join-Path $repo 'models'
+    $music = '\\192.168.1.100\music'  # Replace with actual source root
+    $out = Join-Path $repo 'benchmark-essentia-cpp-real-parity'
+    $analyzer = Join-Path $kit 'bliss-mood.exe'
+    $worker = Join-Path $kit 'essentia-worker\bliss-essentia-worker.exe'
+
+    foreach ($path in @($cohort, $analyzer, $worker)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Required file missing: $path"
+        }
+    }
+    foreach ($path in @($models, $music)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            throw "Required directory missing: $path"
+        }
+    }
+    if (Test-Path -LiteralPath $out) {
+        throw "Choose a NEW output directory, never overwrite: $out"
+    }
+    Set-Location $repo
+    git fetch origin
+    if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Git switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+
+    python -m unittest discover -s tests -p 'test_benchmark_audio_backends.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Benchmark Python regression tests failed' }
+
+    $args = @(
+        'scripts/benchmark_audio_backends.py',
+        '--cohort-db', $cohort,
+        '--analyzer', $analyzer,
+        '--essentia-worker', $worker,
+        '--models-dir', $models,
+        '--source-root', $music,
+        '--output-dir', $out,
+        '--models', 'genre,moodtheme,voice',
+        '--workers', '1,2',
+        '--repeats', '1',
+        '--seed', '20261020',
+        '--score-max-tolerance', '0.001'
+    )
+    python @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Real-music backend parity failed; inspect $out"
+    }
+    $r = Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw |
+        ConvertFrom-Json
+    Write-Host 'Numerical parity by worker count:'
+    $r.backend_parity |
+        Select-Object workers,tracks_and_heads,compared_scores,
+            patch_count_mismatches,maximum_absolute_score_difference,
+            mean_absolute_score_difference,fingerprint_heads_checked |
+        Format-List
+    Write-Host "Validated sidecars, reports, and logs: $out"
+}
+```
+
+**If this fails:** inspect the error and the run's `*.stderr.txt`.
+If scores differ beyond tolerance or patch counts drift, the benchmark
+also writes **`parity-failure.json`** with the worst track, class index,
+per-head max/mean errors, observed score values and up to ten patch
+mismatch examples. Do not change the tolerance to force a pass. A
+successful run writes `summary.json` and `runs.csv`. Share only
+sanitized diagnostic excerpts; all raw JSON and SQLite files can
+contain private music file paths and must stay local.
+
+## Reusing the verified Windows test kit
+
+The original **successful and verified** downloadable artifact is from
+run `39421541546`, not an unspecified "latest" run. On Windows with
+`gh` authenticated and the repository checkout at
+`D:\LMS\bliss-mood-poc`, the package can be downloaded reproducibly:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Set-Location 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    if (Test-Path -LiteralPath $kit) {
+        throw "Kit directory already exists; inspect instead of overwriting: $kit"
+    }
+    gh run download 39421541546 `
+        --repo chrober/bliss-mood-poc `
+        --name bliss-mood-essentia-windows-x64-dev `
+        --dir $kit
+    if ($LASTEXITCODE -ne 0) { throw 'Kit download failed' }
+    if (-not (Test-Path -LiteralPath (Join-Path $kit 'essentia-worker\worker-dependencies.json'))) {
+        throw 'Expected signed native dependency manifest not found'
+    }
+    Write-Host "Package: $kit"
+}
+```
+
+The `bliss-mood.exe` from this immutable artifact is sufficient for the
+next **real-data** run because subsequent PR #17 fixes were confined to
+the Python benchmark and accompanying tests/docs. This does **not**
+claim that a rebuilt CLI at a newer commit has already passed CI.
+
+## After real-music parity
+
+Only if these results pass, evaluate the **new Essentia sidecar**, for
+example `round-01-workers-01-essentia.db`, with PR #16's unchanged
+`evaluate_similarity.py` using `--include-experimental`. Keep the
+previous Rust sidecar separate and check the exact track key intersection
+before comparing metric distributions. This is the next investigation,
+not part of the initial compatibility acceptance test.
+
+**Not in scope yet:** production mixing metric selection, subjective
+similarity truth, Linux/macOS/Raspberry Pi distribution, licensing audit,
+or changing the default `--audio-backend rust`.
+) {
+        throw 'Malformed SHA256SUMS.txt'
+    }
+    $actualHash = (Get-FileHash -LiteralPath $analyzer -Algorithm SHA256).Hash
+    if ($actualHash -ine $Matches[1]) {
+        throw 'Local v5 binary SHA256 differs from the signed-off artifact checksum'
     }
     $arguments = @(
         'scripts/verify_resampler_fix_on_existing_wav.py',
