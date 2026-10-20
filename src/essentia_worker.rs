@@ -123,7 +123,7 @@ impl BackendChoice {
 
     pub fn preprocessing(&self) -> &'static str {
         match self {
-            Self::Rust => "experimental-essentia-audio-v4-unvalidated",
+            Self::Rust => crate::audio_decode::RUST_PREPROCESSING,
             Self::Essentia { .. } => CPP_PREPROCESSING,
         }
     }
