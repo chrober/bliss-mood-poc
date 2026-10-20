@@ -39,21 +39,66 @@ class AudioBackendBenchmarkTests(unittest.TestCase):
                                  else ["essentia", "rust"])
 
     def test_score_comparison_independent_of_model_fingerprint(self):
-        baseline = {("track.flac", "moodtheme"): (3, (0.1, 0.5, 0.8))}
-        native = {("track.flac", "moodtheme"): (3, (0.1001, 0.5, 0.8))}
-        stats = bench.compare_feature_tables(baseline, native)
+        reference = (0.1, 0.5, 0.8) + (0.1,) * 53
+        native = (0.1001, 0.5, 0.8) + (0.1,) * 53
+        baseline = {("track.flac", "moodtheme"): (3, reference)}
+        alternative = {("track.flac", "moodtheme"): (3, native)}
+        stats = bench.compare_feature_tables(
+            baseline, alternative, expected_models=("moodtheme",)
+        )
         self.assertEqual(stats["patch_count_mismatches"], 0)
-        self.assertEqual(stats["compared_scores"], 3)
+        self.assertEqual(stats["compared_scores"], 56)
+        self.assertEqual(stats["per_head"]["moodtheme"]["tracks"], 1)
+        self.assertEqual(stats["worst_score_difference"]["class_index"], 0)
         self.assertLess(stats["maximum_absolute_score_difference"], 1e-3)
 
     def test_comparison_detects_missing_class_and_patch_count_drift(self):
-        ref = {("track", "genre"): (3, (0.1, 0.2))}
+        ref = {("track", "genre"): (3, (0.1,) * 87)}
         with self.assertRaises(AssertionError):
             bench.compare_feature_tables(ref, {})
         with self.assertRaises(AssertionError):
-            bench.compare_feature_tables(ref, {("track", "genre"): (3, (0.2,))})
-        result = bench.compare_feature_tables(ref, {("track", "genre"): (4, (0.1, 0.2))})
+            bench.compare_feature_tables(ref, {
+                ("track", "genre"): (3, (0.2,))
+            })
+        result = bench.compare_feature_tables(ref, {
+            ("track", "genre"): (4, (0.1,) * 87)
+        })
         self.assertEqual(result["patch_count_mismatches"], 1)
+        self.assertEqual(result["patch_count_mismatch_examples"][0]["head"], "genre")
+
+    def test_per_head_numeric_drift_and_complete_head_coverage(self):
+        same = (0.1,) * 87
+        changed = (0.1,) * 86 + (0.12,)
+        baseline = {
+            ("track-a", "genre"): (2, same),
+            ("track-b", "genre"): (2, same),
+            ("track-a", "moodtheme"): (2, (0.2,) * 56),
+            ("track-b", "moodtheme"): (2, (0.2,) * 56),
+        }
+        alternative = dict(baseline)
+        alternative["track-b", "genre"] = (2, changed)
+        stats = bench.compare_feature_tables(
+            baseline, alternative, expected_models=("genre", "moodtheme")
+        )
+        self.assertAlmostEqual(
+            stats["per_head"]["genre"]["maximum_absolute_score_difference"],
+            0.02
+        )
+        self.assertEqual(
+            stats["per_head"]["moodtheme"]["maximum_absolute_score_difference"],
+            0.0
+        )
+        self.assertEqual(stats["worst_score_difference"]["track_file"], "track-b")
+        self.assertEqual(stats["worst_score_difference"]["head"], "genre")
+        self.assertEqual(stats["worst_score_difference"]["class_index"], 86)
+        partial = dict(baseline)
+        del partial["track-b", "moodtheme"]
+        with self.assertRaisesRegex(AssertionError, "Some tracks lack"):
+            bench.compare_feature_tables(partial, partial, ("genre", "moodtheme"))
+        invalid = {("track-a", "genre"): (2, (0.2,) * 86)}
+        with self.assertRaisesRegex(AssertionError, "Invalid known head dimension"):
+            bench.compare_feature_tables(invalid, invalid)
+
 
     def test_fingerprints_must_be_distinct_between_backends(self):
         with tempfile.TemporaryDirectory() as tmp:
