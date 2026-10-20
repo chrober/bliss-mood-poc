@@ -29,13 +29,35 @@ jobs:
             libeigen3-dev libyaml-dev libfftw3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
             libsamplerate0-dev libtag1-dev libchromaprint-dev
+      - name: Record installed Ubuntu native dependencies for ABI-safe Waf cache
+        shell: bash
+        run: |
+          mkdir -p build
+          # Installed dependency versions, not PR commits, define cache compatibility.
+          dpkg-query -W -f='${binary:Package} ${Version}\n' | LC_ALL=C sort > build/ubuntu-native-packages.txt
+      - name: Restore pinned upstream Essentia Waf build objects
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/essentia-source
+          # No restore-keys: native FFTW/FFmpeg/ABI changes must rebuild.
+          key: original-essentia-waf-ubuntu2204-v1-9ceef0a3-${{ hashFiles('build/ubuntu-native-packages.txt') }}
       - name: Build pinned original MTG/essentia C++ library (not essentia-rs)
         shell: bash
         run: |
-          git clone --quiet https://github.com/MTG/essentia.git "$RUNNER_TEMP/essentia-source"
-          cd "$RUNNER_TEMP/essentia-source"
-          # Pin Essentia's 2023-07 FFmpeg 4.4 compatibility revision, matching Ubuntu 22.04
-          git checkout --quiet 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
+          set -euo pipefail
+          source="$RUNNER_TEMP/essentia-source"
+          if test -d "$source/.git"; then
+            echo "Using restored upstream Essentia Waf objects"
+          else
+            test ! -e "$source"
+            git clone --quiet https://github.com/MTG/essentia.git "$source"
+            git -C "$source" checkout --quiet 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
+          fi
+          # Cache contents are untrusted: insist on the exact pinned upstream tree.
+          test "$(git -C "$source" rev-parse HEAD)" = 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
+          test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
+          test -z "$(git -C "$source" status --porcelain --untracked-files=no)"
+          cd "$source"
           python3 waf configure --prefix="$RUNNER_TEMP/essentia-install"
           python3 waf -j 4
           python3 waf install
