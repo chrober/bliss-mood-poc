@@ -1,34 +1,33 @@
-# New-chat continuation prompt — original Essentia C++ Windows linker
+# Next-chat Handover-Prompt: Original Essentia C++ unter Windows
 
-Copy the prompt below into a new ChatGPT session. It refers to
-the active **draft** PR #17; its live head/CI must be checked at session start.
+Stand: 20.10.2026. Der letzte vollständig **überprüfte Code-Head** ist `e011e99f1dc38790ec441720b696a2f3fe4602e1`. Nachfolgende reine Dokumentationscommits ändern den Branch-Head; die neue Session muss die **Live-CI-Prüfungen für den aktuellen Head** erneut auslesen.
 
 ---
 
-Wir setzen das Projekt **Lyrion: Mood Analysis / bliss-mood-poc** fort.
+Wir setzen **Lyrion: Mood Analysis / bliss-mood-poc** fort.
 
-Arbeite direkt mit dem verbundenen GitHub-Repository
-https://github.com/chrober/bliss-mood-poc
-auf dem Feature-Branch `feat/essentia-cpp-worker-backend`, Draft-PR #17:
-https://github.com/chrober/bliss-mood-poc/pull/17
+Nutze direkt das verbundene GitHub-Repository https://github.com/chrober/bliss-mood-poc auf dem Feature-Branch `feat/essentia-cpp-worker-backend` und arbeite in der **Draft-PR #17** https://github.com/chrober/bliss-mood-poc/pull/17. **Nicht nach `main` mergen**, Draft beibehalten und `lms-blissmixer-lab` nicht ändern.
 
-Lies zuerst die aktuellen Handover-Dokumente im Branch:
-1. `docs/handover-essentia-cpp-20261020.md` — Architektur, Entscheidungen, CI-Matrix, erledigte und offene Gates.
-2. `docs/handover-essentia-windows-linker-20261020.md` — exakter Windows-Linkerfehler, Build-Provenienz, Symbol-Diagnostik und nächster Implementierungsplan.
-Ergänzend: `docs/essentia-cpp-worker-architecture.md`, `docs/essentia-cpp-windows-native-build.md` und `docs/essentia-cpp-windows-packaging.md`.
+**Lies vor der Implementierung die aktuellen GitHub-Dateien:**
+- `docs/handover-essentia-cpp-20261020.md` — umfassender Architektur-/CI-/Fortschrittsbericht einschließlich neuer CI-Statussektion.
+- `docs/handover-essentia-windows-linker-20261020.md` — konkrete MinGW-Export-/Import-/Linker-Diagnostik und Entscheidungspfad.
+- `docs/essentia-cpp-worker-architecture.md`, `docs/essentia-cpp-windows-native-build.md`, `docs/essentia-cpp-windows-packaging.md` — Implementierung und Packaging.
+- Workflows `.github/workflows/native-essentia-windows.yml` und `.github/workflows/native-essentia-cpp.yml`; Quellen `native/essentia_cpp_worker.cpp`, `native/CMakeLists.txt`, `src/essentia_worker.rs`, `src/features.rs`.
 
-**Letzter explizit überprüfter Programmstand vor dem Handover:**
-`efda3f27e1965d65ebf73fad7de35bcba1dd907a`; 7 von 8 CI-Prüfungen bestanden.
-Einzige gescheiterte Prüfung: `Native original Essentia C++ Windows x64 (experimental)`,
-https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896 .
-Durch die Handover-Dokumentationscommits hat sich die Branch-Spitze danach verschoben — überprüfe deshalb beim Start zuerst den LIVE-Stand von PR #17 und seinen CI-Läufen.
+**Letzter verifizierter Zustand am Code-SHA `e011e99f1dc3`: Sechs von acht CI-Runs grün, zwei rot.**
 
-**Erreichter technischer Meilenstein:** Original upstream Essentia C++ wird unter Windows mit MinGW64 und FFmpeg 9 erfolgreich als `essentia.dll` gebaut und installiert; die echte Quelldatei `native/essentia_cpp_worker.cpp` kompiliert, aber das Linken der EXE scheitert an undefinierten Symbolen (z. B. `essentia::init()`, `essentia::shutdown()`, `essentia::Logger::debug()`, `essentia::ParameterMap::add()`, `essentia::nameOfType`). Die folgenden echten Windows-Audio- und Paketierungsschritte wurden noch nicht ausgeführt. Die vorherigen Linux-Original-Essentia-Tests einschließlich WAV/FLAC/MP3, EffNet 1280D und 87/56/2 Klassifikationswerten sind hingegen grün.
+1. **Windows-Original-Essentia-C++:** https://github.com/chrober/bliss-mood-poc/actions/runs/39389850876 — die gepinnte original upstream Essentia-Bibliothek `essentia.dll` (MinGW64/FFmpeg9) baut erfolgreich und unser echter Worker kompiliert. **Sein finaler Link scheitert** an `essentia::init()`, `shutdown()`, `Logger::debug()`, `ParameterMap::add()`, `nameOfType()` und weiteren Symbolen. Export-/Import-/ABI-/Link-Konfiguration ist noch ungeklärt; die echten Windows-Audio-, DLL-Closure- und Paritätsschritte wurden noch nicht ausgeführt.
+2. **Linux-Original-Essentia-C++:** https://github.com/chrober/bliss-mood-poc/actions/runs/39389850681 — der native Worker, Audio-/Mel-Tests und Mehrformat-Mel-Parität bestanden. Danach scheiterte der Download offizieller ONNX-Modelle von `essentia.upf.edu` mit **curl Fehler 28, HTTP-Verbindungs-Timeout**. Das ist **kein nachgewiesener numerischer Regressionsfehler**. Die komplette frühere Linux-WAV/FLAC/MP3→1280-D EffNet→87/56/2-Head-Parität ist durch https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587 bestätigt. Modellparität wurde auf dem neuesten Code-Head aber wegen des Downloads nicht erneut ausgeführt.
+3. Rust/Clippy, Windows-Rust-Programm, Genre-/Voice-Parität und synthetische Windows-DLL-Paketierung bestanden beim zuletzt überprüften Code-Head.
 
-**Deine unmittelbare Aufgabe:** Gehe den Windows-Linkerfehler praktisch an. Inspiziere die echte PE-Exporttabelle der erzeugten `essentia.dll`, eventuell erzeugte MinGW-Importbibliotheken, `pkg-config --libs essentia` und die vollständige CMake-Linkkommandozeile. Kläre nachweisbar, ob Symbole nicht exportiert sind oder die EXE die falsche/keine Importbibliothek bzw. ein anderes ABI verwendet. Korrigiere den Build auf dem Feature-Branch mit möglichst wenig lokal zu wartendem Code. Bevorzuge den originalen upstream Essentia-C++-Quellcode und passende Build-/Link-Flags; erwäge ggf. einen kontrollierten statischen Link, falls das upstream Shared-Export-Modell nicht funktioniert. Keine Dummy-Stubs, keine neue DSP-Nachimplementierung, kein `essentia-rs`.
+**Deine konkrete nächste Aufgabe:** Untersuche und behebe zuerst den Windows-Original-Essentia-Linkerfehler. Ergänze nötigenfalls Fail-Fast-CI-Diagnostik für `objdump -p`/PE-Exporttabelle, `nm -gC`/Import-Libraries, `pkg-config --libs essentia` und `cmake --build ... --verbose`. Ermittle die **nachgewiesene** Ursache (fehlende DLL-Exporte/MinGW-Importbibliothek, falsches Linkziel/Linkreihenfolge, ABI etc.), bevor du Build-Flags oder Linkmodus änderst. Bevorzuge Original-Essentia samt Upstream-Buildmechanik; prüfe ggf. kontrolliertes statisches Linken. **Keine Dummy-Stubs, kein `essentia-rs`, keine eigene DSP-Nachimplementierung und keine unkontrollierte Änderung an den Algorithmen.**
 
-Danach führe echte Windows-IPC-/WAV/FLAC/MP3-Smokes mit dem Original-C++-Worker durch, überprüfe seine native DLL-Closure/Hashes und validiere **erneut** die numerische Mel-/EffNet-/Genre-/Mood-/Voice-Parität unter Windows. Achte besonders darauf, dass die Windows-Upstream-Version (`b0661db99be4a8e2c6fabbe90a996f89786fdd8e`, noch nicht gemergter Upstream-PR #1540) eine andere ist als die bereits validierte Linux-Referenz (`9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47`). Nach bestandener Parität ist das vorbereitete 1/2/4/6-Worker-A/B-Benchmark-Harness an der Reihe.
+**Unterschiedliche Upstream-Pins:** Linux hat den numerisch validierten Essentia-Stand `9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47` (FFmpeg4.4). Windows nutzt `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` aus dem noch offenen upstream PR #1540 (FFmpeg9). Ein Windows-Build muss deshalb **eigenständig** numerisch gegen Rust und nach Möglichkeit gegen die Linux-Referenz validiert werden.
 
-**Feste Projektregeln:** Den bestehenden Rust-Orchestrator inkl. adaptiver Multi-Worker-Steuerung, Rust-ONNX-Sessions, SQLite-Single-Writer und Prozess-RAM-Metriken beibehalten. Standardbackend bleibt `rust`; Original-Essentia ist opt-in. `main` nicht verändern und PR #17 NICHT mergen/aus Draft nehmen. Keine Änderungen an `lms-blissmixer-lab`. Keine echten Musikdateien oder privaten Benchmark-SQLite-Dateien committen. Lizenz-/AGPL-Verpflichtungen und Windows-DLL-Provenienz weiter beachten. Für jedes PowerShell-Beispiel ausnahmslos einen äußeren Block `& { ... }` verwenden.
+Nach dem Link-Fix: echter Windows-`EFW1/REQ1/RES1`-Handshake inklusive binärer Pipes und mehreren WAV/FLAC/MP3-Jobs; Paket mit allen realen DLL-Abhängigkeiten samt SHA256 erstellen und isoliert ausführen; Windows-Mel-, 1280-D EffNet- und 87/56/2-Head-Parität mit offiziellen Modellgewichten testen; Linux-ONNX-Netzwerkfehler durch erneuten Zugriff bzw. sichere, integritätsgeprüfte Modelldownloads beheben; anschließend auf derselben begrenzten lokalen Bliss-Stichprobe das vorbereitete A/B-Benchmarking (1/2/4/6 Worker) ausführen. **Keine Aussagen über Produktionsreife ohne diese Gates.**
 
-Setze die Implementierung ohne erneute Grundsatzdiskussion fort, prüfe die GitHub Actions nach jeder relevanten Änderung, dokumentiere getestete Resultate sauber und unterscheide strikt erfolgreich, fehlgeschlagen und noch nicht getestet.
+**Feste Entscheidungen:** Rust ist der bestehende Standard und Orchestrator (adaptive Multi-Worker, ONNX-Sessions, SQLite-Single-Writer und Prozess-RAM-Messung bleiben unverändert). Original Essentia C++ ist nur per `--audio-backend essentia` opt-in. `bliss.db` und NAS-Audio bleiben read-only; nie private Musik, Benchmarks oder Modellgewichte committen. Vor lokalen Tests GitHub Actions und zum Code-Commit passenden Windows-x64-Artefaktlauf prüfen; **keine lokalen Rust-Builds auf dem Windows-Rechner** verlangen. PowerShell-Code immer als einen vollständigen äußeren Block `& { ... }` schreiben.
+
+**Bitte ohne neue Grundsatzdiskussion direkt die GitHub-Arbeit fortsetzen, CI-Ergebnisse auf dem exakten HEAD prüfen und nur belegte Testergebnisse als bestanden dokumentieren.**
+
+---
