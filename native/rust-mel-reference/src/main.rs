@@ -1,9 +1,11 @@
 //! CLI-only numerical reference for the native Essentia C++ parity workflow.
 //! Reuses the ACTUAL existing Rust Mel implementation; never links ONNX Runtime.
-//! Restricting the fixture to 16kHz mono PCM16 means hound reads the same
-//! lossless decoded sample values used by ffmpeg_pcm_mono_16k.
+//! Production decoding and sample-rate conversion is reused verbatim,
+//! permitting comparisons of mono WAV, stereo WAV, FLAC and MP3.
 #[path = "../../../src/preprocess.rs"]
 mod preprocess;
+#[path = "../../../src/audio_decode.rs"]
+mod audio_decode;
 
 use anyhow::{bail, Context, Result};
 use std::{env, path::Path};
@@ -24,16 +26,7 @@ fn main() -> Result<()> {
         bail!("Max frames must be 1..=1024 and no extra arguments are allowed");
     }
 
-    let mut reader = hound::WavReader::open(Path::new(&source))?;
-    let spec = reader.spec();
-    if spec.channels != 1 || spec.sample_rate != 16_000 ||
-        spec.bits_per_sample != 16 || spec.sample_format != hound::SampleFormat::Int
-    {
-        bail!("Parity reference only supports deterministic mono 16kHz PCM16 WAV");
-    }
-    let samples = reader.samples::<i16>()
-        .map(|v| v.map(|x| f32::from(x) / 32_768.0))
-        .collect::<Result<Vec<_>, _>>()?;
+    let samples = audio_decode::ffmpeg_pcm_mono_16k(Path::new(&source))?;
     let frames = preprocess::mel_spectrogram(&samples)?;
     println!("{}", serde_json::json!({
         "total_frames": frames.len(),
