@@ -68,7 +68,7 @@ class LosslessCodecGateTests(unittest.TestCase):
         self.assertEqual(result["comparisons"]["rust_wav24_vs_flac"]["status"], "FAIL")
 
     def test_catches_wrong_weights_backend_and_patch_count(self):
-        for issue in ("weights", "wrong_c++", "patches", "model_key"):
+        for issue in ("weights", "wrong_c++", "patches", "model_key", "native_binary"):
             data, cpp, rust, pcm, layouts = example()
             if issue == "weights":
                 data["flac"]["rust"]["classifications"]["genre"]["models_sha256"]["genre.onnx"] = "f"*64
@@ -76,6 +76,8 @@ class LosslessCodecGateTests(unittest.TestCase):
                 data["flac"]["essentia"]["preprocessing_version"] = gate.FIXED_RUST_PREPROCESSING
             elif issue == "patches":
                 data["flac"]["rust"]["patches_analyzed"] = 836
+            elif issue == "native_binary":
+                data["flac"]["essentia"]["classifications"]["genre"]["models_sha256"]["essentia_cpp_worker_binary_sha256"] = "e"*64
             else:
                 data["flac"]["rust"]["classifications"]["genre"]["model_key"] = "unexpected"
             with self.subTest(issue=issue), self.assertRaises(AssertionError):
