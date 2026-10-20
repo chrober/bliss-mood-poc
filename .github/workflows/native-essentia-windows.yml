@@ -341,6 +341,80 @@ jobs:
               --report-output results/windows-original-essentia-all-heads-parity.json
             if ($LASTEXITCODE -ne 0) { throw 'Windows original Essentia ONNX parity failed' }
           }
+      - name: Build real production Rust scanner Windows x64 (MSVC)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cargo build --release --target x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows Rust scanner build failed' }
+            & 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe' scan-features --help | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows scanner CLI failed to start' }
+          }
+      - name: Download original model class metadata for scanner (no weights committed)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $items = @(
+              @{ name='mtg_jamendo_genre-discogs-effnet-1.json'; folder='classification-heads/mtg_jamendo_genre'; count=87 },
+              @{ name='mtg_jamendo_moodtheme-discogs-effnet-1.json'; folder='classification-heads/mtg_jamendo_moodtheme'; count=56 },
+              @{ name='voice_instrumental-discogs-effnet-1.json'; folder='classification-heads/voice_instrumental'; count=2 }
+            )
+            foreach ($item in $items) {
+              $url = "https://essentia.upf.edu/models/$($item.folder)/$($item.name)"
+              $destination = Join-Path 'models' $item.name
+              $retrieved = $false
+              for ($attempt=1; $attempt -le 3; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $url -OutFile $destination -TimeoutSec 100
+                  $retrieved = $true
+                  break
+                } catch {
+                  Write-Warning "Official metadata $($item.name), attempt $attempt failed: $_"
+                  if ($attempt -lt 3) { Start-Sleep -Seconds 4 }
+                }
+              }
+              if (-not $retrieved) { throw "Official model metadata unavailable: $url" }
+              $metadata = Get-Content -LiteralPath $destination -Raw | ConvertFrom-Json
+              if ($metadata.classes.Count -ne $item.count) {
+                throw "Official metadata class count mismatch: $($item.name)"
+              }
+            }
+          }
+      - name: Fetch pinned PR 16 similarity evaluator read-only without modifying PR 16
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            git fetch --no-tags --depth=1 origin refs/pull/16/head
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch PR 16 evaluation tool read-only' }
+            $head = (git rev-parse FETCH_HEAD).Trim()
+            if ($head -ne '4b397c9310a7e82f0e2e723b11954475b41c3e10') {
+              throw "PR 16 head changed; evaluate compatibility explicitly before updating pinned test: $head"
+            }
+            New-Item -ItemType Directory -Force 'build/windows-native/pr16-readonly' | Out-Null
+            git show 'FETCH_HEAD:scripts/evaluate_similarity.py' |
+              Set-Content -LiteralPath 'build/windows-native/pr16-readonly/evaluate_similarity.py' -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw 'Failed reading pinned PR 16 evaluator' }
+          }
+      - name: Validate genuine Windows scanner to Essentia v3 sidecar and PR 16 similarity
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            $args = @(
+              'scripts/validate_windows_essentia_similarity_handoff.py',
+              '--scanner', 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe',
+              '--worker', 'build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe',
+              '--models-dir', 'models', '--fixtures-dir', 'fixtures',
+              '--evaluator', 'build/windows-native/pr16-readonly/evaluate_similarity.py',
+              '--work-dir', 'build/windows-native/pr16-compatibility'
+            )
+            & $nativePython @args
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows PR 16 similarity sidecar handoff failed' }
+          }
       - name: Upload bounded Windows numerical parity reports (no audio or weights)
         if: always()
         uses: actions/upload-artifact@v4
