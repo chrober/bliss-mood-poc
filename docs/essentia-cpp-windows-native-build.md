@@ -1,7 +1,20 @@
 # Original Essentia C++ Windows native build (experimental)
 
-**Status:** Native Windows compiler gate; not yet validated. This is **not**
-the already-passing fake-worker DLL packaging smoke.
+**Verified status (2026-10-20, PR #17 pre-handover head `efda3f27e196`):**
+the **original upstream Essentia C++ library now compiles and links as
+`essentia.dll` under MinGW64 on Windows**. The separate
+`bliss-essentia-worker.exe` compilation also passes, but **EXE linkage
+fails** with unresolved original Essentia C++ symbols such as
+`essentia::init()`, `essentia::shutdown()`,
+`essentia::Logger::debug()` and `essentia::ParameterMap::add()`.
+See [Windows CI run #39382026896](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896).
+
+**Next action:** inspect the PE exports, MinGW import library,
+`pkg-config --libs essentia` and the actual CMake link command.
+Do not treat this as an audio DSP failure. Detailed commands and a decision
+tree: [Windows linker handover](handover-essentia-windows-linker-20261020.md).
+The **synthetic DLL-packaging smoke is green**, but it is not a test of the
+original Essentia-linked Windows worker.
 
 Windows Essentia C++ sources are checked out from upstream MTG/essentia
 commit `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` (an **unmerged**
