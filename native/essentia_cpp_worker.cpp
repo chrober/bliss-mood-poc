@@ -19,6 +19,11 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace {
 constexpr std::uint32_t kMaxPath = 16384;
 constexpr std::uint32_t kMaxPatches = 2048;
@@ -171,6 +176,15 @@ void run() {
 
 int main() {
     try {
+#ifdef _WIN32
+        // Windows CRT text mode may convert LF bytes inside binary f32
+        // Mel patches to CRLF and reinterpret 0x1A on stdin as EOF.
+        // Both pipes MUST be byte-exact before any EFW1/REQ1/RES1 traffic.
+        if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
+            _setmode(_fileno(stdout), _O_BINARY) == -1) {
+            throw std::runtime_error("failed to set native Essentia IPC pipe binary mode");
+        }
+#endif
         essentia::init();
         // Handshake only after original Essentia has initialized.
         std::cout.write("EFW1", 4);
