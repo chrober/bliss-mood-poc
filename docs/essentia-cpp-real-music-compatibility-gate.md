@@ -865,10 +865,13 @@ run `39421541546`, not an unspecified "latest" run. On Windows with
 }
 ```
 
-The `bliss-mood.exe` from this immutable artifact is sufficient for the
-next **real-data** run because subsequent PR #17 fixes were confined to
-the Python benchmark and accompanying tests/docs. This does **not**
-claim that a rebuilt CLI at a newer commit has already passed CI.
+**Historical note:** the original kit's `bliss-mood.exe` was valid
+for the first 100-song **Rust v4 vs native C++** comparison. It does
+**not** contain the later Rust v5 Float32 resampling fix and must **not**
+be used in the new Rust v5 real-song or cohort parity gate. Reuse
+its already-completed native C++ SQLite sidecar as reference, but use
+the separately verified Rust v5 scanner from Windows x64 run
+`39450757368` for new v5 work (instructions above).
 
 ## After real-music parity
 
