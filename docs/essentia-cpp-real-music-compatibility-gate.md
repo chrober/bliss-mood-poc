@@ -403,6 +403,83 @@ ONNX score errors. Generated WAV/JSON/log files remain LOCAL and PRIVATE;
 do not upload music or private file paths. This diagnostic never treats
 a failed numerical parity case as PASS and never modifies PR #16 or main.
 
+## PCM 2×2 control: isolate resampling vs downmix
+
+The **2026-10-20 first controlled 12-second test** used one common
+float32 WAV (previously decoded from the real MP3) and compared the
+original Essentia C++ DSP with production Rust (same models):
+
+| Offset | Input | Max Mel difference | Mel coefficients over 0.001 | Max Voice difference |
+| ---: | --- | ---: | ---: | ---: |
+| 0s | native rate/channels | 0.000297233 | 0 | 0.000001740 |
+| 0s | pre-normalized 16 kHz mono | 0.000080824 | 0 | 0.000000460 |
+| **120s** | **native rate/channels** | **0.005901277** | **1,139** | **0.000345000** |
+| **120s** | **pre-normalized 16 kHz mono** | **0.000134826** | **0** | **0.000008700** |
+
+At offset 120s, the Mel max falls by about 44x when both receive
+**already-converted 16-kHz mono**. On all four short clips the
+aggregated head scores remain within 0.001, but **full-song parity
+still FAILS** at 837 patches. The elimination of downmix and
+resampling together strongly implicates their combined path, not
+necessarily one individually.
+
+The script now supports a **factorial 2×2 control** `--factorial`
+requiring stereo source PCM with original sample rate != 16000 Hz:
+
+| Input mode | What Rust and C++ still need to do |
+| --- | --- |
+| `native-rate` | Stereo downmix **and** resampling |
+| `native-rate-mono` | **Only resampling** |
+| `16khz-stereo` | **Only stereo downmix** |
+| `16khz-mono` | Neither (FFT/Mel control) |
+
+Each clip is generated via FFmpeg *once* and is identical for both
+production backends. It uses the already generated local shared-PCM
+file, **never rescans the 100 songs** or changes the model, audio
+or sidecar data. If only native-rate modes differ, prioritize the Rust
+`essentia_linear_resample()` approximation; if the `16khz-stereo`
+case also differs, examine the `MonoLoader(downmix="mix")` stereo
+path. Do not claim confirmation before the four measurements.
+
+**PowerShell — four 12-second clips at the informative 120s offset:**
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $inputWav = Join-Path $base 'mp3-wav-control-20261020-164836\control-from-mp3-decoded-float32.wav'
+    $out = Join-Path $base ('pcm-factorial-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Branch switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+    python -m unittest discover -s tests -p 'test_diagnose_pcm_frontend.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Factorial regression tests failed' }
+    $arguments = @(
+        'scripts/diagnose_pcm_frontend.py',
+        '--input-wav', $inputWav,
+        '--analyzer', (Join-Path $kit 'bliss-mood.exe'),
+        '--essentia-worker', (Join-Path $kit 'essentia-worker\bliss-essentia-worker.exe'),
+        '--models-dir', (Join-Path $repo 'models'),
+        '--output-dir', $out,
+        '--offsets', '120',
+        '--duration-seconds', '12',
+        '--factorial'
+    )
+    python @arguments
+    if ($LASTEXITCODE -ne 0) { throw "Factorial diagnostic failed; logs in: $out" }
+}
+~~~
+
+The output summary exposes the **four** cases with `mel_max`,
+`mel_mean`, `mel_count_over_0_001`, `genre_max`, `mood_max`,
+`voice_max`. The private JSON and temporary audio stay local;
+neither a passing short clip nor a small difference can grant the
+full-song or full-library compatibility gate.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
