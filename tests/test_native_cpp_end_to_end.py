@@ -29,6 +29,29 @@ class NativeCppCodecParityTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     parity.error_stats(a, b, "length")
 
+    def test_sparse_lossy_mp3_drift_is_bounded_without_relaxing_model_outputs(self):
+        # Coefficient overshoot is allowed only under the *combined* MP3
+        # max-error and MAE constraints, never for learned probabilities.
+        reference = [0.0] * 300
+        lossy = reference.copy()
+        lossy[99] = 0.0032
+        stats = parity.error_stats(
+            reference, lossy, "mp3 mel",
+            max_tolerance=parity.MP3_MEL_MAX_TOLERANCE,
+            mae_tolerance=parity.MP3_MEL_MAE_TOLERANCE,
+        )
+        self.assertAlmostEqual(stats["max_absolute_error"], 0.0032)
+        with self.assertRaises(AssertionError):
+            parity.error_stats(reference, lossy, "model output")
+
+    def test_mp3_mae_bound_blocks_widespread_codec_error(self):
+        with self.assertRaises(AssertionError):
+            parity.error_stats(
+                [0.0] * 100, [0.0002] * 100, "mp3 widespread",
+                max_tolerance=parity.MP3_MEL_MAX_TOLERANCE,
+                mae_tolerance=parity.MP3_MEL_MAE_TOLERANCE,
+            )
+
     def test_codec_matrix_is_complete(self):
         self.assertEqual(
             parity.AUDIO,
