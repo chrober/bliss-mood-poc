@@ -149,8 +149,11 @@ def run(args):
         raise FileNotFoundError("Missing readable library source root or ONNX model directory")
     if args.output_dir.exists():
         raise FileExistsError("Use a NEW v5 scan output directory; never reuse existing DBs")
-    if args.workers != 1:
-        raise ValueError("First numeric v5 gate uses exactly ONE fixed Rust worker")
+    # A single fresh cohort scan may use fixed parallel Rust workers.
+    # Each song is independently analyzed with 1 ONNX thread per worker;
+    # comparison is keyed by song/head, never by completion order.
+    if args.workers not in (1, 2, 4, 6, 8):
+        raise ValueError("Require fixed Rust --workers from 1,2,4,6,8")
     if not math.isfinite(args.score_max_tolerance) or not 0 < args.score_max_tolerance < 0.1:
         raise ValueError("Score tolerance must be finite and strictly between 0 and 0.1")
     validate_source_roots(args.source_root, None)
@@ -177,7 +180,8 @@ def run(args):
     (args.output_dir / "manifest.json").write_text(
         json.dumps({
             "scan": "one_rust_v5_scan_and_reuse_original_essentia_sidecar",
-            "worker_count": args.workers, "models": list(HEADS),
+            "worker_count": args.workers,
+        "onnx_threads_per_worker": 1, "models": list(HEADS),
             "cohort_size": len(cohort), "source_sha256": original_hashes,
             "note": "New v5 sidecar; old original C++ and Rust v4 remain read-only",
         }, indent=2) + "\n", encoding="utf-8",
@@ -188,7 +192,7 @@ def run(args):
         source_root=args.source_root, library_root=None,
         output_dir=args.output_dir, essentia_worker=None, timeout_seconds=900,
     )
-    scan, _ = run_scan(scan_args, 1, 1, "rust", len(cohort))
+    scan, _ = run_scan(scan_args, 1, args.workers, "rust", len(cohort))
     fresh_db = args.output_dir / scan["sqlite"]
     # Scan may have been long; fail closed on changed originals.
     for name, path in zip(("cohort", "old_rust_v4", "native_cpp", "rust_v5_exe"), paths):
@@ -199,6 +203,18 @@ def run(args):
         fresh_db, args.score_max_tolerance,
     )
     report["rust_v5_scan"] = scan
+    report["worker_count"] = args.workers
+    report["onnx_threads_per_worker"] = 1
+    report["scope"] = (
+        "same_100_song_cohort_rust_v5_"
+        f"workers_{args.workers}_vs_saved_original_essentia_cpp"
+    )
+    report["note"] = (
+        "PASS checks numeric score/patch parity for a full cohort with "
+        f"{args.workers} fixed Rust workers versus original C++ one-worker "
+        "reference, not reproducibility across worker counts, repeated "
+        "throughput, cross-codec/library coverage or licensing/distribution"
+    )
     report["original_input_sha256"] = original_hashes
     report_file = args.output_dir / "parity-report-private.json"
     with report_file.open("x", encoding="utf-8") as output:
@@ -207,6 +223,8 @@ def run(args):
     print(json.dumps({
         "numeric_parity_status": report["numeric_parity_status"],
         "cohort_songs": report["cohort_songs"],
+        "worker_count": args.workers,
+        "onnx_threads_per_worker": 1,
         "score_components": report["score_components"],
         "patch_mismatches": report["new_rust_v5"]["patch_count_mismatches"],
         "maximum_absolute_difference":
@@ -227,7 +245,8 @@ def main():
     parser.add_argument("--models-dir", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=4,
+                        help="Fixed parallel Rust workers: 1,2,4,6,8 (default 4); 1 ONNX thread each")
     parser.add_argument("--expected-songs", type=int, default=100)
     parser.add_argument("--score-max-tolerance", type=float, default=0.001)
     args = parser.parse_args()
