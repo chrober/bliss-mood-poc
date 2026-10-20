@@ -370,6 +370,9 @@ mod tests {
         let first = worker.analyze(Path::new("good-one.wav"), None).unwrap();
         assert_eq!(first.patches.len(), 1);
         assert_eq!(first.patches[0][0], 0.25);
+        let raw = worker.analyze(Path::new("binary-bytes.wav"), None).unwrap();
+        assert_eq!(raw.patches[0][0].to_bits(), 0x3f1a0a0d,
+            "Native IPC must preserve CR/LF/CTRL-Z bytes on Windows");
         assert!((first.decode_seconds - 0.001).abs() < 1e-6);
         let first_pid = worker.child.as_ref().unwrap().child.id();
         let second = worker.analyze(Path::new("good-two.flac"), Some(1)).unwrap();
