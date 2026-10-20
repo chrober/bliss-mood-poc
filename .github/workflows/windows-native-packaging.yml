@@ -53,12 +53,13 @@ jobs:
             python scripts/package_essentia_worker_windows.py `
               --worker $exe `
               --objdump $objdump `
+              --dll-dir 'build/win-pe/Release' `
               --dll-dir "$env:WINDIR\System32" `
               --output 'build/win-pe-package'
             if ($LASTEXITCODE -ne 0) { throw 'Windows real-PE dependency packaging failed' }
             python scripts/package_essentia_worker_windows.py --verify 'build/win-pe-package'
             if ($LASTEXITCODE -ne 0) { throw 'Windows real-PE checksum verification failed' }
-            python -c "import json,pathlib; p=pathlib.Path('build/win-pe-package/worker-dependencies.json'); x=json.loads(p.read_text()); assert x['release_approved'] is False; print('Dependencies:',list(x['files']))"
+            python -c "import json,pathlib; p=pathlib.Path('build/win-pe-package/worker-dependencies.json'); x=json.loads(p.read_text()); assert x['release_approved'] is False; assert 'essentia-pe-fixture-dependency.dll' in x['files']; print('Imported DLL closure:',list(x['files']))"
             if ($LASTEXITCODE -ne 0) { throw 'Windows license/provenance gates failed' }
           }
       - name: Start packaged PE fixture without MSYS2 PATH
