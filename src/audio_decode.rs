@@ -2,6 +2,10 @@
 //! and the standalone (ONNX-free) native Essentia DSP parity harness.
 //! This isolates the exact reference DSP behavior without duplicating it.
 use crate::preprocess;
+
+/// Cache identity for the corrected original libsamplerate SRC_LINEAR phase.
+/// Historical Rust v4 sidecars must stay distinct and never be reused here.
+pub(crate) const RUST_PREPROCESSING: &str = "experimental-essentia-audio-v5-f32-src-ratio-unvalidated";
 use anyhow::{bail, Context, Result};
 use std::{path::Path, process::Command as ProcessCommand};
 
