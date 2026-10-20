@@ -116,8 +116,15 @@ def model_fingerprints_by_head(db):
     return keys
 
 
-def feature_model_definitions_by_head(db):
-    """Audit shared ONNX/label metadata without requiring identical DSP versions."""
+def feature_model_definitions_by_head(db, backend):
+    """Compare actual ONNX/label identity, not frontend deployment hash keys.
+
+    The C++ frontend intentionally adds its worker-executable SHA and optional
+    native DLL manifest SHA to models_sha256_json when calculating model_key.
+    Those are *cache identity*, not alternate ONNX model weights.
+    """
+    if backend not in ("rust", "essentia"):
+        raise ValueError(f"Unknown audio backend: {backend}")
     with closing(sqlite3.connect(
         f"file:{db.resolve().as_posix()}?mode=ro", uri=True
     )) as conn:
@@ -129,10 +136,50 @@ def feature_model_definitions_by_head(db):
             "JOIN feature_models AS m ON m.model_key = t.model_key"
         ).fetchall()
     models = {}
-    for head, *fields in rows:
-        # Actual hashes, label order and aggregation must be equal. The C++
-        # backend adds its own preprocessing identity to model_key only.
-        definition = tuple(fields)
+    deployment_keys = {
+        "essentia_cpp_worker_binary_sha256",
+        "essentia_cpp_native_deployment_manifest_sha256",
+    }
+    for head, encoder, classifier, raw_hashes, aggregation, raw_labels in rows:
+        try:
+            hashes, labels = json.loads(raw_hashes), json.loads(raw_labels)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(f"Malformed model metadata for {head}") from exc
+        if not isinstance(hashes, dict) or not isinstance(labels, list):
+            raise AssertionError(f"Invalid model metadata shapes for {head}")
+        required = {encoder, classifier}
+        if len(required) != 2 or not all(
+            isinstance(name, str) and name.endswith(".onnx")
+            for name in required
+        ):
+            raise AssertionError(f"Invalid shared model filenames for {head}")
+        extra = set(hashes) - required
+        if not required <= set(hashes) or (
+            backend == "rust" and extra
+        ) or (
+            backend == "essentia"
+            and (extra - deployment_keys
+                 or "essentia_cpp_worker_binary_sha256" not in extra)
+        ):
+            raise AssertionError(
+                f"Unexpected {backend} model SHA keys for {head}: {sorted(extra)}"
+            )
+        # Every stored hash must be a full SHA256 hex digest.
+        if any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(char not in "0123456789abcdefABCDEF" for char in value)
+            for value in hashes.values()
+        ):
+            raise AssertionError(f"Invalid SHA256 digest in model metadata for {head}")
+        if not labels or not all(isinstance(x, str) and x for x in labels):
+            raise AssertionError(f"Invalid ordered class metadata for {head}")
+        if len(set(labels)) != len(labels):
+            raise AssertionError(f"Duplicate class labels for {head}")
+        definition = (
+            encoder, classifier, hashes[encoder].lower(),
+            hashes[classifier].lower(), aggregation, tuple(labels),
+        )
         if head in models and models[head] != definition:
             raise AssertionError(f"Conflicting model definitions for {head}")
         models[head] = definition
@@ -152,8 +199,8 @@ def verify_backend_fingerprint_separation(rust_db, essentia_db):
             "Distinct DSP backends must not share feature fingerprint: "
             + ", ".join(shared)
         )
-    old_definitions = feature_model_definitions_by_head(rust_db)
-    new_definitions = feature_model_definitions_by_head(essentia_db)
+    old_definitions = feature_model_definitions_by_head(rust_db, "rust")
+    new_definitions = feature_model_definitions_by_head(essentia_db, "essentia")
     if old_definitions != new_definitions:
         different = sorted(
             head for head in old_definitions
