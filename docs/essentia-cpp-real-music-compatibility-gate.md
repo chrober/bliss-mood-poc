@@ -626,7 +626,7 @@ and new Rust v5 data. **Do not alter PR #16 or main.**
 
 **2026-10-20 local full-song result (837 patches): PASS_THIS_TRACK.**
 Using the same unchanged, FFmpeg-decoded real PCM WAV and previously
-saved original C++ \`essentia-wav.json\`, the user verified that
+saved original C++ `essentia-wav.json`, the user verified that
 corrected Rust v5 produces the following *maximum absolute class-score
 errors* for all 837 patches averaged by production ONNX heads:
 
@@ -636,19 +636,19 @@ errors* for all 837 patches averaged by production ONNX heads:
 | Mood/Theme | 0.00308408 | **0.00000158** |
 | Voice | 0.00382420 | **0.00000640** |
 
-Result \`PASS_THIS_TRACK\` confirms this formerly failing long real song
+Result `PASS_THIS_TRACK` confirms this formerly failing long real song
 within the original **0.001** tolerance. This is strong experimental
 evidence for the root-cause fix, not the complete 100-song acceptance gate.
 
 ### Next: reuse the already completed original C++ 100-song sidecar
 
-\`scripts/verify_rust_v5_cohort.py\` runs precisely ONE new
-\`scan-features --audio-backend rust --workers 1\` against the existing
-100-track \`sample-100.db\`. It NEVER invokes the original C++ worker,
+`scripts/verify_rust_v5_cohort.py` runs precisely ONE new
+`scan-features --audio-backend rust --workers 1` against the existing
+100-track `sample-100.db`. It NEVER invokes the original C++ worker,
 never overwrites saved v4/C++ databases and keeps source music read-only.
 It requires these strict invariants:
 
-- Precisely 100 distinct original \`TracksV2.File\` values (no full LMS scan).
+- Precisely 100 distinct original `TracksV2.File` values (no full LMS scan).
 - Same three heads (87/56/2), identical ONNX SHA256/class labels/order/
   aggregation, same audio SHA256 across *old Rust v4, existing native
   C++, and new Rust v5*. All 100 × 3 rows must exist.
@@ -656,19 +656,19 @@ It requires these strict invariants:
   identity); C++ keys distinct from both.
 - Every patch count matches; every final score differs by **at most
   0.001**. Each head reports old-v4 versus new-v5 max errors.
-- No failed/missing tracks. Persist new private \`manifest.json\`,
-  scanner \`.stderr.txt\`/\`.json\`/\`.db\` plus full
-  \`parity-report-private.json\`. On numeric failure the program returns
+- No failed/missing tracks. Persist new private `manifest.json`,
+  scanner `.stderr.txt`/`.json`/`.db` plus full
+  `parity-report-private.json`. On numeric failure the program returns
   nonzero, but retains the complete new v5 sidecar, so **do not re-run
   the 100 songs** to diagnose it.
 
 **Already proven Windows Rust v5 binary:** the previously downloaded
-\`D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe\` with
-\`BUILD.txt = Commit: a6a5c8607064e95d291cc85a0500472ff20bcc4e\`,
-whose second parent is v5 PR head \`9ca4d3d2e248a528008e70c9ba0951902b2acc67\`.
+`D:\LMS\bliss-mood-rust-v5-test\bliss-mood.exe` with
+`BUILD.txt = Commit: a6a5c8607064e95d291cc85a0500472ff20bcc4e`,
+whose second parent is v5 PR head `9ca4d3d2e248a528008e70c9ba0951902b2acc67`.
 The original C++ sidecar remains
-\`benchmark-essentia-real-20261020-160351\round-01-workers-01-essentia.db\`.
-Do **NOT** use the older v4 \`bliss-mood.exe\` in the Essentia dev kit.
+`benchmark-essentia-real-20261020-160351\round-01-workers-01-essentia.db`.
+Do **NOT** use the older v4 `bliss-mood.exe` in the Essentia dev kit.
 
 ~~~powershell
 & {
@@ -688,7 +688,7 @@ Do **NOT** use the older v4 \`bliss-mood.exe\` in the Essentia dev kit.
     git pull --ff-only
     if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
 
-    Write-Host "\`n=== OFFLINE REGRESSION TESTS ==="
+    Write-Host "`n=== OFFLINE REGRESSION TESTS ==="
     python -m unittest discover -s tests -p 'test_verify_rust_v5_cohort.py'
     if ($LASTEXITCODE -ne 0) { throw 'Strict cohort regression tests failed' }
 
@@ -717,7 +717,7 @@ Do **NOT** use the older v4 \`bliss-mood.exe\` in the Essentia dev kit.
         throw "Fresh v5 output directory already exists: $newOutput"
     }
 
-    Write-Host "\`n=== ONE RUST V5 SCAN VERSUS SAVED ESSENTIA C++ ==="
+    Write-Host "`n=== ONE RUST V5 SCAN VERSUS SAVED ESSENTIA C++ ==="
     $arguments = @(
         'scripts/verify_rust_v5_cohort.py',
         '--cohort-db',
@@ -738,13 +738,13 @@ Do **NOT** use the older v4 \`bliss-mood.exe\` in the Essentia dev kit.
     if ($LASTEXITCODE -ne 0) {
         throw "v5 100-song cohort did not pass or scan failed. Preserve $newOutput"
     }
-    Write-Host "\`n=== STRICT 100-SONG V5 / ORIGINAL CPP PASS ==="
+    Write-Host "`n=== STRICT 100-SONG V5 / ORIGINAL CPP PASS ==="
     Write-Host "Private sidecar and results: $newOutput"
 }
 ~~~
 
-Send only \`numeric_parity_status\`, \`maximum_absolute_difference\`,
-\`patch_mismatches\` and \`per_head_improvement\` from console output.
+Send only `numeric_parity_status`, `maximum_absolute_difference`,
+`patch_mismatches` and `per_head_improvement` from console output.
 Do not post private tracks, sidecar paths or the detailed report.
 
 A successful one-worker 100-song numerical comparison does **not** by
