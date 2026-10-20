@@ -24,6 +24,12 @@ jobs:
           msystem: MINGW64
           update: true
           install: mingw-w64-x86_64-binutils
+      - name: Discover GNU PE objdump from the actual MSYS2 installation
+        shell: msys2 {0}
+        run: |
+          tool="$(command -v objdump)"
+          test -x "$tool"
+          echo "PE_OBJDUMP=$(cygpath -w "$tool")" >> "$GITHUB_ENV"
       - name: Build a Windows PE executable (synthetic worker, NOT Essentia)
         shell: pwsh
         run: |
@@ -40,7 +46,7 @@ jobs:
           & {
             $ErrorActionPreference = 'Stop'
             $exe = (Resolve-Path 'build/win-pe/Release/essentia-protocol-fixture.exe').Path
-            $objdump = 'C:\msys64\mingw64\bin\objdump.exe'
+            $objdump = $env:PE_OBJDUMP
             if (-not (Test-Path $objdump)) { throw 'MSYS2 MinGW64 objdump was not installed' }
             & $objdump -p $exe | Select-String -Pattern 'DLL Name:'
             if ($LASTEXITCODE -ne 0) { throw 'GNU objdump failed to inspect Windows PE' }
