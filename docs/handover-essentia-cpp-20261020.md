@@ -1,6 +1,25 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
-**Read this first in the next ChatGPT session.** This document captures the verified state of [draft PR #17](https://github.com/chrober/bliss-mood-poc/pull/17) before the handover-document commits, based on GitHub Actions **head `efda3f27e1965d65ebf73fad7de35bcba1dd907a`**. The docs commits themselves advance the PR head: always re-read the live PR and CI status before editing.
+**Read this first in the next ChatGPT session.** This document captures the verified state of [draft PR #17](https://github.com/chrober/bliss-mood-poc/pull/17) originally based on GitHub Actions **historical head `efda3f27e1965d65ebf73fad7de35bcba1dd907a`**. For the newer status, see the first checkpoint below. The docs commits themselves advance the PR head: always re-read the live PR and CI status before editing.
+
+## Latest verified checkpoint — 2026-10-20, branch head `e011e99f1dc38790ec441720b696a2f3fe4602e1`
+
+**This section supersedes the historical pre-handover snapshot `efda3f27...` below.** The branch has advanced. The current reviewed PR #17 is still **Draft / not merged**; verify its HEAD and matching GitHub Actions again when starting the new session, especially after documentation-only commits.
+
+At the reviewed source SHA **six of the eight workflow runs succeeded** (including both Rust-check runs). **Two workflows failed for different reasons:**
+
+| Check | Verified result at `e011e99f1dc3` | Exact evidence |
+| --- | --- | --- |
+| Rust checks (two runs), Windows Rust x64 binary, Genre parity, Voice parity | **PASS** | [Actions for this commit](https://github.com/chrober/bliss-mood-poc/actions?query=branch%3Afeat%2Fessentia-cpp-worker-backend) |
+| Windows native DLL packaging (**synthetic** C++ worker with imported test DLL) | **PASS** | [Run 39389850761](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850761) |
+| Original upstream Essentia C++ **Linux** codec/ONNX workflow | **FAIL, external model download only**. Native C++ build, IPC, WAV/FLAC/MP3 decoding and Mel parity already passed in this run. `curl: (28) Connection timeout after 15001 ms` occurred while fetching official ONNX weights from `essentia.upf.edu`; model comparison **did not run on this SHA**. | [Run 39389850681](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850681) |
+| Original upstream Essentia C++ **Windows** MinGW64 build | **FAIL at final downstream worker-EXE link**, despite successful upstream `essentia.dll` build and successful worker object compilation. Missing symbols include `essentia::init`, `shutdown`, `Logger::debug`, `ParameterMap::add`. Root cause still unproven (export/import/ABI/link configuration). All downstream real-Windows audio and package checks were skipped. | [Run 39389850876](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850876) |
+
+The established **earlier fully green** Linux C++ → Mel → 1280-D EffNet → 87/56/2 ONNX synthetic WAV/FLAC/MP3 check remains [run 39373185587](https://github.com/chrober/bliss-mood-poc/actions/runs/39373185587). This establishes prior parity, **not** a pass at the newest SHA and **not** Windows parity.
+
+**Immediate action on next session:** inspect actual PE exports/import libraries and verbose final CMake link invocation on the Windows-original-Essentia job; fix the link using upstream/build configuration rather than implementing Essentia DSP locally. In parallel, re-run the Linux native gate when ONNX model origin is reachable, or address fetch reliability without bypassing required model integrity verification. Do not loosen numerical tolerance to conceal a build/network issue.
+
+**Do not conflate:** the 2023 Linux source pin `9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47` (FFmpeg 4.4) and the unmerged FFmpeg-9 Windows upstream PR #1540 source pin `b0661db99be4a8e2c6fabbe90a996f89786fdd8e`. Neither `essentia-rs` nor a new Rust DSP port is in scope.
 
 ## Project, objective and non-negotiable decisions
 
@@ -41,7 +60,7 @@ Key implementation:
 - `scripts/benchmark_audio_backends.py` — paired fixed 1/2/4/6-worker Rust-vs-C++ scans, fresh SQLite sidecars, numerical-score consistency; needs bounded local real-audio cohort.
 - Relevant CI: `.github/workflows/native-essentia-cpp.yml` (Linux original upstream), `.github/workflows/native-essentia-windows.yml` (Windows *original* C++), `.github/workflows/windows-native-packaging.yml` (**synthetic** Windows PE/DLL packaging), and existing Rust/Windows/Genre/Voice workflows.
 
-## Verified status as of 2026-10-20, before this handover commit
+## Historical status at `efda3f27...` (superseded by latest checkpoint above)
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
