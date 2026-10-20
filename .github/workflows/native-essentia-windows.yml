@@ -267,6 +267,12 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Isolated original Essentia bundle smoke failed' }
           }
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust Cargo dependencies and compiled libraries (both workspaces)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            native/rust-mel-reference -> target
       - name: Build the actual production Rust decoder/Mel reference on Windows CI
         shell: pwsh
         run: |
