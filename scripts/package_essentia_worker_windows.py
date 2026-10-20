@@ -10,6 +10,8 @@ or MSYS/Cygwin dependencies abort rather than shipping a broken package.
 With no license inventory this produces DEVELOPMENT-ONLY packages.
 """
 import argparse
+import ctypes
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -81,9 +83,40 @@ def imports(file, objdump):
     return sorted(set(dlls))
 
 
-def system_dll(name):
-    return (name in WINDOWS_OS_DLLS or name.startswith("api-ms-win-")
-            or name.startswith("ext-ms-win-"))
+def windows_system_directory():
+    """Discover the real OS System32 directory; never trust PATH or user-supplied roots.
+
+    A native 64-bit Windows Python interpreter is required when building
+    Windows packages. Non-Windows hosts retain the conservative static
+    allowlist and reject unresolved imports rather than guessing.
+    """
+    if os.name != "nt":
+        return None
+    buffer = ctypes.create_unicode_buffer(32768)
+    size = ctypes.windll.kernel32.GetSystemDirectoryW(buffer, len(buffer))
+    if size <= 0 or size >= len(buffer):
+        raise OSError("Could not discover trusted Windows System32 directory")
+    system_dir = Path(buffer.value)
+    if not system_dir.is_dir():
+        raise FileNotFoundError(f"Windows System32 directory does not exist: {system_dir}")
+    return system_dir
+
+
+def system_dll(name, system_directory=None):
+    if (name in WINDOWS_OS_DLLS or name.startswith("api-ms-win-")
+            or name.startswith("ext-ms-win-")):
+        return True
+    if system_directory is None:
+        return False
+    # Only the genuine GetSystemDirectoryW() directory is passed by collect().
+    # A file in an arbitrary MinGW DLL directory is never evidence of OS origin.
+    system_file = system_directory / name
+    if not system_file.is_file():
+        return False
+    if not system_file.resolve().is_relative_to(system_directory.resolve()):
+        raise ValueError(f"Windows system DLL escapes System32: {system_file}")
+    check_pe_x64(system_file)
+    return True
 
 
 def resolve_dll(name, search_dirs):
@@ -109,6 +142,7 @@ def collect(executable, dependency_dirs, objdump):
     if not executable.is_file():
         raise ValueError(f"Worker executable not found: {executable}")
     check_pe_x64(executable)
+    system_directory = windows_system_directory()
     entries = {executable.name.lower(): executable}
     queue = [executable]
     total_size = 0
@@ -123,7 +157,7 @@ def collect(executable, dependency_dirs, objdump):
                 raise ValueError(f"Unsafe imported DLL basename: {dll!r}")
             if dll in REJECT_RUNTIME:
                 raise ValueError(f"MSYS/Cygwin runtime forbidden in native worker: {dll}")
-            if system_dll(dll) or dll in entries:
+            if system_dll(dll, system_directory) or dll in entries:
                 continue
             if len(entries) >= MAX_FILES:
                 raise ValueError("Dependency closure exceeds safety limit")

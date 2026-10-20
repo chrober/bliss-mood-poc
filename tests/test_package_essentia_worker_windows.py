@@ -65,6 +65,52 @@ class NativeWindowsPackagingTests(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     package.collect(exe, [d], d / "objdump.exe")
 
+    def test_discover_system_dll_via_real_system_directory_not_runtime_dirs(self):
+        # A native Windows caller obtains this directory via GetSystemDirectoryW.
+        # Emulate it here so this security boundary is tested on Linux, too.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            system = base / "System32"
+            runtime = base / "runtime"
+            system.mkdir()
+            runtime.mkdir()
+            fake_pe(system / "dwrite.dll")
+            fake_pe(runtime / "vendor-codec.dll")
+            exe = fake_pe(runtime / "bliss-essentia-worker.exe")
+            self.assertTrue(package.system_dll("dwrite.dll", system))
+            self.assertFalse(package.system_dll("vendor-codec.dll", system))
+            self.assertFalse(package.system_dll("dwrite.dll"))
+            with patch.object(package, "windows_system_directory",
+                              return_value=system), patch.object(
+                              package, "imports", side_effect=lambda p, _: (
+                              ["dwrite.dll", "vendor-codec.dll"]
+                              if p.name == exe.name else [])):
+                result = package.collect(exe, [runtime], base / "objdump.exe")
+            self.assertEqual(set(result), {exe.name, "vendor-codec.dll"})
+            with patch.object(package, "windows_system_directory",
+                              return_value=system), patch.object(
+                              package, "imports", return_value=["unknown.dll"]):
+                with self.assertRaises(FileNotFoundError):
+                    package.collect(exe, [runtime], base / "objdump.exe")
+
+    def test_reject_malformed_or_escaping_windows_system_dll(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            system = base / "System32"
+            system.mkdir()
+            (system / "dwrite.dll").write_bytes(b"not a valid native PE")
+            with self.assertRaises(ValueError):
+                package.system_dll("dwrite.dll", system)
+            (system / "dwrite.dll").unlink()
+            out = fake_pe(base / "external.dll")
+            try:
+                (system / "external.dll").symlink_to(out)
+            except (OSError, NotImplementedError):
+                pass  # Symlink permissions differ on Windows runner accounts.
+            else:
+                with self.assertRaises(ValueError):
+                    package.system_dll("external.dll", system)
+
     def test_fail_closed_on_missing_dll_and_msys_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)

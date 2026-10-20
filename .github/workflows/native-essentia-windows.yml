@@ -215,17 +215,25 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia audio smoke failed' }
           }
       - name: Stage actual original Essentia PE and all imported MinGW DLLs
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          set -euo pipefail
-          /usr/bin/python3 scripts/package_essentia_worker_windows.py \
-            --worker build/windows-native/worker/bliss-essentia-worker.exe \
-            --objdump /mingw64/bin/objdump.exe \
-            --dll-dir /mingw64/bin \
-            --dll-dir /mingw64/lib \
-            --output build/windows-native/original-essentia-closed-bundle
-          /usr/bin/python3 scripts/package_essentia_worker_windows.py \
-            --verify build/windows-native/original-essentia-closed-bundle
+          & {
+            $ErrorActionPreference = 'Stop'
+            # Native x64 Python accesses GetSystemDirectoryW; MSYS Python
+            # runs as POSIX and cannot securely identify system DLLs.
+            $mingwRoot = Join-Path $env:RUNNER_TEMP 'msys64/mingw64'
+            $packageScript = 'scripts/package_essentia_worker_windows.py'
+            python $packageScript `
+              --worker build/windows-native/worker/bliss-essentia-worker.exe `
+              --objdump (Join-Path $mingwRoot 'bin/objdump.exe') `
+              --dll-dir (Join-Path $mingwRoot 'bin') `
+              --dll-dir (Join-Path $mingwRoot 'lib') `
+              --output build/windows-native/original-essentia-closed-bundle
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia dependency closure failed' }
+            python $packageScript `
+              --verify build/windows-native/original-essentia-closed-bundle
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia bundle checksum verification failed' }
+          }
       - name: Re-test genuine native worker from isolated DLL-closed bundle
         shell: pwsh
         run: |
