@@ -1,5 +1,32 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## Updated checkpoint — Windows original Essentia succeeds; real-song gate next (2026-10-20)
+
+**This checkpoint overrides the older failed-linker history below.** The
+original Windows-x64 worker **did link and passed** the complete synthetic
+Windows audio/DSP/model/feature-sidecar/PR16 evaluator handoff. Verified
+[run #39421541546](https://github.com/chrober/bliss-mood-poc/actions/runs/39421541546),
+source commit `bdb281d3a952775d62f4b29786e687a05471f9b1`;
+the 70.7MB development artifact
+`bliss-mood-essentia-windows-x64-dev` is available through 2026-11-03.
+This proves Windows synthetic compatibility, **not real-library parity**.
+
+**Immediate next task:** run the reproducible [real-music compatibility
+gate](essentia-cpp-real-music-compatibility-gate.md) on the *same* bounded
+real-music cohort using the exact packaged `bliss-mood.exe`, both
+frontends, same models, separate v3 feature sidecars and 1/2 workers.
+The benchmark Python tool in this PR now accepts `--source-root`
+without `--library-root` for relative Bliss keys, checks strict score
+parity and checks that fingerprints are *different* across the two
+backends. Keep the original Rust-feature sidecar isolated.
+
+**Sequence:** pass real-music patch/model-score/fingerprint/worker parity
+→ review CI and compatibility results → merge #17 to main upon the user's
+conditional authorization → bring #16 up to date with the merged backend
+→ rerun/extend the independent Genre and Mood Similarity evaluation using
+**new C++ feature data**. No production release or native redistribution
+until all applicable native dependency licenses are reviewed.
+
 **Read this first in the next ChatGPT session.** This document captures the verified state of [draft PR #17](https://github.com/chrober/bliss-mood-poc/pull/17) originally based on GitHub Actions **historical head `efda3f27e1965d65ebf73fad7de35bcba1dd907a`**. For the newer status, see the first checkpoint below. The docs commits themselves advance the PR head: always re-read the live PR and CI status before editing.
 
 ## Latest verified checkpoint — 2026-10-20, branch head `e011e99f1dc38790ec441720b696a2f3fe4602e1`
