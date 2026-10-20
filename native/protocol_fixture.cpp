@@ -6,6 +6,9 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#ifdef ESSENTIA_PE_FIXTURE_DEP
+extern "C" __declspec(dllimport) int bliss_fixture_dependency();
+#endif
 
 static bool read_u32(std::uint32_t& x) {
     char b[4];
@@ -29,6 +32,11 @@ static void header(std::uint8_t status, std::uint32_t count) {
     write_u64(2000000);
 }
 int main() {
+#ifdef ESSENTIA_PE_FIXTURE_DEP
+    // Fail the handshake if the packaged native import DLL was not actually
+    // linked and executed. The mock worker is NEVER an Essentia binary.
+    if (bliss_fixture_dependency() != 0x1234) return 11;
+#endif
     std::cout.write("EFW1", 4);
     std::cout.flush();
     while (true) {
