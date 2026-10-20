@@ -97,7 +97,14 @@ jobs:
           Numerical reference parity has passed for synthetic fixtures.
           Real-music quality and production use remain unvalidated.
           '@ | Set-Content -Path (Join-Path $dist "README-WINDOWS.txt") -Encoding utf8
-          "Commit: $env:GITHUB_SHA" | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
+          # Pull-request jobs checkout refs/pull/N/merge, not the PR branch HEAD.
+          # Record BOTH commits so downstream verification can distinguish them.
+          $prHead = '${{ github.event.pull_request.head.sha }}'
+          if (-not $prHead) { $prHead = $env:GITHUB_SHA }
+          @(
+            "Commit: $env:GITHUB_SHA"
+            "Source PR head commit: $prHead"
+          ) | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
           $checksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-mood.exe") -Algorithm SHA256).Hash
           "$checksum *bliss-mood.exe" | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
           Get-ChildItem -LiteralPath $dist | Select-Object Name,Length
