@@ -39,23 +39,42 @@ jobs:
             mingw-w64-x86_64-ffmpeg
             mingw-w64-x86_64-libsamplerate
             mingw-w64-x86_64-binutils
-      - name: Log full build provenance and prepare original MTG sources
+      - name: Record exact installed MinGW package versions for native cache key
         shell: msys2 {0}
         run: |
           set -euo pipefail
           mkdir -p build/windows-native
+          # Retain full lock for release provenance and ABI-correct cache key.
           pacman -Q > build/windows-native/pacman-package-lock-observed.txt
           gcc --version
           cmake --version
           pkg-config --modversion libavcodec libavformat libavutil samplerate eigen3
-          git clone --quiet https://github.com/MTG/essentia.git build/windows-native/essentia-source
-          cd build/windows-native/essentia-source
-          # This commit currently lives in an unmerged PR, not master.
-          # Fetch GitHub's immutable PR-head ref explicitly, then verify SHA.
-          git fetch --no-tags --depth=1 origin refs/pull/1540/head
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
-          git status --porcelain
+      - name: Restore original Essentia upstream Waf objects (exact toolchain)
+        id: essentia-waf-cache
+        uses: actions/cache@v4
+        with:
+          path: build/windows-native/essentia-source
+          # Never restore a different MinGW/FFmpeg ABI.
+          # Bump v1 if upstream pin, configure options, or build policy changes.
+          key: original-essentia-waf-win2022-mingw64-v1-b0661db99be4a8e2-${{ hashFiles('build/windows-native/pacman-package-lock-observed.txt') }}
+      - name: Verify pinned original MTG sources or fetch on cache miss
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          source=build/windows-native/essentia-source
+          if test -d "$source/.git"; then
+            echo "Restored upstream sources and Waf build objects from Actions cache"
+          else
+            test ! -e "$source"
+            git clone --quiet https://github.com/MTG/essentia.git "$source"
+            # This commit currently lives in an unmerged upstream PR.
+            git -C "$source" fetch --no-tags --depth=1 origin refs/pull/1540/head
+            git -C "$source" checkout --detach FETCH_HEAD
+          fi
+          test "$(git -C "$source" rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
+          test -z "$(git -C "$source" status --porcelain)"
+          echo "Pinned upstream Essentia SHA verified: $(git -C "$source" rev-parse HEAD)"
       - name: Configure/build original Essentia via upstream waf, not an in-house port
         shell: msys2 {0}
         run: |
