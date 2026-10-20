@@ -480,6 +480,122 @@ The output summary exposes the **four** cases with `mel_max`,
 neither a passing short clip nor a small difference can grant the
 full-song or full-library compatibility gate.
 
+## Root cause confirmed: Essentia uses float32 SRC_LINEAR ratio, Rust used float64 exact
+
+**Independent original-source audit (2026-10-20):** Essentia's
+`src/algorithms/standard/resample.cpp`, **streaming::Resample::configure**,
+calculates `Real factor = outputSampleRate / inputSampleRate`; `Real`
+is `float`. This already-rounded float is subsequently assigned to
+libsamplerate's double `SRC_DATA.src_ratio`. The original
+`libsamplerate/src/src_linear.c` advances the resampling input phase by
+`1.0/src_ratio`, not by exact integer `inputRate/outputRate`.
+Our Rust `src/audio_decode.rs` incorrectly used the exact float64
+`input_rate as f64 / 16000.0`. On 44,100 -> 16,000 this changes the
+per-output phase step by approximately **9.45e-8 source samples**,
+which accumulates to ~**0.018 source samples after 12 seconds** and
+over **one source sample after 14 minutes**. The Mel/ONNX drift comes
+from phase, not the already exonerated stereo downmix.
+
+**Reproduced against independent original libsamplerate** `src_simple`
+with `SRC_LINEAR=4` on 12-second deterministic 44.1 kHz mono signal:
+existing Rust exact-ratio formula produced up to **0.002083823**
+PCM absolute difference; corrected Rust equivalent using the **f32
+ratio before converting to f64** gave max **2.98e-8** on matching
+samples. This independently confirms the exact phase-rounding
+mechanism; it does not yet certify a full real-song parity scan.
+
+**Fix implemented only in PR #17**:
+- `src/audio_decode.rs` now computes
+  `src_ratio = 16000f32 / (input_rate as f32)` and advances by
+  `1.0f64 / f64::from(src_ratio)`.
+- Source-derived independent libsamplerate PCM oracle regression added
+  to Rust `cargo test`; no new native library dependency.
+- Rust cache/preprocessing version bumped **v4 -> v5** consistently
+  across all feature/mood scanner and Mel/embedding dump commands.
+  Existing v4 features are **not reused** under the corrected v5 key.
+  Original native C++ fingerprint remains unchanged.
+- Deliberately preserve Rust's old *output frame count* behavior until
+  its independent end-of-stream effects are measured. Patch counts
+  already matched in the real-song experiment.
+
+**Efficient real-music follow-up:** Use the existing 837-patch
+float32 WAV, the previous original native Essentia full-song JSON,
+and the previous Rust v4 JSON under
+`benchmark-essentia-real-20261020-160351/mp3-wav-control-20261020-164836/`.
+Run **ONLY one new Rust v5 analysis** on the same WAV and verify
+identical audio SHA256, ONNX weights, full-song patch counts, class
+identities, separate old/new Rust and C++ fingerprints and 0.001
+per-class score tolerance. `scripts/verify_resampler_fix_on_existing_wav.py`
+writes a new private report and returns failure if still above
+threshold. Even `PASS_THIS_TRACK` is **not** the 100-song gate.
+
+The fixed Windows analyzer binary must be compiled from a commit
+containing the f32 phase fix. The old kit's `bliss-mood.exe` is v4
+and must NOT be used to test this fix. Download a successful
+`Windows x64 binary` artifact from PR #17, named
+`bliss-mood-windows-x64`, into an **independent folder**. This does
+not need a C++ worker or a full native Windows rebuild.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $control = Join-Path $base 'mp3-wav-control-20261020-164836'
+    $kit = 'D:\LMS\bliss-mood-rust-v5-test'
+    $out = Join-Path $base ('rust-v5-one-track-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Switch PR17 branch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Updating PR17 branch failed' }
+
+    python -m unittest discover -s tests -p 'test_verify_resampler_fix_on_existing_wav.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Report verifier tests failed' }
+
+    gh --version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI not available' }
+    $head = (git rev-parse HEAD).Trim()
+    $all = gh run list --repo chrober/bliss-mood-poc --branch feat/essentia-cpp-worker-backend --workflow windows-binary.yml --json databaseId,headSha,conclusion --limit 30 | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot list GitHub Action runs' }
+    $run = $all | Where-Object {
+        $_.headSha -eq $head -and $_.conclusion -eq 'success'
+    } | Select-Object -First 1
+    if (-not $run) {
+        throw "No successful Windows x64 binary for commit $head yet. Check PR17 CI."
+    }
+    if (Test-Path -LiteralPath $kit) {
+        throw "Choose fresh separate v5 kit directory, will not overwrite: $kit"
+    }
+    gh run download $run.databaseId --repo chrober/bliss-mood-poc --name bliss-mood-windows-x64 --dir $kit
+    if ($LASTEXITCODE -ne 0) { throw 'Windows binary artifact download failed' }
+    $analyzer = Join-Path $kit 'bliss-mood.exe'
+    if (-not (Test-Path -LiteralPath $analyzer)) {
+        throw 'New v5 scanner binary missing in Windows artifact'
+    }
+    $arguments = @(
+        'scripts/verify_resampler_fix_on_existing_wav.py',
+        '--wav', (Join-Path $control 'control-from-mp3-decoded-float32.wav'),
+        '--old-rust-json', (Join-Path $control 'rust-wav.json'),
+        '--essentia-json', (Join-Path $control 'essentia-wav.json'),
+        '--analyzer', $analyzer,
+        '--models-dir', (Join-Path $repo 'models'),
+        '--output-dir', $out,
+        '--score-max-tolerance', '0.001'
+    )
+    python @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "v5 still fails one-song strict parity or verifier; local report $out"
+    }
+    Write-Host "Single full-song v5 vs saved original C++ PASS; $out"
+}
+```
+
+Do not merge #17 solely from this single-track result: once the
+new v5 analyzer validates this root cause, check a representative
+same-cohort 100-song real-music gate with saved original C++ sidecars
+and new Rust v5 data. **Do not alter PR #16 or main.**
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
