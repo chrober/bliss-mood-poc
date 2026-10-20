@@ -280,7 +280,18 @@ def run(args):
             complete["parity_vs_saved_original_cpp"]["new_rust_v5"]["maximum_absolute_score_difference"],
         "patch_mismatches_vs_original_cpp":
             complete["parity_vs_saved_original_cpp"]["new_rust_v5"]["patch_count_mismatches"],
-        "worker_invariance_vs_four": complete["worker_count_invariance_vs_fixed_four"],
+        "per_head_cpp_max_difference": {
+            head: value["maximum_absolute_score_difference"]
+            for head, value in complete["parity_vs_saved_original_cpp"]
+                                    ["new_rust_v5"]["per_head"].items()
+        },
+        # Never print the detailed 'per_head' dict containing private
+        # worst_track paths. Only the full local JSON retains those.
+        "worker_invariance_vs_four": {
+            key: value for key, value in
+            complete["worker_count_invariance_vs_fixed_four"].items()
+            if key != "per_head"
+        },
         "controller": telemetry,
         "performance": complete["performance"],
         "full_private_report": str(result_file),
