@@ -2,6 +2,10 @@
 // Reproduces the EFW1/REQ1/RES1 binary protocol for Rust integration tests.
 #include <cstdint>
 #include <chrono>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 #include <thread>
 #include <cstring>
 #include <iostream>
@@ -32,6 +36,10 @@ static void header(std::uint8_t status, std::uint32_t count) {
     write_u64(2000000);
 }
 int main() {
+#ifdef _WIN32
+    if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
+        _setmode(_fileno(stdout), _O_BINARY) == -1) return 12;
+#endif
 #ifdef ESSENTIA_PE_FIXTURE_DEP
     // Fail the handshake if the packaged native import DLL was not actually
     // linked and executed. The mock worker is NEVER an Essentia binary.
@@ -64,6 +72,11 @@ int main() {
                 float f = 0.25f;
                 std::uint32_t bits;
                 std::memcpy(&bits, &f, sizeof(f));
+                if (path.find("binary-bytes") != std::string::npos) {
+                    // Little-endian includes CR, LF and CTRL-Z: reject text
+                    // mode translations on Windows native pipes.
+                    bits = 0x3f1a0a0d;
+                }
                 write_u32(bits);
             }
         }
