@@ -33,18 +33,28 @@ is recorded for later and does not block functional integration.
 
 ## Essentia C++ development handover (2026-10-20)
 
-For continuation of **draft PR #17**, start with the [current original
-Essentia C++ handover](docs/handover-essentia-cpp-20261020.md) and the
-[Windows linker diagnosis and next actions](docs/handover-essentia-windows-linker-20261020.md).
-**Confirmed:** Original Essentia C++ itself compiles as a Windows
-`essentia.dll`, but the real `bliss-essentia-worker.exe` fails at
-link time with unresolved upstream C++ symbols
-([CI run 39382026896](https://github.com/chrober/bliss-mood-poc/actions/runs/39382026896)).
-This branch has **7/8 green CI gates** at pre-handover commit
-`efda3f27e196`. Linux original-Essentia model parity passed, while
-Windows real Essentia audio smoke has not run. The newer Windows
-upstream SHA differs from the pinned Linux reference; do not assume
-cross-version numeric parity. `main` stays unchanged; PR remains Draft.
+**Current status, experimental:** the **genuine original Essentia C++ Windows x64
+worker has passed** build/linkage, dependency packaging, isolated startup,
+synthetic WAV/FLAC/MP3 DSP and complete 1280D/87D/56D/2D ONNX numerical
+parity, schema-v3 sidecar persistence, two-worker scanner reuse and the
+unchanged PR #16 similarity evaluator. See [successful Windows run
+#39421541546](https://github.com/chrober/bliss-mood-poc/actions/runs/39421541546)
+at `bdb281d3a952775d62f4b29786e687a05471f9b1`.
+Its `bliss-mood-essentia-windows-x64-dev` artifact is valid through
+2026-11-03.
+
+**NEXT GATE (not yet validated):** compare Rust and original C++ frontends on
+the **same real music** using fresh, separate schema-v3 sidecars and different
+model fingerprints. Read the [bounded Windows real-music compatibility
+runbook](docs/essentia-cpp-real-music-compatibility-gate.md).
+After successful real-audio numerical parity, CI and review, merge #17 into
+main and continue the independent Genre/Mood similarity investigations in
+#16 on newly generated C++ feature data. Rust default remains unchanged;
+native licensing/release approval is still open. Older Windows linker
+failure investigations are historical and superseded by the successful run.
+
+For architecture and history see [the handover](docs/handover-essentia-cpp-20261020.md)
+and [Windows linker runbook](docs/handover-essentia-windows-linker-20261020.md).
 
 ## Experimental original Essentia C++ frontend (feature branch only)
 
@@ -59,17 +69,15 @@ frontend; the C++ backend is explicitly selected using
 `--audio-backend essentia --essentia-worker <trusted-executable>`
 for `analyze-features` or `scan-features`.
 
-**Not production-ready:** Linux CI has verified genuine original-Essentia
-DSP patches against Rust (WAV/FLAC/MP3) through EffNet and all 87/56/2
-classification heads. Windows separately validates the Rust subprocess
-protocol and DLL packaging using a **synthetic** worker. The Windows
-original-Essentia DLL builds, but the **real C++ worker EXE fails to link**
-(see handover above); its audio smoke, Windows numerical parity and
-Pi/ARM64 distribution remain open. Native subprocess watchdogs,
-restarts and process-tree RAM sampling are implemented and exercised in
-CI; real-world resource ceilings are not yet benchmarked. Do not run
-unattended large-library scans with this backend. Native executable and
-on-Windows deployment-manifest hashes distinguish feature cache keys.
+**Not production-ready:** Genuine original-Essentia C++ Windows x64
+DSP/ONNX numerical parity is now proven on synthetic fixtures and the
+development test kit is available, but **real-music cohort compatibility,
+large-library performance, Pi/ARM64/macOS distribution and complete native
+licensing review remain open**. Native process watchdogs, restart behavior
+and process-tree memory sampling remain implemented. Do not scan an
+unattended full music library or distribute the binary as a production
+release. Backend fingerprints are intentionally distinct, so retain new
+C++ sidecars separately from prior Rust data.
 
 ## Generic feature models (opt-in)
 
