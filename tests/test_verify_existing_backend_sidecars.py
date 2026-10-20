@@ -92,7 +92,7 @@ class ExistingAudioSidecarAuditTests(unittest.TestCase):
     def test_wrong_cohort_and_missing_head_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             trio = build_fixture(Path(tmp))
-            with self.assertRaisesRegex(AssertionError, "Partial model-head coverage"):
+            with self.assertRaisesRegex(AssertionError, "Some tracks lack requested model heads"):
                 audit.verify(*trio, ("genre", "moodtheme"), 1e-3)
             with closing(sqlite3.connect(trio[0])) as conn:
                 with conn:
