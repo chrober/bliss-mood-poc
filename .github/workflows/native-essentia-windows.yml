@@ -195,7 +195,10 @@ jobs:
           # Waf installs the DLL in /mingw64/lib, which is not the loader PATH.
           # Keep a byte-identical original copy beside the native smoke EXE.
           cp /mingw64/lib/essentia.dll build/windows-native/worker/essentia.dll
-          cmp /mingw64/lib/essentia.dll build/windows-native/worker/essentia.dll
+          upstream_sha=$(sha256sum /mingw64/lib/essentia.dll | cut -d ' ' -f1)
+          adjacent_sha=$(sha256sum build/windows-native/worker/essentia.dll | cut -d ' ' -f1)
+          test "$upstream_sha" = "$adjacent_sha"
+          echo "Original adjacent Essentia DLL SHA256 verified: $upstream_sha"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
