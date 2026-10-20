@@ -35,11 +35,9 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-eigen3
-            mingw-w64-x86_64-libyaml
             mingw-w64-x86_64-fftw
             mingw-w64-x86_64-ffmpeg
             mingw-w64-x86_64-libsamplerate
-            mingw-w64-x86_64-taglib
             mingw-w64-x86_64-binutils
       - name: Log full build provenance and prepare original MTG sources
         shell: msys2 {0}
@@ -72,7 +70,9 @@ jobs:
           # Upstream Essentia is written for GNU C++11/14. GNU++14 keeps
           # M_PI/M_LN2 visible but avoids the C++17 std::byte collision
           # in Windows RPC headers (legacy global byte typedef).
-          /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14
+          # Only original dependencies needed by MonoLoader and MusiCNN mel.
+          # Avoid unrelated TagLib/YAML/Chromaprint compatibility.
+          /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14 --lightweight=libav,libsamplerate,fftw
           /usr/bin/python3 waf -j 4
           /usr/bin/python3 waf install
           pkg-config --modversion essentia
