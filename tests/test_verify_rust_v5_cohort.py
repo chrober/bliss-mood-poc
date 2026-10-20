@@ -1,7 +1,9 @@
 """Fast strict v5 cohort acceptance tests; original SQLite artifacts read-only."""
 from contextlib import closing
 import json
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 import sqlite3
 import struct
 import sys
@@ -94,6 +96,64 @@ class NewRustCohortGateTests(unittest.TestCase):
             self.assertEqual(before, tuple(
                 gate.digest(path) for path in (cohort, old, cpp, new)
             ))
+
+    def test_parallel_four_workers_execute_exactly_one_new_rust_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cohort, old, cpp, v5_fixture = make_cohort(root)
+            output = root / "new-parallel-sidecar"
+            scanner = root / "v5-scanner.exe"
+            scanner.write_bytes(b"synthetic scanner not invoked in this test")
+            args = SimpleNamespace(
+                cohort_db=cohort, old_rust_db=old, essentia_db=cpp,
+                analyzer=scanner, models_dir=root, source_root=root,
+                output_dir=output, workers=4, expected_songs=2,
+                score_max_tolerance=0.001,
+            )
+            original_hashes = tuple(gate.digest(path) for path in (
+                cohort, old, cpp, v5_fixture
+            ))
+
+            def simulate_scan(scan_args, round_index, workers, backend, expected):
+                self.assertEqual((round_index, workers, backend, expected),
+                                 (1, 4, "rust", 2))
+                self.assertEqual(scan_args.models, "genre,moodtheme,voice")
+                self.assertEqual(scan_args.output_dir, output)
+                target = output / "round-01-workers-04-rust.db"
+                shutil.copyfile(v5_fixture, target)
+                return ({"sqlite": target.name, "seconds": 12.5}, {})
+
+            with patch.object(gate, "run_scan", side_effect=simulate_scan) as mock:
+                report = gate.run(args)
+            mock.assert_called_once()
+            self.assertEqual(report["numeric_parity_status"], "PASS")
+            self.assertEqual(report["worker_count"], 4)
+            self.assertEqual(report["onnx_threads_per_worker"], 1)
+            self.assertIn("workers_4", report["scope"])
+            self.assertEqual(report["rust_v5_scan"]["seconds"], 12.5)
+            self.assertTrue((output / "parity-report-private.json").is_file())
+            self.assertEqual(original_hashes, tuple(gate.digest(path) for path in (
+                cohort, old, cpp, v5_fixture
+            )))
+
+    def test_rejects_unsupported_worker_counts_before_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cohort, old, cpp, _ = make_cohort(root)
+            scanner = root / "v5-scanner.exe"
+            scanner.write_bytes(b"synthetic scanner")
+            args = SimpleNamespace(
+                cohort_db=cohort, old_rust_db=old, essentia_db=cpp,
+                analyzer=scanner, models_dir=root, source_root=root,
+                output_dir=root / "should-not-be-created",
+                workers=3, expected_songs=2,
+                score_max_tolerance=0.001,
+            )
+            with patch.object(gate, "run_scan") as mock:
+                with self.assertRaisesRegex(ValueError, "fixed Rust --workers"):
+                    gate.run(args)
+            mock.assert_not_called()
+            self.assertFalse(args.output_dir.exists())
 
     def test_out_of_tolerance_remains_failure(self):
         with tempfile.TemporaryDirectory() as temp:
