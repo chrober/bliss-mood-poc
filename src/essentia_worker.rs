@@ -457,6 +457,54 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_manifest_guards_actual_worker_and_dependency_bytes() {
+        let Some(fixture) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else {
+            return; // CI supplies MSVC-compiled native protocol fixture.
+        };
+        let exe = PathBuf::from(fixture);
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-native-bundle-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let target = dir.join("essentia-protocol-fixture.exe");
+        let dll = dir.join("synthetic-dependency.dll");
+        std::fs::copy(&exe, &target).unwrap();
+        std::fs::copy(&exe, &dll).unwrap();
+        assert!(BackendChoice::from_cli("essentia", Some(&target), 900).is_err(),
+                "Windows native C++ executable without DLL manifest is not safe");
+        let manifest = serde_json::json!({
+            "schema_version": 1,
+            "platform": "windows-x86_64-mingw64",
+            "worker_executable": "essentia-protocol-fixture.exe",
+            "files": {
+                "essentia-protocol-fixture.exe": {
+                    "size_bytes": std::fs::metadata(&target).unwrap().len(),
+                    "sha256": sha256_file(&target).unwrap()
+                },
+                "synthetic-dependency.dll": {
+                    "size_bytes": std::fs::metadata(&dll).unwrap().len(),
+                    "sha256": sha256_file(&dll).unwrap()
+                }
+            }
+        });
+        std::fs::write(dir.join("worker-dependencies.json"), manifest.to_string()).unwrap();
+        let checked = BackendChoice::from_cli("essentia", Some(&target), 900).unwrap();
+        assert_eq!(checked.worker_hash(), Some(sha256_file(&target).unwrap().as_str()));
+        assert_eq!(
+            checked.deployment_hash(),
+            Some(sha256_file(&dir.join("worker-dependencies.json")).unwrap().as_str())
+        );
+        std::fs::write(&dll, b"tampered after packaging").unwrap();
+        assert!(BackendChoice::from_cli("essentia", Some(&target), 900).is_err(),
+                "Changing a bundled DLL must invalidate the entire native backend");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn backend_selection_is_explicit() {
         assert!(matches!(BackendChoice::from_cli("rust", None, 900), Ok(BackendChoice::Rust)));
