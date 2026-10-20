@@ -228,6 +228,103 @@ gegen Rust-FFmpeg, Mel/Patch-Vergleich pro betroffenem Song, anschließend
 Embeddings und Modell-Outputs. Erst nach Erklärung der Differenzen
 entscheiden wir über den PR-17-Merge. Kein automatisch hoher Toleranzwert.
 
+## Next controlled root-cause experiment: real MP3 vs shared PCM WAV
+
+**100 real songs (all MP3), strict paired scan, 1 worker:** 23/100 tracks
+exceeded absolute class-score difference 0.001, while all patch counts and
+actual ONNX weights/class definitions agreed. Results were:
+
+| Head | Affected songs | Components over 0.001 | MAE | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| genre (87) | 13 | 31/8700 | 0.0000390 | 0.0034552 |
+| moodtheme (56) | 3 | 6/5600 | 0.0000354 | 0.0030841 |
+| voice (2) | 11 | 22/200 | 0.0005335 | 0.0038242 |
+
+Across all heads 59/14,500 class scores exceeded 0.001 (0.407%). Voice's
+two output classes are a Softmax and can both shift for a single song;
+22 above-threshold scores thus represent 11 distinct tracks, not 22.
+**This is a FAILED strict parity gate**, not a reason to silently
+enlarge the allowed difference.
+
+These 100 real files do not test non-MP3 behavior. The Windows C++ build's
+FFmpeg components and the Rust CLI's separately invoked user-PATH FFmpeg
+can differ in decoder implementation, build version, gapless handling,
+resampling, downmix or DSP arithmetic. **Do not claim the cause is MP3
+decoding before isolating it.**
+
+The next inexpensive, targeted test should use the **worst real MP3** from
+the *local* numeric drift report. Without rescanning the 100 songs:
+
+1. Decode its complete first audio stream to **one common lossless 32-bit
+   float PCM WAV**, preserving its native sample rate and channel count.
+2. Run the same Windows \`bliss-mood.exe\` twice on this **same WAV**, once
+   Rust and once C++ (identical ONNX weights, one thread, no SQLite output).
+3. Compare Genre, Mood and Voice class scores and full-song patch counts.
+   The tool also prints the **already recorded** full-song MP3 sidecar
+   differences for this same song; no MP3 rescan is necessary.
+
+- If C++/Rust scores match on the shared WAV but differed on the original
+  MP3, investigate MP3 decoder version, gapless trimming and PCM conversion.
+- If they differ on the shared WAV too, investigate PCM downmix, the
+  \`SRC_LINEAR\` resampler, frame layout, Mel coefficients and numerical
+  DSP. A WAV mismatch does *not* mean that the MP3 discrepancy necessarily
+  has the same cause.
+- The test also reports if the WAV patch count differs from the original
+  MP3 sidecars (e.g. trimming/encoder delay). **Do not force equivalence
+  between different length/trim variants** or raise the original 0.001
+  tolerance.
+
+Run on user's machine (requires existing kit, ONNX models and FFmpeg on PATH).
+Original audio and existing SQLite are opened read-only. The single
+generated WAV and CLI JSON artifacts remain in a new private directory
+and may be large. No music/audio or JSON is committed to Git.
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $out = Join-Path $base 'mp3-wav-control-rank1'
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Branch switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git pull failed' }
+
+    python -m unittest discover -s tests -p 'test_diagnose_mp3_wav_control.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Control helper regression tests failed' }
+    if (Test-Path -LiteralPath $out) {
+        throw "Never overwrite previous control data: $out"
+    }
+    $args = @(
+        'scripts/diagnose_mp3_wav_control.py',
+        '--drift-report', (Join-Path $base 'real-audio-drift-diagnostics.json'),
+        '--rust-db', (Join-Path $base 'round-01-workers-01-rust.db'),
+        '--essentia-db', (Join-Path $base 'round-01-workers-01-essentia.db'),
+        '--source-root', '\\192.168.1.100\music',
+        '--analyzer', (Join-Path $kit 'bliss-mood.exe'),
+        '--essentia-worker',
+          (Join-Path $kit 'essentia-worker\bliss-essentia-worker.exe'),
+        '--models-dir', (Join-Path $repo 'models'),
+        '--output-dir', $out,
+        '--rank', '1',
+        '--score-max-tolerance', '0.001'
+    )
+    python @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Controlled decoded-WAV test failed. See local logs: $out"
+    }
+}
+~~~
+
+The printed \`original_mp3_by_head\` numbers reflect the preserved 100-song
+benchmark; \`wav_control_by_head\` numbers are the two new analyses on shared
+PCM. The complete local report contains the private track key and is not to
+be uploaded. The tool returns successfully for **diagnostic completeness**;
+the boolean \`wav_control_within_tolerance\` is the actual WAV-numerical gate.
+Neither value alone certifies full-library or cross-codec parity.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
