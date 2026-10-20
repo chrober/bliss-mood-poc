@@ -9,6 +9,7 @@ Never run against the full 64,000-track library without selecting a cohort.
 """
 import argparse
 import csv
+from contextlib import closing
 import hashlib
 import json
 import math
@@ -70,7 +71,11 @@ def experiment_plan(worker_counts, repeats, seed):
 
 
 def load_feature_rows(db):
-    with sqlite3.connect(f"file:{db.resolve().as_posix()}?mode=ro", uri=True) as conn:
+    # Context-managed transactions do NOT close a connection on Windows.
+    # Keep the feature sidecar strictly read-only and release the handle.
+    with closing(sqlite3.connect(
+        f"file:{db.resolve().as_posix()}?mode=ro", uri=True
+    )) as conn:
         records = conn.execute(
             "SELECT track_file, model_id, patches_analyzed, scores_f32_le "
             "FROM feature_tracks ORDER BY track_file, model_id"
@@ -217,6 +222,16 @@ def matrix_aggregate(runs):
     return data
 
 
+def validate_source_roots(source_root, library_root):
+    """Relative TracksV2.File keys need only --source-root.
+
+    --library-root remaps an existing absolute prefix and therefore always
+    requires --source-root; the converse is not true.
+    """
+    if library_root and not source_root:
+        raise ValueError("--library-root requires --source-root")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort-db", required=True, type=Path,
@@ -248,8 +263,10 @@ def main():
         parser.error(f"--workers must be unique values from {VALID_WORKERS}")
     if not 0 < args.score_max_tolerance < 0.1:
         parser.error("--score-max-tolerance must be between zero and 0.1")
-    if bool(args.library_root) != bool(args.source_root):
-        parser.error("Use --library-root with --source-root, or neither")
+    try:
+        validate_source_roots(args.source_root, args.library_root)
+    except ValueError as error:
+        parser.error(str(error))
     for name, path in [("analyzer", args.analyzer),
                        ("Essentia worker", args.essentia_worker)]:
         if not path.is_file():
