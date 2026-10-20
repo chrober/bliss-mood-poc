@@ -58,6 +58,77 @@ PR #16 similarity evaluator.
    release/distribution gate; merging experimental code is **not**
    production redistribution approval.
 
+## Recovery: inspect existing completed 100-song pair WITHOUT rescan
+
+**2026-10-20 real-library result:** the first single-worker Rust and C++
+100-song analyses both completed (567.78s Rust, 508.19s C++); the harness
+then stopped before comparing numeric scores because a newly introduced
+metadata check mistakenly compared the *entire*
+`feature_models.models_sha256_json` dictionaries. C++ intentionally adds
+`essentia_cpp_worker_binary_sha256` and, on Windows, the deployment manifest
+SHA to that JSON. These extra keys must remain validated for cache identity,
+but must not be mistaken for differences in the **shared ONNX encoder/head**.
+
+**Fix in PR #17:** parse the hashes, require equal exact encoder/head ONNX
+SHA256 digests, same ordered class labels and aggregation across backends,
+validate only the documented extra C++ worker/deployment SHA keys and reject
+unknown fields. This remains strict; there is **no tolerance relaxation**.
+
+For the **already completed first two sidecars** in
+`benchmark-essentia-real-20261020-160351`, run the following from the
+up-to-date PR #17 checkout. This utility reads the v3 SQLite files in
+read-only mode and does not invoke any scanner, C++ worker, ONNX or NAS
+audio. It checks exact cohort keys, 87/56/2 vector dimensions, patch
+counts, separate fingerprints, identical real ONNX SHA256/class
+definitions and absolute score drift <= 1e-3.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $cohort = Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db'
+    $base = Join-Path $repo 'benchmark-essentia-real-20261020-160351'
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to switch to PR17 branch' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to update PR17 code' }
+
+    python -m unittest discover -s tests -p 'test_verify_existing_backend_sidecars.py'
+    if ($LASTEXITCODE -ne 0) { throw 'No-rescan audit regression failed' }
+
+    $checkArgs = @(
+        'scripts/verify_existing_backend_sidecars.py',
+        '--cohort-db', $cohort,
+        '--rust-db', (Join-Path $base 'round-01-workers-01-rust.db'),
+        '--essentia-db', (Join-Path $base 'round-01-workers-01-essentia.db'),
+        '--models', 'genre,moodtheme,voice',
+        '--score-max-tolerance', '0.001'
+    )
+    $raw = & python @checkArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Existing v3 sidecar parity failed' }
+    $r = ($raw -join "`n") | ConvertFrom-Json
+    Write-Host "RESULT: $($r.status) - $($r.song_count) songs"
+    foreach ($head in @('genre', 'moodtheme', 'voice')) {
+        $d = $r.numerical_parity.per_head.$head
+        [pscustomobject]@{
+            Head = $head
+            Songs = $d.tracks
+            MaxAbsError = $d.maximum_absolute_score_difference
+            MeanAbsError = $d.mean_absolute_score_difference
+            PatchMismatches = $r.numerical_parity.patch_count_mismatches
+        }
+    }
+}
+```
+
+On any failure, stop and inspect the exact error. Do **not** rerun all
+100 songs just because a metadata assertion failed; all completed sidecar
+data remains available. If parity is successful, validate the **two-worker
+scenario** with an entirely fresh output directory using the main
+benchmark's `--workers 2 --repeats 1` and the verified dev-kit binaries.
+Avoid repeating the already-completed one-worker scans.
+
 ## Windows PowerShell quick compatibility test
 
 Prerequisites: local checkout of the #17 branch, unpacked dev kit
