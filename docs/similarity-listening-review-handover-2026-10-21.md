@@ -1,5 +1,37 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **CURATED CACHE REAL MISS→HIT VERIFIED (21 OCT 2026):**
+> [First curated run 39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
+> **PASS**: `scripts/mtt_selected_clip_cache.py` packed exactly
+> 1,019 CRC-verified referenced MagnaTagATune MP3s into
+> **119,689,247 bytes (114.14 MiB)**; all official CRCs/lengths
+> verified before Rust-v5. Packaging took **1.18 s**, full recheck
+> **0.59 s**. Only this package was saved in `actions/cache`;
+> original 2.77-GiB publisher files were deleted and never cached.
+> Actual Actions cache storage approx 130.5 MB.
+> The exact two-worker Genre/Mood 346-triple benchmark again
+> passed with Mood-Cosine **0.6552901** valid-prediction
+> majority accuracy. Its analysis+merge took **244.677 s** vs
+> **145.505 s** on earlier full-source run: avoid claiming a
+> controlled inference speedup from cache alone.
+> [Second run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
+> verified a **true cache HIT**: publisher source ZIP download
+> and repack steps were SKIPPED, package reverified from original
+> 8-MiB central-directory tail; check final Actions result and
+> fourteen-row head×metric scorecard before reporting total timings.
+> Dedicated offline tests for complete, corrupt/missing clip caches
+> and scorecard run in Linux/Windows
+> [Python CI 39600399370](https://github.com/chrober/bliss-mood-poc/actions/runs/39600399370)
+> PASS. The 346 unique triplets are fully exploratory, with
+> **NO independent MagnaTagATune holdout** remaining.
+> Further tasks: compare MISS/HIT true stage times, compile
+> all-metric coverage/abstention scorecard, improve build
+> reuse and do dependence-aware uncertainty analysis across
+> co-occurring artists; corroborate on DEAM, FMA, and independent
+> human similarity sources before any production metric choice.
+> No music in git or upload-artifact; GH caches not confidential.
+>
+
 > **CURATED MTT AUDIO CACHE — 21 OCT 2026:**
 > User approved caching **ONLY 1,019 actually referenced MagnaTagATune
 > MP3 clips**, rather than the 2.77-GiB original ZIP parts. New
