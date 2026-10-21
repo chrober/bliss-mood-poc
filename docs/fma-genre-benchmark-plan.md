@@ -1,11 +1,12 @@
 # Planned FMA genre-retrieval benchmark — Draft PR #16
 
-**Status (21 Oct 2026):** metadata-only CI preflight PASSED; a real
-artist-unique **validation-only** FMA-Small Genre retrieval benchmark
-is now implemented and its first bounded Actions run is under way.
-Check run 39581435733 for a completed audio/report artifact before
-making any real-data retrieval claims. No production similarity metric
-or mixer decision is made here; the official TEST split remains untouched.
+**Status (21 Oct 2026):** metadata-only CI preflight PASSED;
+the first real audio validation run failed on three anomalous MP3 sizes.
+The bounded archive-quality fix was tested; the corrected full
+**80-song validation-only** Rust-v5 Genre retrieval workflow
+[39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757)
+then **PASSED**, with an aggregate-only report. No production metric or
+mixer decision is made here; the official TEST split remains untouched.
 
 ## Data and provenance
 
@@ -128,3 +129,56 @@ The **official TEST split is not used** by this exploratory run.
 No best production metric or final generalization claim is valid.
 All input audio, per-track artist/genre labels and vectors stay
 on the ephemeral Actions runner.
+
+
+## Confirmed corrected first FMA-Small Genre retrieval result (21 Oct 2026)
+
+[Successful Actions run 39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757);
+[aggregate-only artifact 12338242831](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757/artifacts/12338242831).
+
+The canonical FMA-Small ZIP contained 8,002 archive members
+(including directories). Exactly **3 anomalous-size MP3s** were
+excluded; **7,997** accepted archive tracks remained. Fixed seed
+20261021 selected **80 artist-distinct Validation songs (10 per
+top-level genre)**. The pinned corrected Rust-v5 source revision
+2c3d44401436b3b41b6e067199016a1ed2335fbf analyzed 80/80
+selected MP3s. The off-limits official **FMA TEST** split was never
+used.
+
+| Metric | Precision@5 | mAP@10 | nDCG@10 |
+| --- | ---: | ---: | ---: |
+| RMS | 0.3175 | 0.2064 | 0.3298 |
+| Cosine | 0.3500 | 0.2353 | 0.3509 |
+| Centered Cosine | 0.3525 | 0.2400 | 0.3554 |
+| Weighted Jaccard | 0.3550 | 0.2332 | 0.3415 |
+| Historical cutoff Top-K | 0.3150 | 0.2233 | 0.3304 |
+| Ranked Top-6 | 0.3150 | 0.2249 | 0.3350 |
+| Ranked Top-12 | 0.3400 | 0.2291 | 0.3369 |
+
+The balanced-cohort **random Precision@5 expectation** is
+9 / 79 = **0.113924** (9 relevant same-genre neighbors among
+79 distinct-artist candidates).
+
+**Interpretation limits:** Each song has coarse genre labels, not
+direct human musical similarity preferences. Selected validation
+artists are unique and official FMA splits are artist-ID-disjoint,
+but the model's MTG-Jamendo training catalog has not been fully
+audited against FMA audio/artist data. No development/test
+hyperparameter choice or independent held-out TEST score is
+claimed. Top-K overlap-abstention policies can alter the candidate
+pool, so comparisons should be paired and report coverage in
+future larger samples. Differences around 0.002--0.005 P@5 are
+too small for a defensible winner on just 80 tracks.
+
+**Observed workflow timing:** the Runner reported 4 CPUs;
+canonical archive download began at ~10:17:21 UTC and ended
+at 10:21:00 UTC, ~3 min 39 sec. The 80 individual-song
+Rust-v5 subprocesses were logged by ~10:21:50 UTC, with the final
+metrics at ~10:21:58 UTC. This stage was **serial** with
+--threads 1 and no adaptive workers. For such small cohorts,
+network, setup and Rust build time dominate; parallel audio
+analysis should be A/B tested on identical inputs before enabling
+it. No measured speedup exists yet.
+
+Workflow maintenance and trigger caveats are detailed in
+[GitHub Actions audit](github-actions-trigger-and-worker-audit-2026-10-21.md).
