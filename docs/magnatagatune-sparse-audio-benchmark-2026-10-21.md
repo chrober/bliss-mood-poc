@@ -176,3 +176,48 @@ directory fetch and 12 targeted clips already avoided >2.7-GiB
 full-archive download. Do not assume Rust worker count will
 materially reduce total job duration until fixed/serial A/B runs
 measure the same audio and all downstream feature values.
+
+
+## Artist holdout feasibility: real data (2026-10-21)
+
+[GitHub Actions 39591601421](https://github.com/chrober/bliss-mood-poc/actions/runs/39591601421)
+completed a **metadata-only** human-triplet/artist graph audit;
+[aggregate report 12342082098](https://github.com/chrober/bliss-mood-poc/actions/runs/39591601421/artifacts/12342082098).
+It studied the **346 unique unordered triplets** (not 533 independent
+cases) across the **214 referenced artist strings**.
+
+**Critical observation:** The artist co-occurrence graph has **one
+connected component** containing all **214 artists and all 346
+unique triplets**. A connected-component-disjoint train/test split is
+thus **mathematically impossible** without discarding triplets.
+The published data are too interconnected for the ideal proposed
+80/20 artist-component holdout without exclusions.
+
+A deterministic SHA-256 artist-based assignment with strict exclusion
+of cross-group triplets yields:
+- **162** all-development-artist triplets;
+- only **4** all-holdout-artist triplets;
+- **180** mixed-artist triplets excluded;
+- **0** questions with missing artist.
+
+Four independent held-out questions are insufficient for reliable
+comparison among seven methods. Even a fully executed benchmark could
+not substantiate an artist-generalization claim from that split.
+A less strict grouped or triplet holdout may still provide
+**descriptive same-corpus rankings**, but shared artists and songs
+must then be explicitly reported as sources of dependence; confidence
+intervals and final claims must reflect that design.
+
+The previous four-triplet smoke chose high-consensus examples before
+this artist split was frozen, so it **cannot be retroactively treated
+as held-out evidence**. Treat any possible overlap with candidate
+holdout artists conservatively (exclude those questions or freeze an
+unseen independent reference corpus before testing).
+Current algorithm: [audit_magnatagatune_holdout.py](../scripts/audit_magnatagatune_holdout.py).
+No audio used or private identifiers released.
+
+**Next science decision:** use the 346 questions as an *exploratory*
+perceptual-similarity benchmark, with vote/consensus handling and
+repeated-artist sensitivity analyses, and seek a separate independent
+human-similarity dataset for final confirmation. Do not select a
+production metric based on four holdout triplets.
