@@ -170,3 +170,34 @@ Vergleiche auch 0 und positive Verbesserungen.
 
 **Entscheid:** Weiter forschen, kein Production Winner,
 PR #16 bleibt Draft und `main` unverändert.
+
+## Ergänzendes Paritätsgate: technisch vollständig PASS
+
+Der nachgelagerte [Actions-Run 39618323154](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154)
+hat **sowohl das neue synthetische Rohpatch-Paritätsgate
+als auch den vollständigen 1019-Clip-/346-Tripel-A/B**
+mit exakt denselben bestätigten fünf Trefferzahlen
+**erfolgreich** abgeschlossen. Der rein aggregierte
+[Report samt Paritätsprotokoll](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154)
+enthält:
+
+| Verifikationspunkt | Gemessener Wert |
+| --- | --- |
+| Synthetische WAV-Länge | 6 Sekunden |
+| Ausgegebene EffNet-Patches | 4 |
+| Song-Embedding-Dimension | 1280 |
+| Max. unabhängige Rohpatch-Pooling-Abweichung | 1,0855063 × 10⁻⁸ |
+| Abweichung des L2-Normwerts von 1 | 4,1199244 × 10⁻¹⁰ |
+| Max. Unterschied 1 vs. 2 ONNX-Threads | **0,0** |
+| Genre-/Mood-Werte bei Export aus versus ein | **exakt gleich** |
+| SQLite-v3-Modelle/-Trackzeilen ohne/mit Export | **exakt gleich** |
+| Audio-MTT-A/B, 1019 Clips / 293 entscheidbare Fragen | **PASS, unveränderte Ergebnisse** |
+
+Die Einheitentest-Gates wurden ebenso bestanden, ohne private
+Musikdateien zu analysieren. **Das belegt ONNX-interne
+Pooling- und Klassifikationsregressionsparität für diesen
+synthetischen Fall; keine vollständig erneute Mehrsong-Parität
+zum TensorFlow/C++-Embedding-Original.** Die ältere, allein durch
+Upstream-Modell-Timeout gescheiterte Standalone-Smoke-Action
+ändert nichts an diesem separat erfolgreich ausgeführten
+identischen und zusätzlichen Gate.
