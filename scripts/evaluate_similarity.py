@@ -337,7 +337,14 @@ def load_labels(path: Path) -> list[tuple[str, str, dict[str, int | None]]]:
     without belonging to the same genre, or vice versa.
     """
     with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
+        # Accept both comma-separated CSV and semicolon-delimited exports
+        # from Excel/PowerShell on German-language Windows installations.
+        # Only the header determines the delimiter: track filenames may
+        # legitimately contain commas or semicolons, properly quoted.
+        header = handle.readline()
+        handle.seek(0)
+        delimiter = ";" if header.count(";") > header.count(",") else ","
+        reader = csv.DictReader(handle, delimiter=delimiter)
         required = {"left", "right", "genre_label", "mood_label"}
         if not reader.fieldnames or not required <= set(reader.fieldnames):
             raise ValueError(
@@ -426,6 +433,52 @@ def evaluate_labels(conn: sqlite3.Connection, cohorts: dict, labels: list) -> di
     return result
 
 
+def pair_details_report(database: Path, experimental: bool, label_path: Path) -> dict:
+    """Small read-only report with exact seven-metric scores for judged pairs.
+
+    Unlike the standard report, it does not perform random sampling,
+    nearest-neighbor searches, inference, decoding, or any database writes.
+    Human labels are displayed unchanged; scores do not override judgments.
+    """
+    with closing(open_database(database)) as conn:
+        cohorts = {model: _catalog(conn, model, experimental) for model in MODELS}
+        judged = load_labels(label_path)
+        vectors = fetch_keys(
+            conn, {name for a, b, _ in judged for name in (a, b)}, cohorts
+        )
+        details = []
+        for index, (left, right, labels) in enumerate(judged, 1):
+            scores = {}
+            for head in MODELS:
+                if head not in vectors[left] or head not in vectors[right]:
+                    scores[head] = None
+                    continue
+                a, b = vectors[left][head], vectors[right][head]
+                scores[head] = {
+                    metric: func(a, b) for metric, func in METRIC_FUNCS.items()
+                }
+            details.append({
+                "pair": index, "left": left, "right": right,
+                "genre_label": labels["genre"], "mood_label": labels["moodtheme"],
+                "scores": scores,
+            })
+        return {
+            "schema": "similarity-pair-diagnostics-v1",
+            "source": {"feature_schema": 3, "read_only": True,
+                       "audio_or_onnx_access": False},
+            "warning": "Eight selected subjective listening pairs are exploratory; "
+                       "scores do not determine correct labels.",
+            "models": {
+                head: {"model_key": info["model_key"],
+                       "dimensions": info["dimensions"],
+                       "preprocessing_version": info["preprocessing_version"]}
+                for head, info in cohorts.items()
+            },
+            "labeled": evaluate_labels(conn, cohorts, judged),
+            "pair_details": details,
+        }
+
+
 def report(database: Path, limit: int, pairs: int, seed: int, examples: int,
            experimental: bool, label_path: Path | None) -> dict:
     with closing(open_database(database)) as conn:
@@ -467,15 +520,22 @@ def main() -> None:
     parser.add_argument("--examples", type=int, default=5,
                         help="Nearest tracks per metric for manual listening (0..20)")
     parser.add_argument("--labels", type=Path,
-                        help="Optional user-judged CSV with exact left,right,label(0/1)")
+                        help="Optional user-judged comma- or semicolon-separated CSV")
+    parser.add_argument("--pair-details-only", action="store_true",
+                        help="Only read existing labeled track vectors; output individual pair scores")
     args = parser.parse_args()
+    if args.pair_details_only and args.labels is None:
+        parser.error("--pair-details-only requires --labels")
     if not 2 <= args.limit <= MAX_TRACKS or not 1 <= args.pairs <= MAX_RANDOM_PAIRS:
         parser.error("Limit or pairs outside permitted range")
     if not 0 <= args.examples <= 20:
         parser.error("Examples outside 0..20")
     try:
-        out = report(args.db, args.limit, args.pairs, args.seed, args.examples,
-                     args.include_experimental, args.labels)
+        if args.pair_details_only:
+            out = pair_details_report(args.db, args.include_experimental, args.labels)
+        else:
+            out = report(args.db, args.limit, args.pairs, args.seed, args.examples,
+                         args.include_experimental, args.labels)
     except (OSError, ValueError, sqlite3.DatabaseError) as exc:
         parser.exit(2, f"Similarity evaluation failed: {exc}\n")
     print(json.dumps(out, indent=2, ensure_ascii=False, allow_nan=False))
