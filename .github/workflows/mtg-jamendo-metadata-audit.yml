@@ -1,0 +1,63 @@
+name: MTG-Jamendo split and model metadata preflight
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/mtg-jamendo-metadata-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  split-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify metadata auditor with synthetic splits
+        run: python3 -m unittest discover -s tests -p 'test_audit_mtg_jamendo_models.py'
+      - name: Download pinned official split TSVs and Essentia model JSON ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private/mtg-splits benchmark-private/models results
+          echo "runner_vcpu=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          commit=cafd8e20c265ed84f1e61f1c875327971f43a62f
+          base=https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/$commit/data/splits/split-0
+          for head in genre moodtheme; do
+            for subset in train validation test; do
+              name="autotagging_$head-$subset.tsv"
+              curl --fail --location --retry 3 --retry-all-errors \
+                --connect-timeout 20 --max-time 300 --silent --show-error \
+                "$base/$name" -o "benchmark-private/mtg-splits/$name"
+              test "$(stat -c%s benchmark-private/mtg-splits/$name)" -gt 2000
+            done
+            name="mtg_jamendo_$head-discogs-effnet-1.json"
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 20 --max-time 240 --silent --show-error \
+              "https://essentia.upf.edu/models/classification-heads/mtg_jamendo_$head/$name" \
+              -o "benchmark-private/models/$name"
+          done
+          echo "download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum benchmark-private/mtg-splits/* benchmark-private/models/* \
+            | awk '{print $1"  SHA256"}'
+      - name: Validate split-0 label/artist membership and 87/56 head classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -f 'mtg_audit_wall_seconds=%e peak_kib=%M' \
+            python3 scripts/audit_mtg_jamendo_models.py \
+              --split-dir benchmark-private/mtg-splits \
+              --models-dir benchmark-private/models \
+              --report results/mtg-jamendo-split-model-audit.json
+      - name: Upload only aggregate class/split evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtg-jamendo-split-model-aggregate
+          path: results/mtg-jamendo-split-model-audit.json
+          if-no-files-found: error
+          retention-days: 14
