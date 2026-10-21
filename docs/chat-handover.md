@@ -1259,3 +1259,66 @@ Keine zusätzlichen Fusionsgewichte an
 MTT/FMA-VALIDATION optimieren.
 PR #16 bleibt Draft; `main`, PR #13,
 PR #17 und Lyrion-Produktivmixer unverändert.
+
+
+## Aktueller Abschluss in kleinen Schritten – FMA-Cache, DEAM-Blocker, Lyrion-Folgetest (21.10.2026)
+
+1. **FMA-Caching FERTIG und verifiziert** nach
+   [MagnaTagATune-Cache-Vorbild](https://github.com/chrober/bliss-mood-poc/actions/workflows/magnatagatune-all-exploratory.yml):
+   Cold [FMA 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
+   PASS, ca. 246 s Originalarchiv-Download; Warm
+   [FMA 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
+   PASS, ca. 74 MB Selected-Song-Cache wiederhergestellt,
+   7,2 GiB Download SKIPPED. 80-Song-Sample-
+   Fingerprint/Original-Archiv-SHA/MP3-SHA werden
+   gegen Metadaten verifiziert. Auch unbereinigter
+   FMA-Genre-Workflow erhält separaten Cache-Key
+   ([39633600832](https://github.com/chrober/bliss-mood-poc/actions/runs/39633600832)
+   Cold PASS). Lizenzvorsicht: Actions-Caches
+   sind **nicht** vertraulich. Details:
+   [FMA 80 Studie](similarity-fma-embedding-ab-2026-10-21.md).
+
+2. **DEAM-Hash-Fehler behoben, CI PASS.**
+   Der ältere DEAM-Probenfingerprint benutzt
+   literal `\\n` als Trennzeichen, nicht
+   echten Zeilenumbruch. Neuer gepaarter
+   1280D-Evaluator repariert, Offline-Regressionstest
+   Linux/Windows
+   [39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
+   PASS. Die frühere exakt wiederholte
+   240-Song-Mood-Cosine-VA-Spearman-Referenz
+   `0.286784551387186` wurde bereits
+   [in 39634196144](https://github.com/chrober/bliss-mood-poc/actions/runs/39634196144)
+   bestätigt; dieser Lauf scheiterte erst am
+   **Hash-Serialisierungsfehler** nach Inferenz.
+
+3. **Aktuell externer DEAM-Datenblocker:**
+   [Run 39638292554](https://github.com/chrober/bliss-mood-poc/actions/runs/39638292554)
+   vier HTTPS-TCP-Timeouts beim Publisher
+   `cvml.unige.ch:443`, noch vor Musikanalyse.
+   [Run 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
+   beweist Nichterreichbarkeit durch einen
+   **neuen Fast-Fail-Preflight vor Rust-Build**.
+   **Noch KEIN erfolgreicher neuer
+   DEAM-Embedding-vs-Mood-Spearman-Vergleich.**
+   Keine alternativen Archive ohne
+   Provenienz-SHA- und Lizenzprüfung
+   übernehmen. Details:
+   [DEAM Benchmark](deam-similarity-benchmark.md).
+
+4. **Nächster unabhängiger Schritt – kleine
+   lokale Musik-Library-Hörprobe**:
+   [Plan für L0–L3](similarity-local-library-retest-plan-2026-10-21.md).
+   Zunächst nur read-only 87D/56D/1280D-
+   Provenienz auf begrenzten vorhandenen Songs,
+   dann ca. zwölf neue Kontraste mit
+   menschlichen Genre-/Mood-/Klang-/Playlist-
+   Kriterien und Urteilssicherheit, **noch
+   nicht ausgeführt**. Keine private Musik in
+   GitHub, keine Queue-/DB-Änderung ohne
+   eigenen Vorbereitungsschritt.
+   Den früheren 8-Paar-Pilot nicht als
+   unabhängige Validierung ausgeben
+   (Genre 0 positive). Arbeit strikt
+   PR #16 Draft, keine anderen Branches
+   oder Produktivkomponenten verändern.
