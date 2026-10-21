@@ -303,3 +303,40 @@ wissenschaftliche Schlussfolgerungen **noch abgelesen**
 werden. Die 346 MTT-Fragen sind bereits vollständig
 exploriert, daher keinesfalls Fusionsgewichte aus ihnen
 tunen.
+
+## Verifiziert: vollständiger explorativer A/B/C-Durchgang (21.10.2026)
+
+Die vorab implementierten **vier untrainierten Equal-Midrank-Fusionen**
+wurden zusammen mit den fünf bisherigen A/B-Methoden
+im [Actions Run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
+vollständig erfolgreich auf **exakt denselben 1019
+MagnaTagATune-Clips und 293 mehrheitsentscheidbaren
+Tripelfragen** ausgewertet. Synthetisches 1280D
+Original-Patchpooling-/Head-Off-On-/SQLite-/Thread-
+Paritätsgate erneut **PASS**.
+
+Die Fusions-Genauigkeit auf dem gemeinsamen 293er-Nenner
+(Abstentions als falsch): Audio+Genre **163/293 = 55,63 %**
+(Coverage 234/293), Audio+Mood **170/293 = 58,02 %**
+(241/293), Genre+Mood **167/293 = 57,00 %**
+(230/293), Audio+Genre+Mood **192/293 = 65,53 %**
+(283/293). Der bisherige Mood-Centered-Baselinewert
+bleibt **193/293 = 65,87 %** mit 100 % Abdeckung.
+Keine der vier einfachen, *tripellokalen* Rangfusionen
+verbessert diese Referenz. Die vielen Paargleichstände
+der Zweierkombinationen erklären den niedrigen
+Gesamtnenner-Erfolg; Quote auf nur vorhergesagten
+Fällen darf nicht isoliert verglichen werden.
+
+**Keine Kalibrierung/Optimierung aus diesen
+Ergebnissen.** Diese post-hoc MTT-Fusionsexperimente
+sind weder eine globale Song-Cosine-Kalibrierung
+noch eine unabhängige Validierung oder ein
+Lyrion-Übergangstest. Vollständige Rechenschritte,
+Gleichstands-/Coverageanalyse, Paardifferenzen,
+Caveats und Folgeexperimente:
+[Fixed-Rank Fusion Research Results](similarity-fixed-rank-fusion-research-2026-10-21.md).
+Das reproduzierbare, nur aggregierte
+[GitHub-Artefakt](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)
+enthält die Ergebnisberichte v1, v2 und
+das synthetische Paritätsprotokoll.
