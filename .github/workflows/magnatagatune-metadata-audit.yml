@@ -60,6 +60,8 @@ jobs:
 
       - name: Validate deterministic artist-disjoint holdout audit (offline)
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+      # Compare 20%, 33%, and 50% artist-hash reserve designs using
+      # reference metadata only; never select a model based on this audit.
       - name: Freeze artist-hash holdout feasibility before larger similarity trials
         shell: bash
         run: |
