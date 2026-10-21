@@ -174,3 +174,48 @@ as Genre-retrieval quality.
 
 The real DEAM workflow and standard synthetic Rust/Python CI tests
 completed successfully on the changes tested. No production changes.
+
+
+## Follow-up: 240-track collection-aware DEAM benchmark (21.10.2026)
+
+The first 12-track end-to-end smoke PASSED. The next benchmark run uses
+**240 deterministic songs** with --stratify-cohorts. Selection records a
+SHA-256 digest of the selected ordered DEAM IDs (never exports the IDs).
+A seeded sampler deliberately oversamples the small 2015 full-song group
+at 20% of the requested sample, subject to the available 58 examples:
+for N=240, **192 earlier excerpts + 48 2015 full songs**.
+
+The official DEAM manual explains that the historical collections differ
+in audio scope and annotation protocol. We therefore report:
+- an all-query pooled VA-proximity benchmark (a **heterogeneous, exploratory**
+  indicator, NOT a final score);
+- an earlier-excerpt-only benchmark (same within-protocol candidates);
+- a 2015-full-song-only benchmark (same within-protocol candidates).
+
+For each group, we report query-macro Spearman per Genre/Mood head and each
+of seven metrics, separately for Valence, Arousal and VA Euclidean proximity,
+plus valid/undefined query counts and descriptive query-bootstrap bands.
+The comparison is **not weighted to restore real DEAM prevalence**, and the
+two groups are never interpreted as independent replicas or as direct
+genre/playlist quality.
+
+The first 240-track branch run is triggered by the workflow-file change,
+because workflow_dispatch normally requires the workflow to also exist
+on the default branch. The workflow remains PR #16-only; it is NOT
+merged to main solely to enable a manual dispatch. It downloads the
+DEAM metadata.zip for inventory and logs its **CSV header names only**
+(no title/artist/track values). This is preparatory work for the
+Jamendo-training-overlap audit, **not the audit itself**.
+
+**Data leakage status explicitly set to train_overlap_check: not_performed.**
+DEAM includes material originally obtained from Jamendo, FMA, and MedleyDB,
+and our ONNX heads were trained on MTG-Jamendo. Therefore we must NOT
+call these correlations fully independent external validation until a
+credible source/track/artist overlap exclusion has been performed.
+The license remains DEAM CC BY-NC; no music or per-track features are
+committed or uploaded.
+
+These additions are tested with synthetic fixture archives, 2015/older
+ID ranges, deterministic sampling, immutable SQLite assertions, and
+aggregate-only, cohort-separated reports on Linux and Windows CI.
+No metric selection is made from the 240-song run regardless of its scores.
