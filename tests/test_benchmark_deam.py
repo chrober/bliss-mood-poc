@@ -189,16 +189,16 @@ class DeamBenchmarkTests(unittest.TestCase):
         with zipfile.ZipFile(meta, "w") as archive:
             archive.writestr(
                 "metadata/metadata_2013.csv",
-                "song_id,Artist,Song title\\n" +
-                "".join(f"{i},Artist {i},Track {i}\\n" for i in range(1, 9)),
+                "song_id,Artist,Song title\n" +
+                "".join(f"{i},Artist {i},Track {i}\n" for i in range(1, 9)),
             )
-            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\\n")
+            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\n")
             archive.writestr("metadata/metadata_2015.csv",
-                             "id,artist,title\\n")
+                             "id,artist,title\n")
         mtg.write_text(
-            "TRACK_ID\\tARTIST_NAME\\tTRACK_NAME\\n"
-            "100\\tArtist 2\\tTrack 2\\n"
-            "101\\tArtist 5\\tTrack 5\\n",
+            "TRACK_ID\tARTIST_NAME\tTRACK_NAME\n"
+            "100\tArtist 2\tTrack 2\n"
+            "101\tArtist 5\tTrack 5\n",
             encoding="utf-8",
         )
         human = bench.load_annotations(self.annotation_zip)
@@ -213,9 +213,9 @@ class DeamBenchmarkTests(unittest.TestCase):
         self.assertNotIn("Artist 2", json.dumps(audit))
         with zipfile.ZipFile(meta, "w") as archive:
             archive.writestr("metadata/metadata_2013.csv",
-                             "song_id,Artist,Song title\\n1,Artist 1,Track 1\\n")
-            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\\n")
-            archive.writestr("metadata/metadata_2015.csv", "id,artist,title\\n")
+                             "song_id,Artist,Song title\n1,Artist 1,Track 1\n")
+            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\n")
+            archive.writestr("metadata/metadata_2015.csv", "id,artist,title\n")
         with self.assertRaisesRegex(ValueError, "coverage too low"):
             bench.screen_catalog_overlaps(members, human, meta, mtg)
 
