@@ -149,10 +149,15 @@ def select_ids(annotations: dict, available: dict, limit: int, seed: int,
 
 
 def run_inference(binary: Path, models_dir: Path, audio_zip: Path, ids: list[str],
-                  members: dict[str, str], database: Path) -> None:
+                  members: dict[str, str], database: Path,
+                  embedding_dir: Path | None = None) -> None:
     if database.exists():
         raise FileExistsError(f"Refuse to overwrite existing benchmark DB: {database}")
     database.parent.mkdir(parents=True, exist_ok=True)
+    if embedding_dir is not None:
+        if embedding_dir.exists():
+            raise FileExistsError("Private DEAM embedding export directory exists")
+        embedding_dir.mkdir(parents=True)
     with zipfile.ZipFile(audio_zip) as archive:
         for index, identifier in enumerate(ids, 1):
             # Extract exactly one file at a time to limit scratch-disk usage.
@@ -160,13 +165,19 @@ def run_inference(binary: Path, models_dir: Path, audio_zip: Path, ids: list[str
                 source = Path(tmp) / (identifier + ".mp3")
                 with archive.open(members[identifier]) as src, source.open("wb") as dst:
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
+                track_key = f"DEAM/{identifier}.mp3"
                 command = [
                     str(binary.resolve()), "analyze-features", str(source),
                     "--models-dir", str(models_dir.resolve()),
                     "--models", "genre,moodtheme",
                     "--threads", "1", "--db", str(database.resolve()),
-                    "--track-key", f"DEAM/{identifier}.mp3",
+                    "--track-key", track_key,
                 ]
+                if embedding_dir is not None:
+                    embedding_path = embedding_dir / (
+                        hashlib.sha256(track_key.encode("utf-8")).hexdigest() + ".json"
+                    )
+                    command.extend(["--embedding-out", str(embedding_path.resolve())])
                 completed = subprocess.run(
                     command, capture_output=True, text=True, timeout=900,
                     check=False,
@@ -176,6 +187,10 @@ def run_inference(binary: Path, models_dir: Path, audio_zip: Path, ids: list[str
                         f"DEAM feature extraction failed for item {index}/{len(ids)}: "
                         f"{completed.stderr[-2500:]}"
                     )
+                if embedding_dir is not None and (
+                    not embedding_path.is_file() or embedding_path.stat().st_size == 0
+                ):
+                    raise RuntimeError("Missing private DEAM 1280D song embedding")
             print(f"Analyzed DEAM item {index}/{len(ids)}", flush=True)
 
 
@@ -374,11 +389,18 @@ def main() -> None:
                         help="Conservatively remove normalized artist/title candidates from MTG catalog")
     parser.add_argument("--deam-metadata-zip", type=Path)
     parser.add_argument("--mtg-metadata-tsv", type=Path)
+    parser.add_argument("--embedding-dir", type=Path,
+                        help="Research-only: opt-in same-encoder-pass 1280D private vectors")
     args = parser.parse_args()
     if not 6 <= args.limit <= 1802:
         parser.error("--limit must be between 6 and 1802")
     if args.report.exists() or args.db.exists():
         parser.error("Output report or feature database already exists; no overwrites")
+    if args.embedding_dir is not None and (
+            args.embedding_dir.exists() or args.limit != 240
+            or args.seed != 20261021 or not args.stratify_cohorts
+            or not args.exclude_mtg_catalog_matches):
+        parser.error("DEAM 1280D A/B requires frozen 240-song screened, stratified research cohort")
     for path in (args.audio_zip, args.annotations_zip, args.binary):
         if not path.is_file():
             parser.error(f"Missing input: {path}")
@@ -399,7 +421,8 @@ def main() -> None:
     ids = select_ids(annotations, members, args.limit, args.seed,
                      stratify_cohorts=args.stratify_cohorts)
     print(f"Matched {len(members)} annotated MP3s; using {len(ids)} (seed={args.seed}).")
-    run_inference(args.binary, args.models_dir, args.audio_zip, ids, members, args.db)
+    run_inference(args.binary, args.models_dir, args.audio_zip, ids, members,
+                  args.db, embedding_dir=args.embedding_dir)
     result = evaluate(args.db, ids, annotations, args.seed,
                       report_subcohorts=args.stratify_cohorts)
     if screening is not None:
