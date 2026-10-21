@@ -135,6 +135,27 @@ def patch_main(data: str) -> str:
             if let (Some(db), Some(key)) = (db.as_deref(), track_key.as_deref()) {""",
         "CLI export and existing DB path",
     )
+    data = once(
+        data,
+        """            embedding_out,
+        } => {
+            if db.is_some() != track_key.is_some() {
+                bail!("--db and --track-key must be specified together");
+            }
+            let backend = essentia_worker::BackendChoice::from_cli(""",
+        """            embedding_out,
+        } => {
+            // Research-only: an explicit new song embedding may carry an exact
+            // track key without opening or modifying the existing SQLite DB.
+            if db.is_some() && track_key.is_none() {
+                bail!("--db requires --track-key");
+            }
+            if track_key.is_some() && db.is_none() && embedding_out.is_none() {
+                bail!("--track-key requires --db or --embedding-out");
+            }
+            let backend = essentia_worker::BackendChoice::from_cli(""",
+        "embedding-only track key without SQLite",
+    )
     return data
 
 
