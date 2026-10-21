@@ -488,6 +488,23 @@ jobs:
               throw 'Test kit must not embed ONNX model weights, audio, or SQLite DBs'
             }
           }
+      - name: Audit actual staged Essentia Windows dev kit integrity and unapproved license provenance
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = 'build/windows-native/bliss-mood-essentia-win64-dev'
+            $out = 'build/windows-native/release-audit'
+            python scripts/audit_windows_native_release.py --kit-root $kit --output-dir $out
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Actual staged native dev-kit hashes, MSYS2 ownership or notices audit failed'
+            }
+            $report = Get-Content -LiteralPath (Join-Path $out 'release-readiness-audit-private.json') -Raw | ConvertFrom-Json
+            if ($report.binary_integrity -ne 'PASS' -or $report.distribution_release_status -ne 'BLOCKED') {
+              throw 'Dev kit must pass SHA/PE audit while remaining NOT RELEASE APPROVED'
+            }
+            Write-Host ("Audited $($report.native_binary_count) real native binaries; $($report.package_count) versioned native packages; release status BLOCKED for manual legal review")
+          }
       - name: Verify exact downloadable kit using isolated Windows PATH and PR 16 evaluator
         shell: pwsh
         run: |
@@ -540,5 +557,6 @@ jobs:
             build/windows-native/essentia-import-nm.txt
             build/windows-native/essentia-import-nm-before.txt
             build/windows-native/essentia-dll-nm.txt
+            build/windows-native/release-audit/release-readiness-audit-private.json
           if-no-files-found: warn
           retention-days: 14
