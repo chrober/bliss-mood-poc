@@ -68,6 +68,13 @@ def load_fma_small(metadata_zip: Path,
             for row in reader:
                 if len(row) != len(groups) or row[cols[("set", "subset")]].strip() != "small":
                     continue
+                split = row[cols[("set", "split")]].strip().lower()
+                if split == "test":
+                    # Reserved TEST: skip before reading even its track ID,
+                    # much less artist, title or genre label.
+                    continue
+                if split not in ("training", "validation"):
+                    raise ValueError("Unknown FMA official split")
                 try:
                     ident = int(row[0])
                 except ValueError:
@@ -77,12 +84,6 @@ def load_fma_small(metadata_zip: Path,
                 key = f"{ident:06d}"
                 if key in songs:
                     raise ValueError("Duplicate FMA-Small track ID")
-                split = row[cols[("set", "split")]].strip().lower()
-                if split == "test":
-                    # Never inspect TEST genre, artist, title in discovery.
-                    continue
-                if split not in ("training", "validation"):
-                    raise ValueError("Unknown FMA official split")
                 genre = row[cols[("track", "genre_top")]].strip()
                 artist = row[cols[("artist", "id")]].strip()
                 if not genre or not artist:
