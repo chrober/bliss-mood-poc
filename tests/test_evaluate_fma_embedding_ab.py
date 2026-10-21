@@ -184,8 +184,10 @@ class FMAEmbeddingPairedFixture(unittest.TestCase):
         } for ident in self.chosen}
         vectors[self.chosen[0]]["embedding"]=(0.,)*8
         r=ab.evaluate_paired(vectors,self.chosen,self.songs,seed=1,replicates=120)
-        self.assertEqual(r["methods"]["embedding_cosine"]["full_queries"],15)
-        self.assertEqual(r["methods"]["embedding_cosine"]["abstained_queries"],1)
+        # A shared zero-norm candidate makes all 16 queries incomplete;
+        # not merely the query for which the invalid song is the anchor.
+        self.assertEqual(r["methods"]["embedding_cosine"]["full_queries"],0)
+        self.assertEqual(r["methods"]["embedding_cosine"]["abstained_queries"],16)
         self.assertEqual(r["methods"]["embedding_cosine"]["query_denominator"],16)
         self.assertEqual(r["methods"]["genre_cosine"]["full_queries"],16)
 
