@@ -35,7 +35,7 @@ class PairedMTTTests(unittest.TestCase):
         self.assertEqual(a["paired_comparisons"][0]["a_only_correct"],9)
         self.assertEqual(a["paired_comparisons"][0]["b_only_correct"],0)
         self.assertAlmostEqual(a["paired_comparisons"][0]["paired_accuracy_delta_pp"],25)
-        self.assertIn("CI", a["limits"][2])
+        self.assertIn("confidence intervals", a["limits"][2])
         serialized=str(a)
         self.assertNotIn("artist 0",serialized)
         self.assertNotIn("other 0",serialized)
