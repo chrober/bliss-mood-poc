@@ -7,6 +7,91 @@ questions of **codec support, operating-system packaging, redistribution and
 licensing**. Neither a successful numeric scan nor a CI fixture licenses a
 production Windows/macOS/Linux release.
 
+## Windows Native-License-Inventur — 21 October 2026, reales Kit verifiziert
+
+Das lokal bereits vorhandene native Entwicklungskit hat den
+`audit_windows_native_release.py`-Check **bestanden**.
+Es enthält **100 PE-x64-EXE/DLL-Dateien** mit korrekten SHA256-Dateihashes,
+deren Herkunft auf **77 MSYS2-Pakete** zurückgeführt wird.
+**94 referenzierte Notice-Dateien** existieren und sind nicht leer.
+Es fehlen **keine referenzierten Dateien**. Bei **17 Paketen**
+hat `pacman` allerdings **keine installierte Notice-Datei** gefunden.
+Dies ist eine **Beweislücke, kein Beweis für Lizenzlosigkeit**.
+Der Status bleibt `distribution_release_status=BLOCKED`,
+`release_approved=false`, `license_inventory_complete=false`.
+
+[Die maßgebliche Lizenz- und Distributionsstrategie](essentia-licensing-distribution-strategy.md)
+bewertet vier Szenarien ausdrücklich getrennt. Besonders wichtig:
+ein Downloader/Installer mit Originalquellen und unabhängigen
+Systempaketen reduziert den Umfang **eigener Weitergabe**, nicht
+automatisch die AGPL-Betrachtung der miteinander verbundenen
+Rust-/C++-Programme oder die spezifischen Rechte an ONNX-Gewichten.
+Das bisherige **öffentliche** GitHub-Actions-Test-ZIP ist kein rein
+internes Paket, nur weil `dev` im Dateinamen steht.
+
+**Sicherungsmaßnahme im Branch:** Ein *erneuter öffentlicher Upload*
+des nativen Windows-EXE-/DLL-Artefakts ist bis auf Weiteres deaktiviert
+und benötigt neben einem **privaten Repository** eine explizite
+CI-Variable `NATIVE_BINARY_REDISTRIBUTION_REVIEWED=true`. Die
+vorhandenen Windows-Native-Build-, Protokoll-, numerischen und
+PR-#16-Handoff-Smokes bleiben aktiviert; ihr Erfolg ist weiterhin ein
+**Funktionsnachweis, keine Lizenzfreigabe**. Ältere bereits verfügbare
+CI-Artefakte sind **nicht automatisch gelöscht**; sie separat prüfen.
+
+Neu: `scripts/triage_windows_native_license_gaps.py` erstellt
+aus den geprüften bestehenden Manifesten einen **versionsgenauen
+Prüfauftrag** für die 17 Notice-Lücken, einschließlich zugehöriger
+DLL-Namen, tatsächlicher installierter Paketversionen,
+*unverifizierter* Paket-Lizenzmetadaten und manifestverzeichneter
+Importpfade. Das Tool zieht **keinen** Source-Code herunter, löscht
+**keine** DLL und behauptet **keine** Lizenzkompatibilität.
+Der Review-Auftrag gehört in den Release-Prozess, nicht in die
+numerische DSP-Paritätsmessung.
+
+### Lokaler Quell-/Lizenz-Evidenzbericht ohne neue Audioscans
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $out = Join-Path $repo (
+        'triage-essentia-license-gaps-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    )
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'Branchwechsel fehlgeschlagen' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Git Pull fehlgeschlagen' }
+
+    python -m unittest discover -s tests -p 'test_triage_windows_native_license_gaps.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Lizenz-Evidenz-Regressionstests fehlgeschlagen' }
+
+    python scripts/triage_windows_native_license_gaps.py --kit-root $kit --output-dir $out
+    if ($LASTEXITCODE -ne 0) { throw "Technische Paketprüfung fehlgeschlagen: $out" }
+
+    $data = Get-Content (Join-Path $out 'native-license-evidence-backlog.json') -Raw |
+        ConvertFrom-Json
+    if ($data.binary_integrity -ne 'PASS' -or
+        $data.distribution_release_status -ne 'BLOCKED') {
+        throw 'Unerwarteter Integritäts- oder Freigabestatus'
+    }
+    Write-Host "Technischer Nachweis: $out"
+    Write-Host "Offene Lizenz-Notice-Pakete: $($data.missing_installed_notice_packages)"
+}
+~~~
+
+**Nächste technische Reduktionsarbeit:** *Nicht* die vorhandenen
+Video-/Encoder-DLLs aus der funktionierenden Closure entfernen.
+Stattdessen die **wirklichen** FFmpeg-Buildflags und Dekoderanforderungen
+MP3/FLAC/WAV dokumentieren, einen separaten minimalen
+Essentia-Audio-Build erzeugen, und dessen PE-Abhängigkeitsgraph und
+analysierende Smokes gezielt mit dem bisherigen validierten Build
+vergleichen. Das wäre ein **neues Paketierungs-Experiment**, kein
+Grund, die alte MP3-Gesamtkohorte nochmals zu scannen.
+
+---
+
 ## Current authoritative Windows qualification checkpoint — 21 October 2026
 
 The real-audio gate, including **two separately downloaded, unmodified
