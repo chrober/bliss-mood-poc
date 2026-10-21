@@ -1076,3 +1076,17 @@ bestehende Bewertungen und Reports nicht überschreiben.
   Repo-Änderungen während der Hörbewertungsphase.
 
 **Aktueller Status (21.10.2026):** Der Benutzer hat die externe, GitHub-Actions-basierte Validierung beschlossen. DEAM-Pipeline implementiert; realer Smoke-Test-Status im oben genannten GitHub-Run verifizieren. FMA erst danach; acht Hörpaare bleiben historische Pilotdaten.
+
+
+## Nachtrag zum repräsentationsbasierten A/B-Forschungsstand (21.10.2026)
+
+Die hier dokumentierten Song-Paare, Hörbewertungen und CSV-Prozesse
+bleiben eigenständig. Neu auf PR #16 ist eine technisch optionale
+**direkte 1280D-Embedding-Baseline** mit versionierter Sidecar-
+Provenienz (siehe
+[Repräsentations-Handover](similarity-three-representation-approaches-handover-2026-10-21.md)).
+Der MTT-Workflow für gepaarte 1280D-vs-Genre-/Mood-Analysen
+wurde angelegt; **erfolgreiche Resultate sind noch zu verifizieren**.
+MTT komplett exploriert, kein neuer Holdout. Die bisherigen
+Lyrion-Hörbewertungen dürfen nicht rückwirkend als unabhängiges
+Testset für neue Fusion-Gewichte verwendet werden.
