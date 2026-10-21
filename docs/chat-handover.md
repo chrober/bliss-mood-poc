@@ -1010,3 +1010,34 @@ Evidenz-Gate:
 [Audio-Embedding vs. Kopf-Baselines: MTT-A/B-Resultate](similarity-audio-embedding-ab-results-2026-10-21.md).
 **Keine Fusion-Kalibrierung, keine Produktionsentscheidung,
 kein erneuter MTT-Holdout, kein FMA-TEST, kein Merge.**
+
+## C-Fusion: vier gleichgewichtete, **untrainierte** lokale Rangablationen (21.10.2026)
+
+Nach dem ersten B-vs-A-Resultat wurden die vier Kombinationen
+Audio+Genre, Audio+Mood, Genre+Mood und Audio+Genre+Mood
+als **explorative** und explizit nicht optimierte
+Rangfusionen implementiert. Jede Cosine-Verteilung wird
+ausschließlich **innerhalb der jeweiligen Drei-Song-Frage**
+in die Midranks 0/0,5/1 transformiert, danach werden die
+enthaltenen Repräsentationen gleich gewichtet.
+Ranggleichstand zählt als Nichtvorhersage (im 293er
+Nenner falsch). **Das ist keine global kalibrierte
+Song-Similarity und darf nicht als Produktionsmetrik
+oder Playlist-Mixer eingesetzt werden.**
+Das feststehende Verfahren, die vier Kombinationen,
+Datenabhängigkeiten, Split-Grenzen und
+Anwendungsszenarien:
+[Similarity Fixed-Rank Fusion Research](similarity-fixed-rank-fusion-research-2026-10-21.md).
+Implementierung:
+[`scripts/fixed_rank_fusion.py`](../scripts/fixed_rank_fusion.py),
+optionales Evaluator-Flag `--fixed-rank-fusions`,
+separates Aggregate v2 und
+[`tests/test_fixed_rank_fusion.py`](../tests/test_fixed_rank_fusion.py).
+Python-Tests Linux/Windows [Run 39619643950](https://github.com/chrober/bliss-mood-poc/actions/runs/39619643950)
+sind PASS. Ein tatsächlicher Fusion-Lauf
+[39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
+wurde ausgelöst; seine Ergebnisse müssen für
+wissenschaftliche Schlussfolgerungen **noch abgelesen**
+werden. Die 346 MTT-Fragen sind bereits vollständig
+exploriert, daher keinesfalls Fusionsgewichte aus ihnen
+tunen.
