@@ -396,9 +396,14 @@ Only opt in to writing with `LYRION_APPLY=true` after reviewing a
 complete dry run. It **appends** the tracks in pairwise order, without
 replacing the existing queue or starting playback. The script keeps
 LAN addresses, private player IDs and audio paths out of the public
-source tree. Playback URLs that do not resolve
-exactly cause a preflight failure rather than fallback to an unsafe
-artist/title match. Never rerun the apply mode blindly: it would append
+source tree. Relative `TracksV2.File` paths are matched
+**only** against complete decoded relative-path suffixes of actual
+`titles ... tags:u` Lyrion file URLs from a paginated catalog. This
+handles the first real CSV failure caused by passing a relative path
+to `songinfo url:...`, which expects Lyrion's own full URL.
+Ambiguous or absent matches cause a preflight failure rather than an
+unsafe artist/title lookup. See
+[exact-key mapping and listening queue safety](docs/similarity-metric-evaluation.md#lyrion-listening-pilot-exact-tracksv2file--lms-song-url-mapping). Never rerun the apply mode blindly: it would append
 duplicates.
 
 ## Local files and Git hygiene
