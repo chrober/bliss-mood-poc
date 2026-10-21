@@ -36,13 +36,26 @@ def sha(path: Path) -> str:
     return h.hexdigest()
 
 
+def dict_reader(source, expected: list[str]):
+    """Use official CSV's real delimiter; preserve exact required columns."""
+    sample = source.read(4096)
+    source.seek(0)
+    try:
+        separator = csv.Sniffer().sniff(sample, delimiters=",;\\t").delimiter
+    except csv.Error:
+        separator = ","
+    reader = csv.DictReader(source, delimiter=separator)
+    if (not reader.fieldnames or len(reader.fieldnames) != len(expected)
+            or set(reader.fieldnames) != set(expected)):
+        raise ValueError("Unexpected official MTT CSV schema or delimiter")
+    return reader
+
+
 def read_clips(path: Path) -> tuple[dict, dict]:
     clips = {}
     missing_path = 0
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames != CLIP_FIELDS:
-            raise ValueError("Unexpected official MTT clip_info_final.csv schema")
+        reader = dict_reader(handle, CLIP_FIELDS)
         for row in reader:
             if None in row or any(x is None for x in row.values()):
                 raise ValueError("Malformed MTT clip metadata row")
@@ -80,9 +93,7 @@ def evaluate(comparisons: Path, clipinfo: Path) -> dict:
     consensus_buckets = Counter()
     inconsistent_paths = 0
     with comparisons.open("r", encoding="utf-8-sig", newline="") as source:
-        reader = csv.DictReader(source)
-        if reader.fieldnames != COMPARISON_FIELDS:
-            raise ValueError("Unexpected official MTT comparisons_final.csv schema")
+        reader = dict_reader(source, COMPARISON_FIELDS)
         for row in reader:
             if None in row or any(x is None for x in row.values()):
                 raise ValueError("Malformed MTT comparison metadata row")
