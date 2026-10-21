@@ -1,5 +1,21 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **DEAM v5 END-TO-END PASS, 21 Oct 2026:** Official DEAM data
+> successfully downloaded; **1,802** audio/annotation matches; **12**
+> human-annotated DEAM songs analyzed with corrected Rust-v5,
+> all seven similarity metrics compared, aggregate-only report uploaded.
+> [Successful GitHub Action](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217),
+> [report artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217/artifacts/12333973414).
+> Rust-v5 analyzer came from **separate pinned PR #17 source checkout**
+> at 2c3d44401436b3b41b6e067199016a1ed2335fbf without
+> merging/editing PR #17. Prior failures intentionally caught missing
+> Cargo.lock (PR #16) and v4 preprocessing mismatches. See
+> [DEAM benchmark document](deam-similarity-benchmark.md) for complete
+> provisional VA correlations. Do **not** choose a metric from 12 songs,
+> claim DEAM independent of MTG-Jamendo training, or treat Genre-vs.-VA
+> as Genre validation. Next: larger controlled DEAM study, training
+> overlap audit, then FMA Genre reference. No main merge.
+>
 > **CURRENT PRIORITY 21 OCT 2026 — automatic scientific DEAM benchmark, PR #16.**
 > The user explicitly shifted away from further manual eight-pair listening
 > studies. A reproducible DEAM Valence/Arousal benchmark now lives in
