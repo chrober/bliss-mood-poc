@@ -216,9 +216,9 @@ The next pilot is **12 new contrasts** selected before human review:
 three model-high-Genre candidates, two model-high-Mood candidates,
 two model-high-Embedding candidates, two Genre-over-Embedding
 and two Embedding-over-Genre disagreements, plus one model-low control.
-**None of these is a human-verified similar or different pair:** The
-last category is a selected challenge set, **not** a random or
-independent test. Blind participants to model choice, score, rank,
+**None of these is a human-verified similar or different pair.**
+The selection uses purposive challenge strata and is **not** a random
+or independent test. Blind participants to model choice, score, rank,
 and selection stratum (artists/titles may remain visible for finding
 the recordings). Capture separate ratings for (1) style/genre,
 (2) mood/energy, (3) overall audible similarity, and (4) suitability
