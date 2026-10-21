@@ -309,3 +309,57 @@ Linux and Windows Python regression tests completed successfully in
 [run 39592264225](https://github.com/chrober/bliss-mood-poc/actions/runs/39592264225).
 The metadata-only follow-up ran in under one second and avoided all
 model, MP3 and Rust downloads.
+
+
+## Frozen 128/256 artist-only DEVELOPMENT run, with preserved holdout
+
+On 21 October 2026, the development benchmark was implemented in
+`scripts/benchmark_magnatagatune.py` with
+`--selection-mode frozen-development`. It **must** select all
+**31** artist-only development triplets from the previously registered
+`SHA-256("MTT-artist-holdout-v1|20261021|" + normalized_artist)`
+first-byte cutoff **128**, without filtering by human vote consensus.
+The selector runs `audit_magnatagatune_holdout.evaluate_inputs`
+and verifies the exact expected count and sorted-triplet SHA-256
+fingerprint **before any MP3 byte range is requested**.
+
+The development run deliberately does not download or score the
+**56** artist-only candidate holdout triples (of which **48**
+were not exposed to the original technical smoke) or the **259**
+mixed-artist triples. Original ordered duplicates are aggregated.
+Tied human majority votes and undefined/tied metric predictions
+are abstentions, not forced matches. No metric winner or independent
+population claim is justified.
+
+Research workflow:
+[.github/workflows/magnatagatune-development.yml](../.github/workflows/magnatagatune-development.yml),
+branch-file-change triggered and manually dispatchable only.
+It retains offline synthetic tests, metadata/8-MiB ZIP validation,
+pinned corrected Rust-v5, Cargo cache, sequential one-worker
+`--threads 1` inference, checksum-verified bounded HTTP 206
+requests and aggregate-only upload. Python tests include a regression
+that deliberately places held-out artists in an artificial fixture
+and asserts their complete exclusion.
+
+**First real attempt [39593423801](https://github.com/chrober/bliss-mood-poc/actions/runs/39593423801): FAILED** due to a transient
+`curl` **exit 28, HTTP 000**, while fetching the 22nd of
+**92 uniquely needed development clips**. The first 21 genuine
+clips were successfully analyzed. This was a network timeout, not
+a failure of the split, ZIP integrity, Rust-v5 parity or a model
+score; the interrupted run produced no comparison report.
+A new bounded HTTP retry policy (`curl --retry 5 --retry-max-time
+300 --max-time 50`) was regression tested on Linux/Windows while
+retaining `--max-filesize`, 206 Content-Range validation,
+audio CRC and the no-whole-ZIP protection.
+
+**Retry Actions [39594161136](https://github.com/chrober/bliss-mood-poc/actions/runs/39594161136)** is triggered and must be checked
+for actual completion and its aggregate artifact before reporting
+scores or measured improvements. No audio, track IDs or feature vectors
+are committed, cached or uploaded. Do not call a failed run a PASS.
+
+Performance emphasis: the prior 4-triplet smoke needed 1.39 MB
+of compressed ZIP ranges and ~14.5 s inference+download, versus
+~88 s for the Cargo/FFmpeg build. The 31-triplet attempt reached
+21/92 song analyses in about 26 seconds before the source server
+temporarily stopped responding; do not extrapolate that into
+verified complete-job throughput or benefit from multiple workers.
