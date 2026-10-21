@@ -6,36 +6,68 @@
 **Aktiver PR:** [#16 – Evaluate Genre and Mood similarity metrics on real feature sidecars](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, nicht gemergt**.  
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
-## ZUERST LESEN: Konkreter nächster Schritt – auf den Benutzer warten
+## ZUERST LESEN: Erster Hörtest ist ausgewertet – Entscheidung über weiteren Verlauf offen
 
-**STOPP / WAITING FOR USER.** Der Benutzer hört *jetzt* die ersten **acht Songpaare**
-an und trägt seine **eigenen, unabhängigen** Bewertungen in
-`genre_label` und `mood_label` der lokalen CSV ein. Er will die Arbeit
-erst dann in einer neuen Chat-Session fortsetzen, wenn er **seine
-CSV-Analyse, die ausgefüllte CSV oder die Ausgabe des darauf basierenden
-Evaluators** liefert.
+**STATUS 21.10.2026: FIRST8 REVIEW RECEIVED AND ANALYZED.** Der Benutzer hat
+die ersten **acht Songpaare** unabhängig nach Genre und Mood bewertet und
+die erfolgreiche lokale read-only Auswertung
+`similarity-first8-labeled.json` geliefert. **Nicht mehr auf die erste
+CSV warten.** Die persönliche Hörbewertungs-CSV, JSON-Auswertung und
+Musikdateien verbleiben lokal; **keine der privaten Dateien im Repo speichern**.
 
-Die neue Session soll **als erste Aktion nur den Stand bestätigen und
-die Ankunft dieser Auswertung abwarten**. Insbesondere bis dahin:
+**Gesicherte Pilotbefunde:**
+- Bewertungs-CSV lokal mit **Semikolon** getrennt. `Import-Csv` ohne
+  `-Delimiter ';'` las die Labels leer; auch der Python-Evaluator erwartet
+  Kommas. Die CSV wurde daher **als zusätzliche komma-separierte Kopie**
+  exportiert, ohne die ursprünglichen Hörurteile zu verändern. Der
+  Evaluator wurde anschließend erfolgreich ausgeführt.
+- **Acht beurteilte Paare pro Head, keine fehlenden kompatiblen Vektoren.**
+- **Genre: 0 positive, 8 negative Bewertungen.** ROC-AUC für alle sieben
+  Metriken `null`/`n/a`: ohne positive Genre-Paare lässt sich ihre
+  Trennleistung nicht prüfen.
+- **Mood/Theme: 4 positive, 4 negative Bewertungen.** ROC-AUC:
+  `rms 0.5000`, `cosine 0.5625`, `centered_cosine 0.5625`,
+  `weighted_jaccard 0.5000`, historisches cutoff-basiertes
+  `topk_weighted_jaccard 0.3750`, `topk6_ranked_jaccard 0.3125`,
+  `topk12_ranked_jaccard 0.5000`.
+- Beim historischen cutoff-basierten Top-K haben **alle vier positiv
+  bewerteten Mood-Paare Score 0**; drei von vier negativen ebenfalls
+  Score 0, das vierte 0.7603. Das ist mit dem zuvor identifizierten
+  absoluten Cutoff-Problem vereinbar. Im gesamten ungekennzeichneten
+  Zufallssample: 1.835 Nullwerte unter 2.979 definierten Mood-Paaren
+  sowie 21 undefinierte Scores.
+- 3.000 Zufallspaare je Head **sind keine 3.000 menschlichen Bewertungen**.
+  Bei vier positiven und vier negativen Mood-Paaren beruht die AUC auf
+  nur 16 positiven-vs.-negativen Scorevergleichen, einschließlich
+  halber Punkte bei Gleichständen. `0.5625` = 9/16.
+- Die Paar-Auswahl war **metrikenabhängig**, das Pilotresultat ist
+  selektionsverzerrt und ausdrücklich **kein** Nachweis einer
+  allgemeingültig besten Metrik, keiner Musikqualität und keiner
+  produktionsreifen Integration.
+- Der Benutzer berichtet **Unsicherheit bei mehreren Hörurteilen**.
+  Diese Labels bleiben unverändert und gelten als vorläufige
+  subjektive Beobachtungen. Nicht „falsche“ Labels aus Modell-Scores
+  oder Künstlernamen ableiten und nicht automatisch nachbewerten.
+  Eine Sicherheitsskala wurde noch **nicht erhoben**.
 
-- **Nicht** sofort GitHub-Code ändern, weitere Hörpaare generieren, Songs
-  rescannen, die Queue neu befüllen, Metriken wählen oder neue
-  Label-Auswertungen mit erfundenen/automatischen Urteilen starten.
-- **Nicht** die alte 15-Titel-Queue erneut anhängen: Der frühere
-  `playlistcontrol`-Fehler trat *nach* einer tatsächlich ausgeführten
-  Queue-Mutation auf.
-- **Nicht** den privaten `selection-audit-private.json` während der
-  menschlichen Bewertung öffnen/analysieren: Scores und
-  Auswahlkategorien könnten die Hörurteile beeinflussen.
-- **Keine Background-/Monitoring-Aufgabe** einrichten und keinen
-  automatischen späteren Arbeitsabschluss versprechen.
+**Nächster Schritt (gemeinsam mit dem Benutzer entscheiden):**
+Pilot diagnostizieren statt einen Sieger auszurufen. Bei Bedarf
+(1) Bewertungskriterien für Stil vs. Stimmung/Energie präzisieren,
+(2) pro Urteil freiwillig Sicherheit/Anmerkung ergänzen, ohne die
+Original-CSV zu überschreiben, (3) mehrere bewusst ähnliche
+Genre-Positivbeispiele samt schwierigen Gegenbeispielen beurteilen,
+(4) die restlichen 16 vorgeschlagenen Paare oder einen separaten
+blind/held-out ausgewählten Satz anhören. Für das Identifizieren
+einzelner Score-Diskrepanzen reichen die aggregierten JSON-Werte nicht:
+nur nach Absprache eine **read-only paarweise Diagnose** auf
+vorhandenen Feature-Vektoren vornehmen. **Keine weiteren Experimente,
+Queue-/Codeänderungen oder neue Metrikentscheidung eigenmächtig starten.**
 
-Erst **nach Eingang der echten Bewertungen oder Auswertung**:
-Validität/Labelabdeckung kontrollieren; bei Vorliegen der ausgefüllten
-CSV gezielt den bestehenden read-only Evaluator verwenden bzw. dem
-Benutzer einen vollständigen PowerShell-Aufruf geben; separate
-Genre-/Mood-Zahlen interpretieren. Ist nur eine Konsolentabelle
-verfügbar, diese zunächst interpretieren, ohne eine CSV zu behaupten.
+PR #16 bleibt Draft, PR #13 und #17 bleiben getrennt und ungemergt,
+`main` unverändert. `selection-audit-private.json` wurde für die
+Hörbewertung nicht geöffnet und soll nicht als Quelle menschlicher
+Labels verwendet werden. Vollständige PowerShell-Blöcke ausschließlich
+in der Form `& { ... }`.
 
 ## Warum wir das machen
 
@@ -184,7 +216,7 @@ und Mock-Tests `tests/test_queue_similarity_pairs_lyrion.py`.
   Worker- und Produktarchitektur; **für den aktuellen PR-#16-Fokus
   ist dieses Dokument maßgeblich**.
 
-## Nur nachdem der Benutzer mit der CSV zurückkommt
+## Historisches Vorgehen vor Eingang der ersten CSV (Pilot inzwischen abgeschlossen)
 
 1. **Erst die vom Benutzer gelieferten Daten lesen.** Prüfen:
    Dateiformat; tatsächlich beurteilte Zeilen pro Head, Positiv/Negativ
@@ -238,6 +270,4 @@ bestehende Bewertungen und Reports nicht überschreiben.
   **vollständig als `& { ... }`**. Keine unaufgeforderten
   Repo-Änderungen während der Hörbewertungsphase.
 
-**Letzter Status:** Der Benutzer beginnt jetzt den Hörvergleich und
-wird die CSV bearbeiten. **Die nächste Session wartet ausdrücklich
-auf seine Analyse.**
+**Letzter Status (21.10.2026):** Acht Paare bewertet und erfolgreich ausgewertet; keine musikalisch beste Metrik ausgewählt. Die nächste Session diskutiert mit dem Benutzer die Pilotgrenzen und vereinbart erst dann weitere Hör- oder Auswertungsschritte.
