@@ -134,3 +134,43 @@ PR #16 is Draft; PR #13, PR #17 and main remain outside scope.
   for the actual v5 preprocessing fingerprint and cannot silently
   accept v4. Using this exact source revision is a **build dependency**
   for DEAM research only; PR #17 is not merged or edited.
+
+### Confirmed first corrected Rust-v5 end-to-end benchmark (21.10.2026)
+
+**PASS**, GitHub Actions run
+[39576010217](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217).
+The runner checked out the immutable corrected Rust-v5 source commit
+2c3d44401436b3b41b6e067199016a1ed2335fbf in a second directory,
+used that source's Cargo.lock, built it, downloaded the official models
+and DEAM archives, verified **1,802 audio/annotation ID matches**, inferred
+both heads for **12 seeded tracks**, evaluated all seven existing similarity
+metrics, and published only aggregate JSON in
+[artifact 12333973414](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217/artifacts/12333973414).
+
+As a **smoke observation only**, the macro mean query Spearman of similarity
+against joint human Valence/Arousal proximity among these twelve tracks was:
+
+| Metric | Genre head vs. VA proxy | Mood head vs. VA proxy |
+| --- | ---: | ---: |
+| RMS | 0.325 | 0.301 |
+| Cosine | 0.425 | 0.308 |
+| Centered cosine | 0.417 | 0.280 |
+| Weighted Jaccard | 0.348 | 0.252 |
+| Historical cutoff Top-K | 0.360 | 0.387 (only 6 valid queries) |
+| Ranked Top-6 | 0.390 | 0.474 |
+| Ranked Top-12 | 0.353 | 0.345 |
+
+Do **not** select Top-6 from this table: N=12 is far too small;
+the Genre head is not being tested on genre labels; the old Top-K
+samples only half the anchor queries; no independent-data or
+cross-dataset guarantee has been established. These are not ROC-AUC
+values and not calibrated probability estimates.
+
+**Next science gate:** increase the dataset size and test reference
+alignment, annotation quality, year splits, and artist/train-set
+overlap before any metric choice. Add a dedicated *Genre*-label
+benchmark (FMA) rather than interpreting Genre vs. Valence/Arousal
+as Genre-retrieval quality.
+
+The real DEAM workflow and standard synthetic Rust/Python CI tests
+completed successfully on the changes tested. No production changes.
