@@ -30,7 +30,7 @@ jobs:
           ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
           path: validated-rust-v5
           persist-credentials: false
-      - name: Preflight: synthetic paired DEAM regression and no dataset access
+      - name: 'Preflight: synthetic paired DEAM regression and no dataset access'
         shell: bash
         run: |
           set -euo pipefail
