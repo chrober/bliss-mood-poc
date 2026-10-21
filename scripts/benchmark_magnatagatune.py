@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 import time
 import zlib
+import zipfile
 
 import audit_magnatagatune_archive as directory
 from audit_magnatagatune_votes import read_clips, dict_reader, COMPARISON_FIELDS
