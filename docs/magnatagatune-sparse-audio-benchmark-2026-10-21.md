@@ -534,3 +534,89 @@ This first successful full-run timing is a **two-worker baseline**,
 not proof that workers are faster than a matched one-worker run.
 The curated-cache optimization is intended to reduce **archive
 download and restore time**, not claim that inference is faster.
+
+
+## Verified cache HIT and full seven-metric scorecard
+
+[Cached run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
+**PASS**; real `actions/cache` HIT, 2.77-GiB source download and
+compaction **skipped**, all 1,019 cached MP3s cross-checked against
+the publisher's central-directory CRCs, two separate Rust-v5 worker
+sidecars. [Aggregate JSON and
+scorecard](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519/artifacts/12346356813).
+The same Mood Cosine accuracy `0.6552901023890785` was reproduced.
+Cached-hit inference + merge **231.053 s**, scoring **0.343 s**.
+The run's start-to-updated end time was about **327 seconds**,
+versus **426 seconds** for the initial cache-creation run and **368
+seconds** for the previous full-original-archive workflow. This is
+an **observed** 99-second reduction against the cache MISS run and
+41-second reduction against the prior full-original run; these are
+not controlled speedup estimates since inference varies between
+145.5, 244.7 and 231.1 seconds with the same two workers.
+
+There are **53 majority-vote-tied unique triplets**, leaving
+**293 common human-scorable questions**. Below is
+**accuracy including metric abstentions as incorrect**, always
+on the same 293 denominator:
+
+| Method | Genre | Mood/Theme | Mood prediction coverage |
+| --- | ---: | ---: | ---: |
+| RMS | 63.5% | 54.6% | 100% |
+| Cosine | 65.2% | 65.5% | 100% |
+| Centered Cosine | 65.2% | **65.9%** | 100% |
+| Weighted Jaccard | 63.8% | 61.1% | 100% |
+| Historical Top-K Weighted Jaccard | 60.1% | 44.4% | **71.7%** |
+| Ranked Top-6 Jaccard | 61.8% | 62.5% | 100% |
+| Ranked Top-12 Jaccard | 64.5% | 64.8% | 100% |
+
+The best *descriptive* Mood result is only **~0.4 pp**
+above ordinary Cosine; such small differences cannot be
+interpreted as meaningful without same-question paired comparison,
+uncertainty and dependence analysis. Genre Cosine and Centered
+Cosine tie at **65.2%**. No model head, metric or
+business-default winner is authorized by these observations.
+Mood Top-K loses ~28% question coverage and must never be compared
+using conditional accuracy alone.
+
+## Paired post-hoc uncertainty research and subsequent performance
+
+A new in-memory
+[mtt_paired_evidence.py](../scripts/mtt_paired_evidence.py)
+module computes **all 21 head-specific method pairs** on exactly
+the same human-scorable unordered questions (42 comparisons
+across two heads). A metric abstention scores **zero** on
+the common denominator; human majority ties are excluded.
+The in-memory method predictions and raw votes remain on the
+runner and are NOT published. Exported aggregate data include
+a-only/b-only-correct discordant counts, delta in percentage points,
+paired-question IID resampling intervals (600 deterministic
+replicates) and artist-level randomized-weight perturbation
+intervals (600 replicates). The latter is an **exploratory
+dependency sensitivity exercise, not a cluster bootstrap or
+population confidence interval**; artist co-occurrence forms
+one large connected component. It is also NOT independent
+held-out confirmation and the 42 contrasts are post hoc.
+Do not choose a metric using the narrowest interval.
+
+The GitHub scorecard now includes a small number of explicit
+paired contrasts for interpretation and the aggregate JSON
+contains all 42, with separate limitations. Scripts and
+unit tests were checked on Linux/Windows in
+[run 39602141111](https://github.com/chrober/bliss-mood-poc/actions/runs/39602141111)
+(PASS after fixing a literal test assertion). A real full-data
+paired benchmark was triggered in
+[run 39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906);
+check its completed result and the actual uncertainty values
+before citing any new paired metric differences.
+
+Further repeated build overhead is addressed via a **second**
+Actions cache for the compiled, immutable-source
+`2c3d44401436b3b41b6e067199016a1ed2335fbf` Linux Rust-v5
+executable plus SHA256 manifest. On a trusted-branch hit,
+Cargo toolchain and compilation are skipped after verifying
+the binary and its smoke CLI command. On a miss, original
+`Cargo.lock` and pinned checkout produce the executable
+and save it. This **binary cache is separate from the licensed
+audio cache** and from the dependency/target Cargo fallback cache.
+A successful actual binary cache HIT and measured timing comparison
+are still required; do not advertise savings before that.
