@@ -41,7 +41,7 @@ def dict_reader(source, expected: list[str]):
     sample = source.read(4096)
     source.seek(0)
     try:
-        separator = csv.Sniffer().sniff(sample, delimiters=",;\\t").delimiter
+        separator = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
     except csv.Error:
         separator = ","
     reader = csv.DictReader(source, delimiter=separator)
