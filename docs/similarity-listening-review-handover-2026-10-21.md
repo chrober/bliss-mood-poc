@@ -51,6 +51,17 @@ download/archive/model/backend issues based on logs, inspect aggregate
 results, then design a larger stratified benchmark and separate FMA Genre
 workflow. Keep PR #16 Draft.
 
+
+**Updated validation gate:** real DEAM run 39575405139 passed source downloads,
+1,802 audio/annotation ID matching and all twelve calls to analyze-features,
+but correctly **refused to report v4 feature scores as v5**. PR #16's own
+features.rs says experimental-essentia-audio-v4-unvalidated. The workflow now
+uses a separate **immutable checkout of genuine Rust-v5** from PR #17 commit
+2c3d44401436b3b41b6e067199016a1ed2335fbf (including its Cargo.lock);
+this does **not** merge/edit PR #17 or main. Check DEAM workflow run
+39576010217 for build, real evaluation and final artifact status. Do not
+claim success of real end-to-end scientific benchmark until this completes.
+
 ## ZUERST LESEN: Erster Hörtest ist ausgewertet – Entscheidung über weiteren Verlauf offen
 
 **STATUS 21.10.2026: FIRST8 REVIEW RECEIVED AND ANALYZED.** Der Benutzer hat
