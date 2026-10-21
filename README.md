@@ -5,6 +5,21 @@ Experimental Rust CLI for capability-based music feature analysis using MTG/Esse
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
+## Aktuelle Roadmap: Song-Similarity bis Lyrion-Integration (21.10.2026)
+
+Der [durchgängige Forschungs- und Integrationsfahrplan](docs/similarity-lyrion-roadmap.md)
+beschreibt **Phasen 0–6**, Abnahmekriterien, kleine nächste Arbeitsschritte und
+**vier Mermaid-Diagramme** (Features, externe Evidenz, Similarity-Auswahl,
+Bliss-/Feature-first/Hybrid-Mixing). Er enthält auch den aktuellen
+DEAM-Datenquellenblocker, die validierten MTT-/FMA-Benchmarks und die
+geplante lokale Hörvalidierung.
+
+**Phasenzuordnung:** Offline-Erzeugen der analysierten Song-Features = **Phase 0**;
+Prüfung und Ergänzung derselben 87D-/56D-/1280D-Repräsentationen für
+eine begrenzte **lokale** Songauswahl = **Phase 2**; Ausbau zu einem
+produktiven Bibliotheksbestand erst **Phase 6** nach den Qualitätsgates.
+Keine automatische Live-Analyse im Playlist-Mixer.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with
