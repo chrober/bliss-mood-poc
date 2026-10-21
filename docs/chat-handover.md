@@ -1,5 +1,24 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **EXTERNAL EVIDENCE ROADMAP / PERFORMANCE POLICY — 21 Oct 2026:**
+> The user explicitly wants **continued GitHub Actions runtime optimization
+> alongside musical evidence research**. See the detailed
+> [MTG-Jamendo + MagnaTagATune plan](similarity-external-evidence-roadmap-2026-10-21.md).
+> Priority: (1) metadata-only MagnaTagATune comparison/vote/clip schema and
+> licensing audit (533 human odd-one-out triples, ~7650 votes, CC BY-NC-SA
+> 3.0 dataset, GPLv3 scripts); (2) in parallel, metadata/split/model-provenance
+> audit of MTG-Jamendo 87-Genre/56-Mood heads and derived human annotations;
+> (3) only after rights/metadata validation, bounded MagnaTagATune
+> audio benchmark with corrected pinned Rust-v5, triplet voting agreement,
+> human consensus and paired uncertainty; (4) final independent testing
+> and Lyrion playlist validation. **Do not download huge Jamendo audio
+> collections or MagnaTagATune split archives until validated.**
+> Every expensive workflow must report elapsed times for build, download,
+> inference and evaluation; worker count, CPU/RAM and throughput;
+> optimize measured bottlenecks. External per-track analyze-features
+> loops remain serial; adaptive scan-features workers are not enabled
+> there. No production metric selection or merge.
+>
 > **FMA GENRE VALIDATION E2E PASS, 21 Oct 2026:** Corrected
 > [run 39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757)
 > passed. Official FMA-Small archive has **3 size-anomalous MP3s**,
