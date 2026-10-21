@@ -226,3 +226,40 @@ unfiltered and subsequent filtered 80-song samples
 cannot be interpreted as paired/causal evidence.
 For full research methodology see
 [FMA/MTG catalog screen](fma-mtg-catalog-overlap-2026-10-21.md).
+
+## Completed catalog-filtered FMA Validation benchmark
+
+**PASS**, [run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307),
+[aggregate artifact 12349595666](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307/artifacts/12349595666).
+
+The FMA-MTG **metadata-only** audit identified **42
+possible exact artist+title catalog matches among 800
+FMA VALIDATION tracks**, including **35 of 100 Hip-Hop
+tracks**. The filtered benchmark excluded all 42
+**before deterministic balanced artist-distinct
+VALIDATION sampling**, then analyzed 80 MP3s
+(10 per genre, 80 distinct artists). No official
+FMA TEST identities, genres, artist/title labels,
+audio or model outputs were used; the loader now
+skips TEST based on its split value before any
+song-ID parsing. The corrected Rust-v5 binary was
+restored from verified cache, saving the release build.
+
+| Metric | Unfiltered Validation P@5 (DIFFERENT tracks) | Filtered Validation P@5 | Filtered mAP@10 | Filtered nDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| RMS | 0.3175 | 0.3000 | 0.1624 | 0.2819 |
+| Cosine | 0.3500 | 0.3200 | 0.1749 | 0.2985 |
+| Centered Cosine | 0.3525 | 0.3225 | 0.1781 | 0.3043 |
+| Weighted Jaccard | 0.3550 | 0.3000 | 0.1719 | 0.2933 |
+| Old cutoff Top-K | 0.3150 | 0.3025 | 0.1719 | 0.3014 |
+| Ranked Top-6 | 0.3150 | 0.3125 | 0.1752 | 0.3048 |
+| Ranked Top-12 | 0.3400 | 0.3050 | 0.1740 | 0.3000 |
+
+The samples are NOT matched, so these differences
+are NOT valid paired estimates of training-overlap
+effects. Metadata matches are possible catalog
+collisions, NOT confirmed classifier training
+recordings, and nonmatches do not prove absence
+of training or encoder reuse. The TEST embargo
+continues. Further details and uncertainty:
+[FMA-MTG catalog research](fma-mtg-catalog-overlap-2026-10-21.md).
