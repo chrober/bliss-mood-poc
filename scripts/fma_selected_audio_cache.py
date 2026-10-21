@@ -73,9 +73,6 @@ def verify(bundle: Path, manifest_path: Path, *, metadata: Path,
         raise ValueError("FMA selected cache contains nonvalidation or unknown song")
     if len({songs[id]["artist"] for id in chosen})!=len(chosen):
         raise ValueError("FMA selected cache has duplicate artists")
-    if {genre:sum(songs[id]["genre"]==genre for id in chosen)
-        for genre in {songs[id]["genre"] for id in chosen}}.values() is None:
-        raise ValueError("Invalid FMA genres")
     counts={}
     for id in chosen:
         genre=songs[id]["genre"]
