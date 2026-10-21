@@ -6,6 +6,83 @@ Dieses Dokument fasst die Lizenz- und Distributionsüberlegungen für `bliss-moo
 
 **Scope:** Keine Änderung von PR #16 (`feat/similarity-metric-evaluation`), `main`, BlissMixerLab oder Musikdateien. Die Validierung von Audioqualität und Similarity ist von der Distributionsfreigabe zu unterscheiden.
 
+## 21.10.2026: Ergebnis der tatsächlichen Windows-Binärinventur und Veröffentlichungssperre
+
+**Direkt vom Anwender am vorhandenen Windows-Entwicklungskit gemessen:**
+
+| Gate | Ergebnis | Bedeutung |
+| --- | --- | --- |
+| PE-x64 und SHA256/DLL-Closure | **PASS, 100 native Dateien** | Integrität der konkreten EXE/DLL-Dateien bestätigt; keine Lizenzfreigabe |
+| MSYS2-Paket-Herkunft | **77 zugeordnete Pakete** | Maschinenlesbare Paketnamen/-versionen; keine Source- oder Lizenztextprüfung |
+| Vorhandene und korrekt referenzierte Notice-Dateien | **94 Referenzen gültig, 0 fehlende referenzierte Dateien** | Bezieht sich auf *bereits vorhandene* Hinweise |
+| **Pakete ohne installierte Notice** | **17** | Source-Paket/PKGBUILD und tatsächlich geltende Lizenztexte müssen versionsgenau überprüft werden |
+| `release_approved` / `license_inventory_complete` | **false / false** | Absichtliche, weiterhin geltende Sperre |
+| `distribution_release_status` | **BLOCKED** | Kein rechtliches oder organisatorisches Release-Gate bestanden |
+
+Der private Auditbericht liegt auf dem Windows-Rechner unter
+`D:\LMS\bliss-mood-poc\audit-windows-essentia-20261021-060841\release-readiness-audit-private.json`.
+Die **17** betroffenen Pakete sind: `mingw-w64-x86_64-ffmpeg`,
+`mingw-w64-x86_64-fftw`, `mingw-w64-x86_64-gmp`,
+`mingw-w64-x86_64-gnutls`, `mingw-w64-x86_64-lame`,
+`mingw-w64-x86_64-libidn2`, `mingw-w64-x86_64-libssh`,
+`mingw-w64-x86_64-libtheora`, `mingw-w64-x86_64-libvorbis`,
+`mingw-w64-x86_64-libvpx`, `mingw-w64-x86_64-libx264`,
+`mingw-w64-x86_64-nettle`, `mingw-w64-x86_64-opencore-amr`,
+`mingw-w64-x86_64-p11-kit`, `mingw-w64-x86_64-rtmpdump`,
+`mingw-w64-x86_64-x265`, `mingw-w64-x86_64-xvidcore`.
+
+**Keine der 17 Lizenzbedingungen wird hier aus dem Paketnamen geraten.**
+`pacman -Qi`-Lizenzmetadaten sind Suchhinweise, nicht der Text der
+korrespondierenden Source-Lizenz. Die technische Analyse
+`scripts/triage_windows_native_license_gaps.py` erzeugt deshalb
+aus dem **zuvor integritätsgeprüften** Dev-Kit einen deterministischen
+Prüfauftrag mit den exakten Paketversionen, *ungeprüften* Upstream-URLs,
+betroffenen DLL-Namen und den *im Manifest aufgezeichneten* Importpfaden.
+Sie verändert keine Binaries, lädt keine Quellen herunter und setzt
+sämtliche rechtlichen Freigabefelder weiterhin auf **false/BLOCKED**.
+Die tatsächliche FFmpeg-`configure`-Zeile und verwendete
+`--enable-gpl`/`--enable-nonfree`/`--enable-version3`-Schalter
+sind **noch nicht belegt**. Der bloße Fund von libx264/x265 in der
+Closure ersetzt diese Prüfung nicht.
+
+**Abgleich mit den Szenarien A–D aus Abschnitt 4:**
+
+- **A (Komplettpaket)**: Auf der öffentlichen Repository-CI vorerst
+  **keine weiteren nativen Windows-Binärarchive** veröffentlichen.
+  Der Build und alle technischen Tests bleiben eingeschaltet; die
+  CI-Artifakt-Upload-Stage ist für öffentliche Repositories ausgesetzt.
+  Bereits veröffentlichte ältere Testartefakte werden dadurch **nicht**
+  automatisch entfernt. Deren Sichtbarkeit, Fortbestand und Pflichten
+  müssen ausdrücklich geprüft werden.
+- **B (eigene CLI + mitgeliefertes C++-Worker-EXE)** reduziert möglicherweise
+  die von uns mitgelieferten nativen Bibliotheken, ist jedoch **keine
+  Lösung** der direkt mit Essentia verknüpften AGPL-/Worker-Fragen.
+- **C (CLI + Worker-Quellcode/Build-Skripte; Nutzer baut Worker)**
+  ist die bevorzugte weitere **technische** Distributionsuntersuchung,
+  einschließlich exaktem Upstream-Pin, Lizenzhinweisen und reproduzierbarer
+  Systempaketinstallation. Keine automatische AGPL-Ausnahme.
+- **D (nur eigenständiger Rust-DSP-Pfad)** ermöglicht sofort weitere
+  private Funktions-/Similarity-Tests ohne ein mitgeliefertes natives
+  Essentia-Paket, **nach** Klärung seiner eigenen Code-/Crate-/ONNX-
+  Modellrechte für eine spätere allgemeine Weitergabe.
+
+**Reduktionsweg:** Nicht einfach Video-/Encoder-DLLs aus einem
+funktionierenden 100-Dateien-Paket löschen. Die im Manifest
+verzeichneten Imports dokumentieren eine technische Abhängigkeitskette,
+aber nicht alle dynamisch geladenen Codecs. Für einen kleineren
+FFmpeg-/Essentia-Build zuerst die wirklich benötigten MP3-/FLAC-/WAV-
+Decoder, tatsächlichen Buildflags und Laufzeitimports erfassen;
+erst **nach** eigenem neuen Build/Closure-Verifikation und ausgewählten
+Codec-Smokes ist eine Reduktion belastbar. Lizenz- und Modellprüfungen
+bleiben parallel offen.
+
+Offizielle weiterführende Ausgangspunkte:
+[FFmpeg Legal](https://ffmpeg.org/legal.html),
+[FFmpeg General / externe Bibliotheken](https://ffmpeg.org/general.html)
+und die in Abschnitt 9 verlinkten Essentia-Primärquellen.
+Dies ist eine technische Prüfreihenfolge, **keine Rechtsberatung und
+keine Freigabe**.
+
 ## 1. Kernaussagen
 
 1. **Selbst heruntergeladene Abhängigkeiten** verringern grundsätzlich unsere eigenen Pflichten als Distributor *dieser nicht mitgelieferten Komponenten*. Sie beseitigen weder deren Nutzungsbedingungen noch automatisch Copyleft-Fragen bei eng gekoppelten Programmen. Ein von uns kontrollierter Download-Mirror oder ein weitergegebenes ZIP mit DLLs ist dagegen eine eigene Weitergabe.
