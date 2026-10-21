@@ -1,3 +1,75 @@
+## AKTUELLER FORSCHUNGSHANDOVER — Repräsentation statt nur Metrik (21.10.2026)
+
+**Bitte in der nächsten Chat-Session ZUERST lesen:**
+[Ausführlicher Drei-Ansätze-Handover](similarity-three-representation-approaches-handover-2026-10-21.md).
+Dieser Abschnitt ist die **neue Arbeitspriorität**; ältere Meldungen darunter
+dokumentieren abgeschlossene Implementierung und Benchmarks.
+
+Wir möchten die **musikalische Ähnlichkeit zweier analysierter Songs**
+bestimmen. Bisher wurde nur die Frage getestet, welche von sieben
+Distanz-/Similarity-Metriken auf **87D Genre- und 56D Mood/Theme-
+Klassifikationsvektoren** gut funktioniert. Jetzt muss zusätzlich
+die **Repräsentation** selbst untersucht werden:
+
+1. **A — Classifier-Vektoren:** Genre 87D / Mood 56D getrennt;
+   bereits implementiert und auf FMA, DEAM und MagnaTagATune
+   gegen externe Referenzen getestet. Genre-/Mood-Cosine,
+   Centered Cosine und Weighted Jaccard bleiben Baselines.
+2. **B — Audio-Embeddings:** den **1280D Discogs-EffNet-Patch-Vektor
+   vor den beiden ONNX-Klassifikationsköpfen** als Song-Embedding
+   (anfangs Patch-Mittelwert, dann L2/Cosine) experimentell
+   bereitstellen und validieren. Externes Beispiel:
+   [cosine.club FAQ](https://cosine.club/about); außerdem
+   [Essentia-Embedding- und Contrastive-Modelle](https://essentia.upf.edu/models.html).
+   **Im derzeitigen Feature-Sidecar NICHT persistiert oder evaluiert.**
+   Der Encoder erzeugt 1280D intern; echtes Rust-v5-Ausgabeschema,
+   Pooling und numerische Essentia-Parität sind offen.
+3. **C — Fusion:** normalisierte/kalibrierte Similarity aus 1280D
+   Audio + 87D Genre + 56D Mood mit **festen Ablationen**,
+   erst später Development-only-Gewichtsoptimierung.
+   **B und C wurden noch nicht auf unseren Datensätzen gemessen.**
+
+**Unbedingt zwei Ebenen unterscheiden:**
+Die obigen drei **Feature-Repräsentationsansätze** sind NICHT
+die drei *Lyrion-Kandidatenstrategien*
+**Bliss-first / Mood-/Genre-/Embedding-first / Hybrid
+aus Kandidatenquellen**; letztere sind eine davon getrennte
+Produkt-/Host-Entscheidung. Ein Feature-Fusion-Score kann
+auch in einem Bliss-first-Reranking verwendet werden.
+Siehe [Lyrion-Integrationskonzept](lyrion-bliss-mood-genre-integration.md).
+
+**Evidenz / Grenzen:** Auf MTT alle **346** einzigartigen Triple-Fragen
+(293 eindeutige Menschen-Mehrheiten, 1019 Clips) nur für A evaluiert;
+**kein MTT-Holdout** mehr. FMA Validierungs-Audit fand **42/800**
+mögliche MTG-Jamendo Künstler-/Titel-Katalogtreffer (kein
+Nachweis von Audio-/Trainingsidentität); der gefilterte
+FMA-Validierungslauf mit 80 anderen Songs PASS, offizieller
+FMA-TEST-Split unberührt. DEAM Mood Valence/Arousal ist nur
+ein Proxy für die 56D-Kategorien. Keine der Metriken ist
+als Produktionsstandard bewiesen. Siehe
+[Cross-Dataset-Evidenz](similarity-cross-dataset-evidence-2026-10-21.md).
+
+**Konkret als Nächstes:** Den gepinnten, korrigierten
+Rust-v5-Encoder aus PR #17 (immutable Revision
+\`2c3d44401436b3b41b6e067199016a1ed2335fbf\`)
+prüfen; minimalinvasiv versionierte 1280D-Ausgabe
+plus Patch-Pooling bereitstellen, gegen Essentia
+numerisch prüfen, auf identischen lizenzierten
+Entwicklungsclips zuerst **A vs B** testen,
+anschließend **C** mit vorab festgelegten Gewichten.
+Vier isolierte GH-Actions-Worker / kuratierter
+119.689.247-Byte-MTT-Audiocache und gepinnter
+Rust-v5-Binary-Cache sind bereits vorhanden;
+nur Versions-/Cache-Anpassungen nach Änderungen,
+keinen privaten Bibliotheks-Rescan und keinen
+FMA-TEST-Zugriff. Keine Produktionsänderung und
+kein Merge nach \`main\`; PR #16 Draft,
+PR #13 und PR #17 nicht verändern.
+Bei neuen Resultaten diesen Handover **und** den
+ausführlichen Drei-Ansätze-Handover aktualisieren.
+
+---
+
 > **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
 >
 > **Verbindliches Einstiegsdokument für die nächste Chat-Session:**
