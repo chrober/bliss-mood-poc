@@ -325,3 +325,62 @@ PR #13/#17 sowie Mixer unverändert, PR #16 Draft.
 Nach FMA ist DEAM Development als nächster
 gepaarter Mood-Proxy vorgesehen. Noch keine
 Fusion auf FMA VALIDATION optimieren.
+
+## Verifiziert: FMA-80-Embedding A/B Transfer auf katalogbereinigter VALIDATION (21.10.2026)
+
+**NEUER EMPIRISCHER BEFUND – älteren Abschnitt mit
+`ausständig` damit überholt:**
+[GitHub Actions Run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
+**PASS**, [Aggregate-Artefakt 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718).
+Identischer eingefrorener, bereits untersuchter
+FMA-Small VALIDATION-Sample-Fingerprint,
+**80 Künstler-distinkte Songs**, 8 Genres mit je
+10 Songs, pro Song dieselben 79 Kandidaten,
+Genre-Katalogscreening (42 mögliche MTG-Overlap-
+Treffer ausgeschlossen). Original FMA TEST nicht
+angetastet, keine Trainings-Disjointness behauptet.
+Die frühere Genre-Cosine-Referenz wurde
+**exakt** reproduziert (P@5 `0,3200`,
+mAP@10 `0,174876`, nDCG@10 `0,298533`).
+
+| Gepaarte Methode | P@5 | mAP@10 | nDCG@10 | Abdeckung |
+| --- | ---: | ---: | ---: | ---: |
+| EffNet 1280D Song-L2 + Cosine | **0,2800** | 0,163044 | 0,282363 | 80/80 |
+| Genre 87D Cosine | 0,3200 | 0,174876 | 0,298533 | 80/80 |
+| Genre 87D Centered Cosine | **0,3225** | **0,178147** | **0,304271** | 80/80 |
+| Mood/Theme 56D Cosine (Cross-Task) | 0,2775 | 0,150394 | 0,266065 | 80/80 |
+| Mood/Theme 56D Centered Cosine (Cross-Task) | 0,2675 | 0,152847 | 0,270372 | 80/80 |
+
+Embedding − Genre Centered P@5
+= **−4,25 Prozentpunkte**, explorativer
+95-%-genrestratifizierter gepaarter
+Query-Resampling-Sensitivitätsbereich
+**−8,76 bis +0,25 Prozentpunkte**;
+wegen gemeinsam verwendeter Kandidaten und
+bereits explorativ erforschter VALIDATION **kein
+independentes Konfidenzintervall/Signifikanzbeweis**.
+
+Damit ergibt sich eine **zweite andere
+Aufgaben-/Dataset-Indikation** neben MTT:
+das rohe nicht speziell kontrastive
+EffNet-Song-Mean-Embedding schlägt die
+aufgabenpassenden Genre-/Mood-Kopfvektoren
+hier nicht. MTT ist Menschen-Odd-One-Out,
+FMA ein **Genre-Label-Proxy**. Beide
+Zahlen dürfen nicht gepoolt und nicht
+als allgemeiner Produktionssieger gedeutet
+werden. Details, Protokoll, Paardifferenzen
+und Stage-Zeiten:
+[FMA-80-Embedding-A/B-Studie](similarity-fma-embedding-ab-2026-10-21.md).
+
+**Nächster Schritt:** DEAM-Entwicklungs-
+/Validierungsvergleich für Valence/Arousal
+bei identischen Clips und Modell-Provenienz
+als begrenztem Mood-Proxy, anschließend
+eigenständige Prüfung kontrastiver
+Discogs-Modelle und neue unabhängige
+menschliche Klang-/Playlist-Referenzen.
+Keine zusätzlichen Fusionsgewichte an
+MTT/FMA-VALIDATION optimieren.
+PR #16 bleibt Draft; `main`, PR #13,
+PR #17 und Lyrion-Produktivmixer unverändert.
