@@ -183,6 +183,42 @@ class DeamBenchmarkTests(unittest.TestCase):
             self.assertIn("moodtheme", cohort["per_head"])
         self.assertNotIn("DEAM/2001.mp3", json.dumps(data))
 
+    def test_conservative_catalog_exclusion_keeps_private_ids_out_of_summary(self):
+        meta = self.root / "metadata.zip"
+        mtg = self.root / "raw.meta.tsv"
+        with zipfile.ZipFile(meta, "w") as archive:
+            archive.writestr(
+                "metadata/metadata_2013.csv",
+                "song_id,Artist,Song title\\n" +
+                "".join(f"{i},Artist {i},Track {i}\\n" for i in range(1, 9)),
+            )
+            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\\n")
+            archive.writestr("metadata/metadata_2015.csv",
+                             "id,artist,title\\n")
+        mtg.write_text(
+            "TRACK_ID\\tARTIST_NAME\\tTRACK_NAME\\n"
+            "100\\tArtist 2\\tTrack 2\\n"
+            "101\\tArtist 5\\tTrack 5\\n",
+            encoding="utf-8",
+        )
+        human = bench.load_annotations(self.annotation_zip)
+        members = bench.match_audio(self.audio_zip, human)
+        filtered, audit = bench.screen_catalog_overlaps(members, human, meta, mtg)
+        self.assertEqual(len(filtered), 6)
+        self.assertNotIn("2", filtered)
+        self.assertNotIn("5", filtered)
+        self.assertEqual(audit["excluded_mtg_catalog_candidates"], 2)
+        self.assertEqual(audit["deam_metadata_coverage_count"], 8)
+        self.assertIn("NOT_verified", audit["status"])
+        self.assertNotIn("Artist 2", json.dumps(audit))
+        with zipfile.ZipFile(meta, "w") as archive:
+            archive.writestr("metadata/metadata_2013.csv",
+                             "song_id,Artist,Song title\\n1,Artist 1,Track 1\\n")
+            archive.writestr("metadata/metadata_2014.csv", "Id,Artist,Track\\n")
+            archive.writestr("metadata/metadata_2015.csv", "id,artist,title\\n")
+        with self.assertRaisesRegex(ValueError, "coverage too low"):
+            bench.screen_catalog_overlaps(members, human, meta, mtg)
+
     def test_rank_ties_and_constant_reject(self):
         self.assertEqual(bench.average_ranks([10, 10, 15]), [1.5, 1.5, 3])
         self.assertEqual(bench.spearman([1, 2, 3], [3, 2, 1]), -1.)
