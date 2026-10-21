@@ -26,11 +26,13 @@ SEED = 20261021
 SALT = "MTT-artist-holdout-v1|20261021|"
 
 
-def artist_bucket(artist: str) -> str:
+def artist_bucket(artist: str, cutoff: int = 51) -> str:
     if not artist:
         return "unknown"
+    if not 0 <= cutoff <= 256:
+        raise ValueError("Artist holdout cutoff must be within byte range")
     code = hashlib.sha256((SALT + artist).encode("utf-8")).digest()[0]
-    return "holdout" if code < 51 else "development"
+    return "holdout" if code < cutoff else "development"
 
 
 def digest_triplets(triplets) -> str:
@@ -81,6 +83,35 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             continue
         component_triples[find(artists[0])].append(triple)
 
+    # Sensitivity to the artist reserve size, using metadata only.
+    # These are *candidate plans*, not test-set scores. Their exact
+    # expected query counts can be audited without running any model.
+    candidate_splits = {}
+    for cutoff in (51, 85, 128):
+        counts = Counter()
+        artists_in_split = defaultdict(set)
+        for triple, names in artists_by_triple.items():
+            if not all(names):
+                counts["missing_artist"] += 1
+                continue
+            buckets = {artist_bucket(name, cutoff) for name in names}
+            if len(buckets) != 1:
+                counts["mixed_excluded"] += 1
+            else:
+                split = next(iter(buckets))
+                counts[split] += 1
+                artists_in_split[split].update(names)
+        if artists_in_split["development"] & artists_in_split["holdout"]:
+            raise ValueError("Candidate artist partition contamination")
+        candidate_splits[str(cutoff)] = {
+            "intended_holdout_artist_fraction": round(cutoff / 256, 5),
+            "questions": {label: counts[label] for label in
+                          ("development", "holdout", "mixed_excluded", "missing_artist")},
+            "artists": {label: len(artists_in_split[label]) for label in
+                        ("development", "holdout")},
+            "status": "metadata_feasibility_only_NOT_tested_on_model_scores",
+        }
+
     graph_sizes = sorted((len(t) for t in component_triples.values()), reverse=True)
     artists_development = {a for a in parent if artist_bucket(a) == "development"}
     artists_holdout = {a for a in parent if artist_bucket(a) == "holdout"}
@@ -106,6 +137,7 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
                     "sorted_triplet_id_sha256": digest_triplets(partition[group])}
             for group in ("development", "holdout", "mixed_excluded", "missing_artist")
         },
+        "candidate_artist_holdout_designs": candidate_splits,
         "artist_component_graph": {
             "components": len(component_artists),
             "artists_in_largest_component": max(
@@ -147,6 +179,8 @@ def main() -> None:
         "unique_triplets": output["unique_unordered_triplets"],
         "artist_disjoint_question_counts": {k: v["count"] for k,v in
                                            output["artist_disjoint_questions"].items()},
+        "candidate_designs": {cutoff: stats["questions"]
+                              for cutoff, stats in output["candidate_artist_holdout_designs"].items()},
         "artist_component_graph": output["artist_component_graph"],
         "seconds": output["runtime"]["wall_seconds"],
         "status": output["status"]
