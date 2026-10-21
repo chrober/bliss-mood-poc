@@ -305,19 +305,29 @@ returned by Lyrion itself**, usually starting with `file:///`.
 Using the CSV key as the songinfo URL failed on the first real entry;
 the **queue was correctly not modified**.
 
-The corrected [one-block PowerShell queue script](../scripts/queue_similarity_pairs_lyrion.ps1)
-looks up Lyrion `titles <offset> <batch> tags:u` with pagination,
-reads each `titles_loop` item's **actual numeric track ID and file
-URL**, and compares the **full relative path, including every
-directory component** against URL-decoded local-file path suffixes.
-It tests raw, singly and doubly URL-unescaped representations because
-Lyrion's historical CLI may return double-escaped URLs. A basename
-lookup is *only an optimization*; no basename/artist/album-only match
-is accepted. The identity matching is case-sensitive. If duplicate
-song roots contain the same relative path, an ambiguous match fails
-closed **before** making any playlist change. Missing matches also
-fail closed. The catalog page count must remain consistent, no library
-rescan may be active and at most 250,000 entries are considered.
+The first fix enumerated Lyrion's complete library with `titles 0 500`
+pages. On the **real 77,387-track library**, this was needlessly slow
+(35,000 catalog rows after roughly five minutes). **Stop an ongoing
+read-only Dry Run with Ctrl+C.** The Play Queue remains unchanged.
+
+**Current fix:** The [one-block PowerShell queue script](../scripts/queue_similarity_pairs_lyrion.ps1)
+now takes the user's **exact absolute Raspberry Pi music folder**
+(`LYRION_MUSIC_ROOT`, for example `/mnt/music`) and joins it with
+the complete relative `TracksV2.File` CSV key. It constructs the
+canonical `file:///mnt/music/...` Lyrion file URL, tries three bounded
+URL-escape representations with **direct `songinfo 0 100 url:...`**
+requests, and validates the **returned track ID and actual full URL**
+against that same expected path after documented double-escaping
+decoding. It does not fetch the 77,387-track catalog, search by title
+or compare only basenames. The Linux shell notation
+`Various\\ Artists` is an escaped command-line spelling; the
+underlying filesystem path and CSV key contain ordinary spaces.
+
+If a single track has zero or multiple verified IDs, or a songinfo
+query returns a different file URL, the script **fails before queue
+modification**. A different Pi music root must be configured
+explicitly rather than inferred from artist/album names. Missing or
+invalid root prevents lookup; no online audio inspection is performed.
 
 The script uses the already identified stable player ID (no Unicode
 display-name dependence), checks connection, verifies shuffle off,
@@ -327,7 +337,7 @@ queue using one `playlistcontrol cmd:add track_id:...` call. It never
 starts playback or destroys the original queue. The user must not
 rerun Apply mode blindly because adding is not idempotent.
 It takes `LYRION_SERVER_URL`, `LYRION_PLAYER_ID`,
-`LYRION_LISTENING_CSV` from the local PowerShell caller rather than
+`LYRION_LISTENING_CSV` and `LYRION_MUSIC_ROOT` from the local PowerShell caller rather than
 committing private LAN/player/file information. Its JSON-RPC HTTP
 transport explicitly decodes UTF-8 response bytes.
 
@@ -336,8 +346,8 @@ can be copied from the conversation or
 [the PowerShell scripting convention](powershell-script-conventions.md).
 The underlying repository script is itself also a complete
 `& { ... }` block. The Windows CI runs a purely **local mocked
-JSON-RPC** test for Unicode, double escaping, unique suffixes,
-ambiguity, dry-run and ordered append. Neither CI nor the script
+JSON-RPC** test for Unicode, double URL escaping, exact
+path-to-ID validation, wrong roots, dry-run and ordered append. Neither CI nor the script
 ever reads user music for similarity calculation. The only possible
 write is to a user's chosen Lyrion play queue after Apply=true.
 
