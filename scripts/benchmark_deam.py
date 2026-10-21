@@ -108,13 +108,43 @@ def match_audio(path: Path, annotated: dict) -> dict[str, str]:
     return matches
 
 
-def select_ids(annotations: dict, available: dict, limit: int, seed: int) -> list[str]:
-    """Seeded, fixed subset with reproducible behavior for subsequent reruns."""
+def annotation_cohort(identifier: str) -> str:
+    """DEAM official annotation ID ranges; not a source/artist identifier.
+
+    DEAM's documented 2015 evaluation IDs are 2001..2058.
+    Lower IDs cover the earlier excerpt-based MediaEval collections.
+    """
+    number = int(identifier)
+    if not 1 <= number <= 2058:
+        raise ValueError(f"Unexpected DEAM identifier: {identifier}")
+    return "full_song_2015" if number >= 2001 else "earlier_excerpt"
+
+
+def select_ids(annotations: dict, available: dict, limit: int, seed: int,
+               stratify_cohorts: bool = False) -> list[str]:
+    """Stable seeded draw, optionally ensure both DEAM collection protocols."""
     common = sorted(set(annotations) & set(available), key=int)
     if limit < 6 or limit > len(common):
         raise ValueError(f"Requested {limit} DEAM songs, available {len(common)}")
-    random.Random(seed).shuffle(common)
-    return common[:limit]
+    rng = random.Random(seed)
+    if not stratify_cohorts:
+        rng.shuffle(common)
+        return common[:limit]
+    if limit < 12:
+        raise ValueError("Stratified DEAM sample requires at least 12 songs")
+    earlier = [key for key in common if annotation_cohort(key) == "earlier_excerpt"]
+    later = [key for key in common if annotation_cohort(key) == "full_song_2015"]
+    # Deliberately oversample the smaller 2015 cohort for an independently
+    # reportable subgroup. This is not prevalence-weighted population sampling.
+    n_later = min(len(later), max(6, limit // 5))
+    n_earlier = limit - n_later
+    if n_earlier < 6 or n_earlier > len(earlier) or n_later < 6:
+        raise ValueError("Not enough DEAM recordings in both annotation cohorts")
+    rng.shuffle(earlier)
+    rng.shuffle(later)
+    result = earlier[:n_earlier] + later[:n_later]
+    rng.shuffle(result)
+    return result
 
 
 def run_inference(binary: Path, models_dir: Path, audio_zip: Path, ids: list[str],
@@ -189,7 +219,8 @@ def bootstrap_ci(values: list[float], seed: int, rounds: int = 400) -> list[floa
     return [simulated[int(rounds * .025)], simulated[int(rounds * .975)]]
 
 
-def evaluate(database: Path, identifiers: list[str], annotations: dict, seed: int) -> dict:
+def evaluate(database: Path, identifiers: list[str], annotations: dict, seed: int,
+             report_subcohorts: bool = False) -> dict:
     keys = {key: f"DEAM/{key}.mp3" for key in identifiers}
     with closing(ev.open_database(database)) as connection:
         cohorts = {head: ev._catalog(connection, head, experimental=True)
@@ -244,7 +275,7 @@ def evaluate(database: Path, identifiers: list[str], annotations: dict, seed: in
                     "queries_insufficient_defined_scores": skipped,
                 }
             output[head] = results
-        return {
+        result = {
             "schema": "deam-similarity-benchmark-v1",
             "dataset": {"name": "DEAM", "source": DEAM_SOURCE,
                         "license": "CC BY-NC (dataset manual)",
@@ -256,12 +287,40 @@ def evaluate(database: Path, identifiers: list[str], annotations: dict, seed: in
                 "Metrics and model heads are exploratory; no winner is selected.",
                 "Bootstrap re-samples queries that share underlying tracks; intervals are descriptive.",
                 "This benchmark has no audio, names, label rows, or per-track scores in the report.",
+                "DEAM earlier excerpts and 2015 full songs have different annotation protocols.",
+                "Training-data overlap with MTG-Jamendo is NOT audited or excluded.",
             ],
             "models": {h: {"model_key": m["model_key"],
                            "preprocessing_version": m["preprocessing_version"]}
                        for h, m in cohorts.items()},
             "per_head": output,
         }
+        result["dataset"]["annotation_cohort_counts"] = {
+            name: sum(annotation_cohort(song) == name for song in identifiers)
+            for name in ("earlier_excerpt", "full_song_2015")
+        }
+        # Make the frozen sampling selection auditable without exposing
+        # individual licensed track IDs in public artifacts.
+        result["dataset"]["sample_id_sha256"] = hashlib.sha256(
+            ("\\n".join(identifiers) + "\\n").encode("ascii")
+        ).hexdigest()
+        result["dataset"]["train_overlap_check"] = "not_performed"
+        if report_subcohorts:
+            result["subcohorts"] = {}
+            for group in ("earlier_excerpt", "full_song_2015"):
+                selected = [song for song in identifiers
+                            if annotation_cohort(song) == group]
+                # Grouped assessment ranks only songs under the same
+                # collection/annotation protocol. No per-song data exposed.
+                if len(selected) >= 6:
+                    result["subcohorts"][group] = {
+                        "songs_evaluated": len(selected),
+                        "per_head": evaluate(
+                            database, selected, annotations, seed,
+                            report_subcohorts=False,
+                        )["per_head"],
+                    }
+        return result
 
 
 def main() -> None:
@@ -274,6 +333,8 @@ def main() -> None:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--seed", type=int, default=20261021)
+    parser.add_argument("--stratify-cohorts", action="store_true",
+                        help="Oversample DEAM 2015 full-song cohort; report groups separately")
     args = parser.parse_args()
     if not 6 <= args.limit <= 1802:
         parser.error("--limit must be between 6 and 1802")
@@ -286,10 +347,12 @@ def main() -> None:
         parser.error("Missing models directory")
     annotations = load_annotations(args.annotations_zip)
     members = match_audio(args.audio_zip, annotations)
-    ids = select_ids(annotations, members, args.limit, args.seed)
+    ids = select_ids(annotations, members, args.limit, args.seed,
+                     stratify_cohorts=args.stratify_cohorts)
     print(f"Matched {len(members)} annotated MP3s; using {len(ids)} (seed={args.seed}).")
     run_inference(args.binary, args.models_dir, args.audio_zip, ids, members, args.db)
-    result = evaluate(args.db, ids, annotations, args.seed)
+    result = evaluate(args.db, ids, annotations, args.seed,
+                      report_subcohorts=args.stratify_cohorts)
     result["dataset"]["annotation_archive_sha256"] = sha256_file(args.annotations_zip)
     result["dataset"]["audio_archive_sha256"] = sha256_file(args.audio_zip)
     args.report.parent.mkdir(parents=True, exist_ok=True)
