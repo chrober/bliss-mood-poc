@@ -55,6 +55,9 @@ jobs:
           # avoid a 7.2-GiB download if the evaluation semantics regress.
           python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
           python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+          echo "Runner CPUs: $(nproc)"
+          echo "Workflow runs one audio analysis subprocess at a time (--threads 1)."
+          echo "Multi-track/adaptive workers require a separately tested batch scheduler."
 
       - name: Build genuine Rust-v5 analyzer and install FFmpeg
         shell: bash
