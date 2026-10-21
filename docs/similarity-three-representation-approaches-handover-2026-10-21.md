@@ -3,7 +3,7 @@
 **Stand: 21.10.2026 · Branch: feat/similarity-metric-evaluation · Draft PR #16.**
 Forschungs-/Architekturentscheidung **OFFEN**. Dieses Dokument ist die
 maßgebliche Einstiegshilfe für die nächste Chat-Session. Weder ein neuer
-Produktionsalgorithmus noch ein Merge nach \`main\` wurde beschlossen.
+Produktionsalgorithmus noch ein Merge nach `main` wurde beschlossen.
 
 ## Das eigentliche Problem
 
@@ -26,17 +26,17 @@ musikalische Ähnlichkeit sind.
 
 ### A — Klassifikationsvektoren (unser bisheriger, bereits getesteter Pfad)
 
-\`\`\`text
+```text
 Audio → Discogs-EffNet (1280D pro Patch)
                         ├── Genre-Kopf → 87 Sigmoid-Werte pro Patch
                         └── Mood/Theme-Kopf → 56 Sigmoid-Werte pro Patch
 Song-Level: arithmetischer Mittelwert der Klassifikationswerte
 Je Kopf separate Similarity → Genre- und/oder Mood-Ranking
-\`\`\`
+```
 
 **Nutzen:** transparentere Kategorien; explizite Suche nach
 Genrenähe und Stimmungsnähe; Kopf-spezifische Gewichte; bereits im
-schema-v3-Sidecar und \`scripts/evaluate_similarity.py\` umgesetzt.
+schema-v3-Sidecar und `scripts/evaluate_similarity.py` umgesetzt.
 Die Scorewerte sind **mehrere unabhängige Sigmoid-Aktivierungen**,
 keine sich zu eins summierende Multinomialverteilung; selbst bei
 Aktivierung 0.8 ist keine über Kopf-/Genregrenzen kalibrierte
@@ -67,7 +67,7 @@ Das ist keine Entscheidung für einen Produktivstandard.
 
 ### B — Direkte 1280D Discogs-EffNet-Audio-Embeddings (neu zu testen)
 
-\`\`\`text
+```text
 Audio → Discogs-EffNet → 1280D latentes Embedding pro Audio-Patch
                          ↓
           Song-Level-Pooling, z. B. Mittelwert über Patches
@@ -75,7 +75,7 @@ Audio → Discogs-EffNet → 1280D latentes Embedding pro Audio-Patch
           Normierung und Cosine Similarity
                          ↓
                klangliches Nachbarschaftsranking
-\`\`\`
+```
 
 **Externe Referenz, keine in PR #16 bereits gemessene Lyrion-Evidenz:**
 [cosine.club/about](https://cosine.club/about) beschreibt ausdrücklich
@@ -99,8 +99,8 @@ sind vorerst optionale spätere Vergleichskandidaten, kein Grund,
 die aktuelle Portierung erneut großflächig umzubauen.
 
 **Wichtigster überprüfter Implementierungsbefund:**
-\`src/features.rs\` auf dem Similarity-Branch erzeugt in
-\`FeatureEngine::analyze\` den 1280D Patch-Vektor bereits,
+`src/features.rs` auf dem Similarity-Branch erzeugt in
+`FeatureEngine::analyze` den 1280D Patch-Vektor bereits,
 gibt ihn an die Klassifikationsköpfe weiter, verwirft ihn dann
 aber nach der Patch-Verarbeitung. Das bestehende separate
 schema-v3-Sidecar persistiert **87D-/56D-Klassifikationsscores**,
@@ -108,7 +108,7 @@ nicht 1280D Song-Embeddings. Der reguläre Source-Tree dieses Branches
 und die pinned, numerisch korrigierte **Rust-v5-CLI aus PR #17**
 sind zu unterscheiden: Die CI-Forschungsworkflows bauen die
 immutable PR-#17-Revision
-\`2c3d44401436b3b41b6e067199016a1ed2335fbf\`.
+`2c3d44401436b3b41b6e067199016a1ed2335fbf`.
 Vor einer Änderung **die konkrete gepinnte v5-Funktion/CLI prüfen**.
 **Keine unbelegte Behauptung**, eine Embedding-Ausgabe sei in dieser
 CLI schon implementiert. PR #17 nicht in #16 hineinmergen.
@@ -129,7 +129,7 @@ CLI schon implementiert. PR #17 nicht in #16 hineinmergen.
   mit 1280D float32, Patchzahl, Encoder-Gewicht-SHA256,
   Preprocessing-, Pooling- und Normalisierungsversion
   persistieren. Die bisherigen Sigmoid-Prüfungen und
-  Genre/Mood-\`model_key\`-Semantiken dürfen **nicht** für
+  Genre/Mood-`model_key`-Semantiken dürfen **nicht** für
   signierte latente Embeddings missbraucht werden. Schema v3
   und Legacy-Mood-Felder rückwärtskompatibel erhalten;
   ggf. eigene versionierte Tabelle statt riskanter Migration.
@@ -150,7 +150,7 @@ Das ist empirisch offen.
 
 ### C — Hybrides Feature-Ranking (Embedding + Genre + Mood)
 
-\`\`\`text
+```text
                  ┌─ 1280D Audio-Embedding → Cosine ── s_audio
 Gleicher Song ───┼─ 87D Genre-Werte     → Cosine ── s_genre
                  └─ 56D Mood-Werte      → Cosine ── s_mood
@@ -160,10 +160,10 @@ Gleicher Song ───┼─ 87D Genre-Werte     → Cosine ── s_genre
                     explizite gewichtete Kombination
                                        ↓
                         finale Songsimilarity / Ranking
-\`\`\`
+```
 
 Ein **Beispiel, noch kein evaluiertes oder kalibriertes Modell**:
-\`S = w_audio*S_audio + w_genre*S_genre + w_mood*S_mood\`,
+`S = w_audio*S_audio + w_genre*S_genre + w_mood*S_mood`,
 mit nichtnegativen Gewichten, die zu eins summieren. Die
 Cosine-Skalen der verschiedenen Signalräume haben
 **unterschiedliche empirische Verteilungen**. Daher nicht
@@ -324,7 +324,7 @@ Alle Handover-Dokumente laufend aktualisieren.
 ### Grenzen und Schutzregeln
 
 - **Nur Branch feat/similarity-metric-evaluation / Draft PR #16**;
-  kein Merge nach \`main\` ohne ausdrückliches Einverständnis;
+  kein Merge nach `main` ohne ausdrückliches Einverständnis;
   PR #13/PR #17 und Lyrion-Produktivmixer unangetastet.
 - Keine lokalen Rust-Builds auf dem Windows-Laptop;
   CI- und Benchmark-Builds auf GitHub.
@@ -336,7 +336,7 @@ Alle Handover-Dokumente laufend aktualisieren.
   unbegründeten oder vorzeitig veröffentlichten
   Qualitäts-/Performancebehauptungen.
 - Deutsch berichten; bei Windows-Kommandos vollständige
-  PowerShell-\`& { ... }\`-Blöcke ausgeben.
+  PowerShell-`& { ... }`-Blöcke ausgeben.
 
 **Verifizierbare Fremdreferenzen:**
 [cosine.club FAQ](https://cosine.club/about),
