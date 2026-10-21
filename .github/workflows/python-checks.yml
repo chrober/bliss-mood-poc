@@ -45,6 +45,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
       - name: Verify FMA-Small metadata split/parser on synthetic data
         run: python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+      - name: Validate FMA vs MTG metadata-only artist/title overlap on Linux
+        run: python3 -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
       - name: Validate conservative DEAM vs MTG catalog screening (no external data)
         run: python3 -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
       - name: Validate DEAM metadata and offline similarity benchmark fixtures
@@ -89,6 +91,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
       - name: Verify FMA-Small metadata schema and artist split checks on Windows
         run: python -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+      - name: Validate FMA vs MTG provenance and untouched TEST on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
       - name: Validate metadata-only DEAM/MTG overlap audit on Windows
         run: python -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
       - name: Validate DEAM archive matching, independent V/A retrieval and read-only reports
