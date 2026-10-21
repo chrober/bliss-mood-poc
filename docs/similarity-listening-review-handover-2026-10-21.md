@@ -7,6 +7,35 @@
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
 
+## GitHub Actions CI/FMA status correction (21.10.2026)
+
+Real FMA-Small validation run
+[39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733)
+**failed before feature extraction**: ZIP downloads were successful,
+but an unexpectedly sized MP3 anywhere in the archive raised
+`ValueError: Suspicious FMA audio member size`.
+The importer now skips isolated suspect MP3 members while requiring
+sufficient archive coverage, with fail-closed synthetic tests.
+Corrected real FMA run
+[39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757)
+must be checked for completed artifact before quoting metrics.
+
+Old unfiltered Rust checks had both unscoped push and pull_request
+triggers and therefore ran twice per feature-branch commit, including
+docs-only commits. They were split into Rust-only ci.yml and dedicated
+Python+PowerShell python-checks.yml, both now **push-only** and
+path-filtered for source vs scripts/tests; docs-only updates trigger
+neither. Other workflows were inventoried and have no exact same
+duplicate all-branch push+PR setup. Full methodology and caveats:
+[GitHub Actions trigger/worker audit](github-actions-trigger-and-worker-audit-2026-10-21.md).
+
+Parallelism: dataset benchmarks execute `bliss-mood analyze-features`
+serially, `--threads 1`, so Rust adaptive scanner workers are **not**
+used. They require `scan-features`/Bliss database path rather than
+the current per-file workflow. A small controlled A/B of fixed two
+workers and a sidecar-safe batch scheduler is a separate task;
+no unverified performance improvements claimed.
+
 ## CURRENT PRIORITY — externally validated DEAM and FMA evidence (21.10.2026)
 
 User explicitly requested to continue fully on GitHub Actions, without
