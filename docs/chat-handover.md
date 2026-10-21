@@ -18,6 +18,20 @@
 > belassen. PR #13 und #17 bleiben separat und Draft, `main` unverändert.
 > Bei Bedarf ausschließlich vollständige PowerShell-`& { ... }`-Blöcke.
 
+
+> **21.10.2026 – Current executable next step:** PR #16 now includes
+> a targeted read-only --pair-details-only option in
+> scripts/evaluate_similarity.py. It supports semicolon CSVs and
+> generates seven score values per head/per human-reviewed pair without
+> random sampling, audio analysis, queue changes or changes to labels.
+> The original first-eight CSV and saved JSON remain private and
+> unchanged. Ask the user to run this option with the saved Rust-v5
+> SQLite sidecar and return the new local pair-details report, verifying
+> that its labeled AUCs match the existing saved report. The aggregate
+> Mood cosine high-scoring negative is 0.9769996802 but its identity
+> is not established without the per-pair values. All musical
+> conclusions remain explicitly exploratory and uncertain.
+
 > **Purpose:** Start a new development chat without losing the current project
 > state. The detailed performance experiment, raw benchmark measurements,
 > implementation details and open questions are in
