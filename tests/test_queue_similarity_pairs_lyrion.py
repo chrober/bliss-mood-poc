@@ -1,4 +1,4 @@
-"""Private-LAN-free end-to-end mock of Lyrion JSON-RPC playlist pair queue."""
+"""Offline mock for targeted Lyrion songinfo path lookup; no LAN/music writes."""
 import csv
 import json
 import os
@@ -8,15 +8,16 @@ import subprocess
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from urllib.parse import unquote
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "queue_similarity_pairs_lyrion.ps1"
 PLAYER_ID = "01:02:03:04:05:06"
 TRACKS = [
-    {"id": 11, "url": "file:///mnt/music/Various%2520Artists/Album%252C%25202023/01%2520Song.mp3"},
-    {"id": 12, "url": "file:///mnt/music/Band/LP/02-second.flac"},
-    {"id": 13, "url": "file:///other/A/01%20Song.mp3"},  # same filename, wrong full path
-    {"id": 14, "url": "file:///somewhere/irrelevant.wav"},
+    {"id": 11, "url": "file:///mnt/music/Various%2520Artists/Album%252C%25202023/01%2520Song.mp3",
+     "decoded": "file:///mnt/music/Various Artists/Album, 2023/01 Song.mp3"},
+    {"id": 12, "url": "file:///mnt/music/Band/LP/02-second.flac",
+     "decoded": "file:///mnt/music/Band/LP/02-second.flac"},
 ]
 
 
@@ -25,10 +26,10 @@ class MockLyrionServer(ThreadingHTTPServer):
 
     def __init__(self, address):
         super().__init__(address, Handler)
-        self.tracks = list(TRACKS)
         self.calls = []
         self.appends = []
         self.rescan = False
+        self.corrupt_url = False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -48,12 +49,26 @@ class Handler(BaseHTTPRequestHandler):
             data = {"players_loop": [
                 {"playerid": PLAYER_ID, "connected": "1", "name": "KÃ¼che"},
             ]}
-        elif action == "titles":
-            assert player == "0"
-            assert command[-1] == "tags:u"
-            start, page_size = int(command[1]), int(command[2])
-            rows = self.server.tracks[start:start + page_size]
-            data = {"count": len(self.server.tracks), "titles_loop": rows}
+        elif action == "songinfo":
+            assert player == "0" and command[-1] == "tags:u"
+            assert command[3].startswith("url:file:///mnt/music/")
+            candidate = command[3][4:]
+            for _ in range(4):
+                decoded = unquote(candidate)
+                if candidate == decoded:
+                    break
+                candidate = decoded
+            song = next((track for track in TRACKS
+                         if track["decoded"] == candidate), None)
+            if song:
+                url = ("file:///wrong-music-root/01 Song.mp3"
+                       if self.server.corrupt_url else song["url"])
+                data = {"count": 2, "songinfo_loop": [
+                    {"id": song["id"]},
+                    {"url": url},
+                ]}
+            else:
+                data = {"count": 0, "songinfo_loop": []}
             if self.server.rescan:
                 data["rescan"] = "1"
         elif action == "playlist":
@@ -92,12 +107,13 @@ class QueueScriptIntegrationTests(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
-    def run_script(self, apply=False):
+    def run_script(self, apply=False, root="/mnt/music"):
         env = os.environ.copy()
         env.update({
             "LYRION_SERVER_URL": f"http://127.0.0.1:{self.server.server_port}/jsonrpc.js",
             "LYRION_PLAYER_ID": PLAYER_ID,
             "LYRION_LISTENING_CSV": str(self.csv),
+            "LYRION_MUSIC_ROOT": root,
             "LYRION_APPLY": "true" if apply else "false",
         })
         return subprocess.run(
@@ -106,47 +122,36 @@ class QueueScriptIntegrationTests(unittest.TestCase):
             encoding="utf-8", errors="replace", timeout=40
         )
 
-    def test_dry_run_reads_all_ids_never_modifies_existing_queue(self):
+    def test_dry_run_uses_targeted_full_file_urls_not_entire_77k_catalog(self):
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.server.appends, [])
         self.assertIn("ID 11", result.stdout)
         self.assertIn("ID 12", result.stdout)
-        self.assertTrue(any(
-            call["params"][1][0] == "titles" for call in self.server.calls
-        ))
-        self.assertFalse(any(
-            call["params"][1][0] == "songinfo" for call in self.server.calls
-        ))
+        calls = [c["params"][1][0] for c in self.server.calls]
+        self.assertTrue("songinfo" in calls)
+        self.assertFalse("titles" in calls)
+        self.assertLessEqual(calls.count("songinfo"), 6)
 
     def test_explicit_apply_appends_two_ids_in_csv_order(self):
         result = self.run_script(apply=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.server.appends, [["11", "12"]])
 
-    def test_matching_across_multiple_lms_catalog_pages(self):
-        self.server.tracks = [
-            {"id": 1000 + i, "url": f"file:///music/Noise/Subfolder/noise-{i}.mp3"}
-            for i in range(515)
-        ] + list(TRACKS)
-        result = self.run_script(apply=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.server.appends, [["11", "12"]])
-        pages = [call["params"][1] for call in self.server.calls
-                 if call["params"][1][0] == "titles"]
-        self.assertEqual([int(page[1]) for page in pages], [0, 500])
+    def test_different_music_root_must_fail_with_no_queue_change(self):
+        result = self.run_script(apply=True, root="/wrong/music")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("LYRION", result.stderr + result.stdout)
+        self.assertEqual(self.server.appends, [])
 
-    def test_duplicate_full_relative_path_in_two_music_roots_is_ambiguous(self):
-        self.server.tracks.append({
-            "id": 99,
-            "url": "file:///duplicate/root/Various%20Artists/Album%2C%202023/01%20Song.mp3",
-        })
+    def test_server_returned_id_but_mismatched_url_must_be_rejected(self):
+        self.server.corrupt_url = True
         result = self.run_script(apply=True)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn("erwartet: 1", result.stderr)
         self.assertEqual(self.server.appends, [])
 
-    def test_catalog_change_or_no_match_never_adds(self):
+    def test_rescan_must_not_add(self):
         self.server.rescan = True
         result = self.run_script(apply=True)
         self.assertNotEqual(result.returncode, 0)
