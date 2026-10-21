@@ -82,7 +82,7 @@ jobs:
                   or Path("benchmark-private/zip-tail.bin").stat().st_size != 8388608):
               raise SystemExit("Wrong or incomplete ZIP suffix")
           Path("benchmark-private/parts.txt").write_text(
-              " ".join(map(str, sizes)), encoding="ascii"
+              " ".join(map(str, sizes)) + "\n", encoding="ascii"
           )
           print("Confirmed multipart ZIP sizes in bytes:", sizes)
           PY
