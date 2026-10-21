@@ -458,3 +458,47 @@ dissimilar ones, consistently across genres and seeds.
 
 The evaluator does **not** change the native guidance scorer, mixer
 weighting, plugin defaults, or original music library.
+
+
+## 21 October 2026 — first-eight human listening results and pair-level diagnostics
+
+The original eight human-reviewed pairs have been evaluated on the saved
+Rust-v5 schema-v3 sidecar with no missing model vectors.
+Genre: 0 positive / 8 negative; ROC-AUC undefined. Mood: 4 positive /
+4 negative; ROC-AUC cosine and centered cosine 0.5625, RMS,
+weighted Jaccard and ranked top-12 Jaccard 0.5000, historical
+cutoff-based top-K 0.3750, ranked top-6 Jaccard 0.3125.
+All four positive Mood pairs received score zero from the historical
+absolute-0.10-cutoff top-K. These metric-selected, subjective eight
+judgments are exploratory only, not evidence of a production winner.
+
+The review CSV is semicolon-separated. Earlier scripts expected comma-separated
+data: the first PowerShell Import-Csv check therefore failed. A converted
+copy was used successfully for the first aggregate report while retaining
+the untouched original. The existing Python evaluator now accepts both
+comma and semicolon delimited human-label CSVs.
+
+Use the new optional --pair-details-only mode in scripts/evaluate_similarity.py
+with --db, --include-experimental and --labels to retrieve exact, independent
+Genre and Mood scores for all seven metrics for each human-reviewed pair.
+The resulting small JSON contains a pair_details array (original listening
+order, left/right exact file keys, unchanged human judgments, seven scores
+per head), the same labeled aggregate diagnostics, and cohort model
+fingerprints. Undefined metric scores remain null. Unlike the existing
+full report mode, this mode does not sample 3,000 random pairs, decode audio,
+run ONNX, mutate SQLite, or access the private selection-audit JSON.
+
+Run only on the existing private local sidecar and labels. Use a NEW ignored
+local report file name, such as similarity-first8-pair-details.json. Compare
+the model keys, labeled counts and metric AUCs with the previously saved
+similarity-first8-labeled.json before interpretation. In Windows PowerShell,
+the original semicolon CSV can now be passed unchanged. Complete copyable
+PowerShell examples must follow docs/powershell-script-conventions.md.
+
+The first targeted question is WHICH negative Mood judgment produced the
+aggregate report's cosine maximum (0.9769996802), versus which positive
+received the lowest cosine value (0.7140565572). Those scores alone cannot
+invalidate human judgments. A further study should collect independently
+selected Genre-positive pairs and record uncertainty before choosing any
+metric. Keep local labels, pair details, private audio, and the sidecar
+out of commits and GitHub artifacts.
