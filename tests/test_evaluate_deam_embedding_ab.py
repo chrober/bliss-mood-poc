@@ -29,7 +29,8 @@ class DEAMPairedTests(unittest.TestCase):
             self.vectors[id]={"embedding":unit,
                               "moodtheme":[.04+(j==ix)*.5+(j==((ix+3)%16))*.2
                                            for j in range(16)],
-                              "genre":[.03+(j==ix)*.4 for j in range(16)]}
+                              "genre":[.03+(j==ix)*.4+j*.0001
+                                       + .0007*(ix+1)*((j+ix)%3) for j in range(16)]}
 
     def test_same_queries_and_common_denominator(self):
         a=ab.paired_va(self.vectors,self.ids,self.labels,seed=20261021,replicates=100)
