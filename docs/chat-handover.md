@@ -1136,3 +1136,13 @@ Modellfamilie** mit eigenen Hashes/Provenienz.
 Keine Fusion-Gewichte an MTT nachoptimieren und keine
 Lyrion-Mixer-Änderung daraus ableiten. PR #16 Draft;
 PR #13, PR #17 und `main` unangetastet.
+
+### CI-Nachweis der Harness-Korrektur
+
+[Python and PowerShell tests, Run 39622478825](https://github.com/chrober/bliss-mood-poc/actions/runs/39622478825):
+**Linux PASS, Windows PASS**, einschließlich des neuen Offline-Regressionstests für
+vier Embedding- plus vier Head-JSONs. [Research-MTT-Recheck Run 39622530049](https://github.com/chrober/bliss-mood-poc/actions/runs/39622530049)
+wurde nach Aufnahme des `--require-process-workers`-Flags
+automatisch ausgelöst; zum Zeitpunkt dieses Eintrags war sein
+vollständiges echtes Parallel-Inferenz-Gate noch **queued**.
+Den Run vor Abschluss eines Vierprozess-Determinismusnachweises prüfen.
