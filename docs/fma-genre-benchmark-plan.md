@@ -85,3 +85,44 @@ informative control; FMA genre labels are NOT Mood ground truth.
 
 None of the above individually establishes a production similarity
 probability. Respect the research-only, Draft-PR scope.
+
+
+## Implementation and proven metadata preflight (21 October 2026)
+
+The metadata-only GitHub Actions
+[run 39580107275](https://github.com/chrober/bliss-mood-poc/actions/runs/39580107275)
+**passed** with canonical FMA archives: FMA-Small has 8,000 tracks,
+exactly 1,000 in each of the eight top-level genres Electronic,
+Experimental, Folk, Hip-Hop, Instrumental, International, Pop and Rock.
+Official split sizes: training 6,400; validation 800; test 800.
+Artist-ID overlaps across training, validation, test: **zero**.
+
+New research-only files on PR #16:
+- scripts/audit_fma_metadata.py and tests/test_audit_fma_metadata.py,
+  used in .github/workflows/fma-metadata-audit.yml (PASSED).
+- scripts/benchmark_fma_genre.py and tests/test_benchmark_fma_genre.py.
+  Reads official two-row CSV metadata, streams selected ZIP members
+  without full extraction, samples **ten distinct artists per genre**
+  from **official VALIDATION only** (80 tracks), analyzes the 87-D
+  Genre head with pinned corrected Rust-v5, compares all seven methods
+  against coarse FMA top-level genres and outputs aggregate P@5,
+  mAP@10, nDCG@10, query/abstention coverage and a random baseline.
+- .github/workflows/fma-genre-benchmark.yml builds the pinned v5
+  analyzer in a separate checkout, downloads official model files,
+  canonical metadata and FMA-Small archives (7.2 GiB), extracts one
+  MP3 at a time, uploads aggregate JSON only.
+
+Top-K scores with no positive class overlap explicitly **abstain**;
+they are NOT silently assigned an alphabetically first neighbor.
+The initial workflow smoke failed a synthetic test assertion that had
+mistakenly required Top-K to return a defined retrieval score even
+when every query abstained; corrected tests now pass on both Linux
+and Windows. The validation-only workflow was retriggered in
+[run 39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733).
+Check its actual result: do not claim real FMA-Audio benchmark success
+without the aggregate artifact and completed Rust-v5 inference.
+
+The **official TEST split is not used** by this exploratory run.
+No best production metric or final generalization claim is valid.
+All input audio, per-track artist/genre labels and vectors stay
+on the ephemeral Actions runner.
