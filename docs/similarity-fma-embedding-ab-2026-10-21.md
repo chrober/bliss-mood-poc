@@ -1,265 +1,154 @@
-# FMA-Small 80-Song VALIDATION: gepaarter 1280D-vs-Genre/Mood-Transfer
+# FMA-Small VALIDATION: paired 80-song 1280D embedding versus Genre/Mood
 
-**Datum:** 2026-10-21. **PR:** #16 (Draft); ausschließlich
-`feat/similarity-metric-evaluation`. Keine Änderungen an PR #13/#17,
-`main` oder Lyrion-Produktivmixer.
+**Date:** October 21, 2026 · **Status:** Complete exploratory paired study ·
+**Scope:** Draft PR #16, `feat/similarity-metric-evaluation` only.
+No change to `main`, PR #13/#17, or the production Lyrion mixer.
 
-## Zweck
+## Scientific question and strictly frozen cohort
 
-Reproduzierbarer **gleiche-Songs-/gleiche-Kandidaten**-Vergleich
-zwischen direkten Discogs-EffNet-Embeddings (B) und
-Genre-/Mood-Klassifikationsvektoren (A). Die vorherige vollständige
-MagnaTagATune-Evaluation hatte für direkte 1280D-Cosine 182/293 =
-62,12 % und für Mood Centered Cosine 193/293 = 65,87 % ergeben.
-**FMA validiert einen *anderen* Proxy:** Retrieval von Titeln
-derselben groben 8-Klassen-Genrezuordnung, keine menschlichen
-Klangähnlichkeits-/Playlist-Urteile. Ein A/B-Sieg für eine
-Repräsentation auf FMA bedeutet keinen universellen Gewinner.
+Does direct Discogs-EffNet song-embedding cosine (approach B) outperform
+the Genre/Mood head vectors (approach A) when retrieving recordings with
+the **same coarse FMA top-level Genre**? This is a Genre-label proxy,
+**not** human judged perceptual similarity or good playlist transitions.
 
-## Kohorten-Fingerprint und Provenienz
+The sample is exactly the previously studied, conservative
+catalogue-screened FMA-Small **official VALIDATION** cohort from
+[run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307):
+**80 songs**, ten per eight Genres, **80 different artist IDs**.
+A potential MTG-Jamendo artist/title overlap screen excluded **42
+of 800** VALIDATION titles; 758 remained eligible. Seed `20261021`
+and the original `balanced_sample` selector were not changed.
+FMA's official **TEST was not inspected**.
 
-Verwendet exakt die frühere, bereits ausgewertete
-katalogbereinigte VALIDATION-Stichprobe aus
-[Run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307):
-
-| Festgelegter Wert | Provenienz |
+| Frozen source or sample | SHA256 |
 | --- | --- |
-| FMA offizieller Split | `validation`; TEST-Zeilen werden vor dem Lesen ihrer ID oder Labels übersprungen |
-| Anzahl | 80 Songs, 10 aus jeder der 8 Obergenres |
-| Künstler | 80 unterschiedliche Künstler-IDs |
-| MTG-Abgleich | 42 mögliche exakte Artist/Title-Überschneidungen von 800 VALIDATION-Titeln ausgeschlossen |
-| Noch eligible | 758 VALIDATION-Titel vor Sampling |
-| Sampling | `seed=20261021`, unveränderte `balanced_sample`-Implementierung |
-| Sample-SHA256 (geordnete IDs, nur Fingerprint publiziert) | `f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509` |
-| FMA-Metadaten-ZIP SHA256 | `d9527a5297a65da31c5676484d5047c3e2b8a8060ce72a46e26158be736bf265` |
-| Offizielles FMA-Small-Audio-ZIP SHA256 | `f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c` |
-| MTG-Metadaten-TSV SHA256 | `bb1efa2876536cbe1a8b67db5dda15249ca144f0cff69e481b638803cbdc9aca` |
+| Ordered cohort IDs | `f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509` |
+| FMA metadata ZIP | `d9527a5297a65da31c5676484d5047c3e2b8a8060ce72a46e26158be736bf265` |
+| Original FMA-Small audio ZIP | `f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c` |
+| MTG catalogue TSV | `bb1efa2876536cbe1a8b67db5dda15249ca144f0cff69e481b638803cbdc9aca` |
+| Original Discogs encoder ONNX | `a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c` |
+| Representation/pooling fingerprint | `48d6726d346b49aaf9f6d0377778ce0bf46be52285293e2f357ad26832cbc759` |
 
-**Screening ist nur eine vorsichtige Katalogüberlappungsdiagnose,
-kein Beweis für die Trainings-Unabhängigkeit des Encoders
-oder der Klassifikationsköpfe.**
+A catalogue nonmatch is **not a proof of model training disjointness**,
+nor does it establish recording-level independence.
 
-Der frühere Genre-Cosine-Lauf lieferte auf genau diesem
-Sample P@5 **0,3200**, mAP@10 **0,1748759921**, nDCG@10
-**0,2985332322**. Diese **vor dem neuen Embedding-A/B
-fixierten** Werte sind ein striktes Regression-Gate:
-andere Audiosegmente, andere Samples, andere Kopf-Modelle oder
-verschobene Klassifikationswerte sollen nicht still verglichen werden.
+## Research implementation and measurement contract
 
-## Implementierung und Datenpfad
+[`benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py)
+adds an optional `--embedding-dir`. The original genre-only
+execution path remains available. When enabled, **the same
+encoder patch pass** produces 87D Genre, 56D Mood/Theme and
+raw 1280D embedding features. The song embedding is
+f64-mean-pooled across patches, songwise L2-normalized, and
+stored in a separate, private, versioned JSON sidecar.
+The existing schema-v3 SQLite head storage is not changed.
 
-- [`scripts/benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py)
-  besitzt einen optionalen Forschungsmodus
-  `--embedding-dir <privates-verzeichnis>`; ohne Flag bleiben
-  die bisherigen sieben Genre-Similarity-Metriken und
-  ausschließlich der Genre-Kopf unverändert.
-- Mit Flag werden **im selben Encoder-Patchdurchlauf**
-  Genre 87D, Mood/Theme 56D und das rohe 1280D-EffNet-
-  Song-Embedding berechnet. Die Klassifikationsköpfe
-  bleiben voneinander und vom separaten L2-normierten
-  Embedding-Sidecar getrennt. Alle Audio-/Track-Hashes,
-  Patchzahlen, Encoder-Hashes und
-  Repräsentations-Fingerprints werden vom unabhängigen
-  [Evaluator](../scripts/evaluate_fma_embedding_ab.py)
-  auf Gleichheit geprüft.
-- Das separate Forschungs-Overlay
-  [`scripts/apply_rust_v5_embedding_export.py`](../scripts/apply_rust_v5_embedding_export.py)
-  wird ausschließlich auf den unveränderten temporären
-  Runner-Checkout von
-  `2c3d44401436b3b41b6e067199016a1ed2335fbf`
-  angewendet. Weder der ursprüngliche Feature-Sidecar-
-  Vertrag (schema v3) noch PR #17 werden umgebaut.
-- [`research-fma-embedding-ab.yml`](../.github/workflows/research-fma-embedding-ab.yml)
-  lädt einmal das offizielle FMA-Small-ZIP (7,2 GiB)
-  und *extrahiert nicht das gesamte Archiv*.
-  Es verwendet Rust/Cargo-Caching und Stage-Timing.
-  Keine Veröffentlichung des vollständigen Archivs
-  oder unlizenzierter Track/Embedding-Daten;
-  Artefakte enthalten nur aggregierte Kennzahlen.
-  Im Gegensatz zu MTT wurde **kein global wiederherstellbarer
-  FMA-Audio-Cache eingeführt** (Audio-Lizenz/Aufbewahrung
-  muss vor einem geteilten CI-Cache abgeklärt werden).
+[`evaluate_fma_embedding_ab.py`](../scripts/evaluate_fma_embedding_ab.py)
+enforces sample, audio, patch count, model SHA and pooling
+fingerprints. The pinned original Rust-v5 checkout
+`2c3d44401436b3b41b6e067199016a1ed2335fbf`
+receives its research-only overlay through
+[`apply_rust_v5_embedding_export.py`](../scripts/apply_rust_v5_embedding_export.py)
+on the ephemeral GitHub Actions runner. PR #17 is not modified.
 
-## Mathematischer Vergleich auf identischen Songs
+For each of the 80 anchor queries, the **same other 79 songs**
+form its candidate pool: nine relevant tracks with the same
+top-level Genre and 70 different-Genre candidates.
+The random P@5 reference is `9/79 ≈ 11.39%`.
+Methods: direct Embedding Cosine; Genre Cosine and Centered
+Cosine; Mood/Theme Cosine and Centered Cosine as **cross-task
+control**, not a Mood ground-truth evaluation.
 
-Für jeden der 80 Query-Songs werden genau die übrigen
-79 Künstler-fremden Songs als Kandidaten verwendet:
-9 relevante (gleiche Obergenreklasse) und
-70 andere Genres; Random-Referenz für P@5 ist
-`9/79 = 11,39 %`.
+Report P@5, mAP@10, nDCG@10, coverage, and undefined scores
+for **the common query/candidate denominator**.
+Rank ties use score descending then a stable opaque song ID.
+An incomplete query counts as an abstention with zero
+on all three measures, not a shortened denominator.
+Embedding-minus-head deltas use 800 shared, Genre-stratified
+query resamples. Those 95% quantiles are **descriptive
+dependence sensitivities, not independent population CIs**,
+because all queries share candidate songs.
 
-Repräsentation/Metrik:
+Synthetic regression tests:
+[`tests/test_evaluate_fma_embedding_ab.py`](../tests/test_evaluate_fma_embedding_ab.py),
+including read-only SQLite, sample, no-TEST, and exact head
+baseline checks; Linux and Windows CI passed.
 
-1. Direkte 1280D-Discogs-EffNet-Song-Embeddings, Cosine;
-   rohe Patchvektoren f64-gemittelt, anschließend
-   songweise L2-normalisiert.
-2. 87D Genre-Sigmoidwerte, Cosine und Centered Cosine.
-3. 56D Mood/Theme-Sigmoidwerte, Cosine und Centered Cosine
-   als **sekundäre Kontroll-/Cross-Task-Baseline**,
-   nicht als echte Mood-Ground-Truth.
+## Confirmed full paired A/B run
 
-Jede Methode liefert **P@5, mAP@10, nDCG@10**,
-Abdeckung und undefinierte Kandidatenbewertungen.
-Tie-Break entspricht exakt der bisherigen FMA-Retrieval-
-Implementierung (Score absteigend, danach stabile interne
-Track-ID; IDs verlassen den Runner nicht). Kann eine Methode
-nicht alle Kandidaten eines Query-Songs bewerten, wird
-**die ganze Query als Abstention** mit `0` für
-alle drei Maße auf dem gemeinsamen 80er-Nenner gezählt.
-Keine bedingt auf Vorhersageabdeckung verkürzten
-Stichprobenvergleiche.
-
-Für **Embedding minus jede Kopfmethode** verwendet
-der Evaluator dieselben deterministisch gezogenen
-genre-stratifizierten Query-Resamples (800 Wiederholungen,
-gleicher Seed). Die Quantile sind **Abhängigkeits-
-Sensitivitätsmaße, keine Konfidenzintervalle für
-independent/out-of-corpus Generalisierung**, weil
-alle Query-Songs die Kandidaten teilen und das Genre-
-Signal grob ist. Keine p-Werte, keine nicht
-vorregistrierten Fusion-Gewichte.
-
-## Technische Gates und nächster Schritt
-
-[`tests/test_evaluate_fma_embedding_ab.py`](../tests/test_evaluate_fma_embedding_ab.py)
-enthält nur synthetische Fixtures. Sie prüfen:
-v3-SQLite-Read-only, gleiches Kandidatenuniversum
-und gleiche Query-Nenner, 1280D-L2/Audio-/Encoder-
-Provenienz, Ausschluss von TEST, Kohorten-SHA,
-Paar-Resampling, Nullnorm-Abstentions und
-Option-Disabled-Baseline. Ausführung im
-bestehenden Linux-/Windows-Python-CI.
-
-**Workflow:** [FMA-80-A/B-Actions](https://github.com/chrober/bliss-mood-poc/actions/workflows/research-fma-embedding-ab.yml).
-Den Result-Status nach dem Workflowdurchlauf
-bewerten, nur bei vollständigem PASS numerische
-EffNet-vs-Genre-Resultate als gemessene Evidenz
-dokumentieren. Anschließend DEAM
-Valence/Arousal auf identischen Audioclips
-und Modell-Fingerprints gegen Mood/Embedding
-vergleichbar auswerten; den offiziellen
-FMA-TEST nicht zum Optimieren benutzen.
-
-**C-Fusion bleibt vorerst gesperrt:** Die
-bereits vollständig explorierten MTT-Fragen
-und die FMA-VALIDATION-Genreaufgabe sind keine
-unabhängigen Optimierungs- und Prüfsets für
-Fusion-Gewichte oder Produktionsentscheidungen.
-
-## Verifizierter Endstand – erfolgreicher gepaarter FMA-80-Lauf
-
-**PASS:** [Research FMA 80 A/B, Run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
-([nur aggregiertes Artefakt 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718)).
-Dieser Nachtrag ersetzt den vorherigen `noch zu prüfen`-Status
-des Workflows. Gesonderte Linux-/Windows-Python-Regressionstests waren
-zuvor ebenfalls PASS; Rust-Pooling-Unit-Tests und unverändertes
-gepinntes Runner-Overlay waren in diesem Lauf grün.
-
-**Alle 80 identischen Songs, alle 79 identischen
-Kandidaten pro Query, alle fünf Verfahren mit 80/80 =
-100 % Abdeckung.** Nur die eingefrorene FMA-VALIDATION
-wurde gelesen; der offizielle TEST blieb gesperrt.
-Das frühere Genre-Cosine-Baseline-Tripel wurde **exakt**
-reproduziert: P@5 `0.32000000`, mAP@10
+**PASS:** [GitHub Actions 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310),
+[aggregate-only artifact 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718).
+**All five methods evaluated 80/80 queries**, using the same
+79 candidates per anchor. Previously frozen Genre Cosine values
+were reproduced exactly: P@5 `0.32000000`, mAP@10
 `0.17487599206349208`, nDCG@10
-`0.29853323224865014`. Der Cohort-Fingerprint
-ist unverändert
-`f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509`.
-Der verwendete originale Encoder
-`discogs-effnet-bsdynamic-1.onnx` hatte SHA256
-`a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c`;
-Pooling- und Preprocessing-Repräsentationsfingerprint:
-`48d6726d346b49aaf9f6d0377778ce0bf46be52285293e2f357ad26832cbc759`.
+`0.29853323224865014`.
 
-| Repräsentation und metrische Similarity | P@5 | mAP@10 | nDCG@10 | Query coverage |
+| Method | P@5 | mAP@10 | nDCG@10 | Query coverage |
 | --- | ---: | ---: | ---: | ---: |
-| B: 1280D Encoder Song-Mean+L2, Cosine | 0,2800 | 0,163044 | 0,282363 | 80/80 |
-| A: Genre 87D, Cosine | 0,3200 | 0,174876 | 0,298533 | 80/80 |
-| A: Genre 87D, Centered Cosine | **0,3225** | **0,178147** | **0,304271** | 80/80 |
-| A: Mood/Theme 56D, Cosine | 0,2775 | 0,150394 | 0,266065 | 80/80 |
-| A: Mood/Theme 56D, Centered Cosine | 0,2675 | 0,152847 | 0,270372 | 80/80 |
+| B: 1280D encoder mean+L2 Cosine | 0.2800 | 0.163044 | 0.282363 | 80/80 |
+| A: 87D Genre Cosine | 0.3200 | 0.174876 | 0.298533 | 80/80 |
+| A: 87D Genre Centered Cosine | **0.3225** | **0.178147** | **0.304271** | 80/80 |
+| Control: 56D Mood Cosine | 0.2775 | 0.150394 | 0.266065 | 80/80 |
+| Control: 56D Mood Centered Cosine | 0.2675 | 0.152847 | 0.270372 | 80/80 |
 
-Random P@5 = `9/79 ≈ 0,1139`.
+### Descriptive paired differences
 
-### Gepaarte Query-Unsicherheit, korrekt interpretiert
+Deltas are **embedding minus baseline**; 95% bands below are
+Genre-stratified shared-query sensitivity quantiles,
+**not population confidence intervals**.
 
-Die Differenzen sind **Embedding minus jeweilige
-Klassifikationsbaseline**; die folgenden 95-%-Quantile
-entstammen 800 geteilten *genrestratifizierten*
-Query-Resamples der **identischen 80 Queries**.
-Es sind **nur explorative Sensitivitätsbereiche,
-keine unabhängig gültigen Konfidenzintervalle**
-(gemeinsame Kandidaten, lediglich 8 Obergenres,
-bereits untersuchte Entwicklungsstichprobe,
-unsichere Encoder-Trainingsüberlappung).
-
-| Embedding − Kopf-Baseline | Differenz P@5 (pp) | 95-%-Sensitivität P@5 (pp) | Differenz mAP@10 (pp) | Differenz nDCG@10 (pp) |
+| Baseline | P@5 delta (pp) | 95% sensitivity range (pp) | mAP@10 delta (pp) | nDCG@10 delta (pp) |
 | --- | ---: | ---: | ---: | ---: |
-| Genre Cosine | −4,00 | −8,75 bis +0,75 | −1,183 | −1,617 |
-| Genre Centered Cosine | −4,25 | −8,76 bis +0,25 | −1,510 | −2,191 |
-| Mood Cosine | +0,25 | −3,50 bis +4,01 | +1,265 | +1,630 |
-| Mood Centered Cosine | +1,25 | −2,50 bis +5,00 | +1,020 | +1,199 |
+| Genre Cosine | −4.00 | −8.75 to +0.75 | −1.183 | −1.617 |
+| Genre Centered Cosine | −4.25 | −8.76 to +0.25 | −1.510 | −2.191 |
+| Mood Cosine | +0.25 | −3.50 to +4.01 | +1.265 | +1.630 |
+| Mood Centered Cosine | +1.25 | −2.50 to +5.00 | +1.020 | +1.199 |
 
-Entscheidungsrelevant ist vor allem die
-**Genre-gegen-Embedding**-Zeile: Direkte
-EffNet-Embeddings verlieren auf diesem **Genre-Proxy**
-in der beobachteten Stichprobe 4,00–4,25 pp P@5
-gegenüber den passenden Genre-Köpfen. Die
-Sensitivitätsbereiche schließen `0` ein.
-Mood-Köpfe werden hier nur als
-**Cross-Task-Kontrolle**, nicht als unabhängige
-Mood-Ähnlichkeitsreferenz bewertet.
+The observed 4.00–4.25-pp deficit versus Genre heads
+applies to this **already explored Genre-retrieval proxy**,
+not to arbitrary music similarity. The exploratory bands
+include zero. Neither mood head here has an independent
+Mood reference; the DEAM VA study addresses a different proxy.
 
-### Reproduzierbarkeit, Durchlaufzeiten, nächste Forschung
+### Reproducibility and resource measurements
 
-Messwerte aus diesem erfolgreichen Workflow:
-originales FMA-7,2-GiB-Audio-ZIP **243,87 s**
-Download, Rust-v5-Releasekompilierung **51,48 s**
-(noch ohne vorherige Rust-Unit-Test-Kompilierungszeit),
-Inference+ursprüngliche Auswertung der 80 Clips
-**48,37 s**, gepaarter Evaluator samt
-Archivquellen-SHA256 **12,63 s**. Das
-Audioarchiv war der dominante Kostentreiber;
-es wird bewusst **nicht** in einem anderen Branches
-zugänglichen unkontrollierten Audio-Cache geteilt.
-Die Ausgabe enthält **keine** Audio-Dateien,
-Clip-IDs, Tracklabels oder Embeddingvektoren.
+In the successful cold run, downloading the original
+FMA-Small 7.2-GiB ZIP took **243.87 s**, Rust-v5
+release compilation **51.48 s** (excluding preceding test
+compilation), 80-song inference plus original scoring
+**48.37 s**, and paired evaluation including archive
+provenance hashing **12.63 s**.
 
-### Forschungsschlussfolgerung
+The subsequent FMA **selected-song cache** eliminated
+the full download on warm runs; the earlier warning
+that no FMA audio would be cached is superseded.
+[Cold curated-cache run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
+and [warm cross-workflow restore 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
+passed. The selected archive contains **76.51 MiB**
+of the frozen 80 tracks, with original full-archive
+SHA and per-MP3 hashes checked at restore. A separate
+cache key protects the unscreened cohort
+([run 39633600832](https://github.com/chrober/bliss-mood-poc/actions/runs/39633600832)).
+See [cache design, access and licence caveats](fma-selected-audio-cache-2026-10-21.md).
+**Actions caches are not confidential storage**; source
+licences still apply. Only aggregates are uploaded as
+Actions artifacts; no audio, private identities or
+embedding vectors are published.
 
-FMA Genre-Retrieval und die zuvor vollständig
-explorierte MagnaTagATune-Menschentripelaufgabe
-zeigen **beide im betrachteten Setting keinen
-Sieg der direkten 1280D-Cosine** über die
-aufgabenpassenden Klassifikationsvektoren.
-Das ist **keine Widerlegung** direkter Embeddings:
-andere Encoder, insbesondere separat
-kontrastiv auf Similarity optimierte Modelle,
-andere Poolingvarianten und andere
-menschenbasierte Klangnähe-/Übergangsreferenzen
-bleiben ungetestet. Aus FMA VALIDATION
-darf keine Produktions- oder Fusion-
-Gewichtwahl getroffen werden.
+## Interpretation and next research
 
-**Nächstes Evidenzziel:** DEAM Development/Validation
-auf denselben Audiodateien, Valence/Arousal
-als unabhängiger, aber nicht identischer
-Mood-Proxy; die Klassifikations- und
-Embedding-Dimensionen wieder gepaart und
-mit exakt gleichen Provenienz-/Coverage-
-Regeln. Neue echte Hörreferenzen wären für
-Klangnähe/Playlist-Übergänge weiterhin
-aussagekräftiger.
+Both the FMA Genre proxy and the explored MTT odd-one-out
+task do **not** favor this particular direct EffNet mean+L2
+cosine over the most relevant classification-head baseline.
+This does **not** rule out other encoders, genuinely
+contrastive features, different pooling, or direct
+human transition judgments.
 
-
-## FMA-Small Selected-Audio-Cache – implementiert und warm verifiziert
-
-**Quelle des Designs:** [MagnaTagATune Exploratory Cache Workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/magnatagatune-all-exploratory.yml). Analog zu dessen `actions/cache/restore@v4` / `actions/cache/save@v4` wird für FMA **nicht das 7,2-GiB-Originalarchiv** zwischengespeichert, sondern nur die nach vorregistrierter Auswahl benötigte komprimierte MP3-Teilmenge.
-
-- Der Code [`scripts/fma_selected_audio_cache.py`](../scripts/fma_selected_audio_cache.py) erzeugt ein separates Selected-ZIP und Manifest, das die komplette Publisher-Archiv-SHA, den eingefrorenen Sample-Fingerprint, die 80 Song-Mitgliedschaften und SHA256 je MP3 enthält. Wiederherstellungen prüfen diese Werte gegen das vorhandene FMA-Metadaten-ZIP und den MTG-Katalog; kein FMA-TEST.
-- **Cold build PASS:** [Run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381), voller Publisher-Download nur einmal (`fma_audio_download_elapsed_s=246.39`).
-- **Warm-Cross-Workflow-Restore PASS:** [Run 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262), aus dem vorigen A/B-Lauf wiederhergestellter Cache ca. **74 MiB/MB Größenordnung**, und der komplette 7,2-GiB-Download wurde **SKIPPED**.
-- Für die zusätzliche *nicht* MTG-bereinigte FMA-Genre-Untersuchung ist ein **separater** Cache-Key/Cohort-Pin verwendet: [Run 39633600832](https://github.com/chrober/bliss-mood-poc/actions/runs/39633600832) PASS nach erstmaligem Anlegen. Die Filtervarianten dürfen nicht verwechselt werden.
-- Neue Offline-Cache-Tests laufen in Linux und Windows; kein Raw-Audio und keine Single-Song-Embeddings werden als `upload-artifact` publiziert.
-
-**Risiko/Policy:** GitHub Actions Caches sind **keine vertrauliche Datenspeicherung** und können für berechtigte Pull-Request-Kontexte des Branches zugreifbar sein. Auch die sparsame 80-Song-Audioauswahl bleibt original lizenziertes Audiomaterial. Deshalb nur der projektbezogene, begrenzte Forschungscache; vor zusätzlicher öffentlicher Weiterverwendung sind Quellenlizenzen und Cache-Zugriffspolicy gesondert zu prüfen. Dieser Nachtrag ersetzt die frühere Aussage „es wird gar kein FMA-Audio gecacht“.
+The separate paired DEAM-240 Mood/VA evaluation is
+prepared but source-blocked; inspect
+[DEAM research status](deam-similarity-benchmark.md).
+Independent local listening judgments and prospective
+development/holdout separation are necessary before a
+production decision or calibrated fusion weights.
+Keep FMA TEST untouched and PR #16 a draft.
