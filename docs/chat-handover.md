@@ -43,6 +43,36 @@
 > uncertainty disclosed, plus separate human-similarity confirmation.
 > No production decision, no merge, no private music, PR #16 Draft.
 >
+> **LATEST MTT REAL AUDIO + ARTIST HOLDOUT (21 OCT 2026):**
+> Original 3-part ZIP full central-directory membership:
+> [39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423)
+> PASS. Only 8 MiB ZIP tail downloaded; 25,863 ZIP MP3s;
+> all 1,019 required clips matched, 346 unique unordered triplets
+> from 533 rows, 116,910,845 compressed MP3 bytes required in total.
+> Sparse HTTP range-only Rust-v5 end-to-end
+> [39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662)
+> PASS: 4 high-consensus artist-disjoint development triplets,
+> 12 real clips analyzed, 1,385,735 audio-range bytes, 14.5 seconds
+> for download+analysis, all seven similarity metrics and both
+> genre/mood heads, aggregate artifact only. Test is smoke, not
+> independent held-out evidence.
+>
+> Subsequent metadata-only holdout feasibility PASS
+> [39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265):
+> Artist graph is a **single 214-artist/346-triple component**;
+> strict connected-component holdout impossible. SHA-256 artist-hash
+> 50/50 preferred split: 31 dev, 56 holdout, 259 mixed excluded.
+> Eight holdout triplets share an artist with prior smoke and must be
+> excluded, leaving **48 unexposed holdout triplets**. No model
+> outputs were used to select the split; frozen before further
+> audio evaluations. The benchmark code **does not yet enforce**
+> this new split for future audio studies; do that next, with tests,
+> before any expansion. See
+> [MTT sparse-audio + holdout details](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+> Synthetic Linux/Windows CI [39592264225](https://github.com/chrober/bliss-mood-poc/actions/runs/39592264225)
+> PASS, metadata audit PASS. Keep PR #16 Draft, no main/PR #13/17
+> merge, no user music, no production metric winner.
+>
 > **MTG/MAGNATAGATUNE REAL METADATA PREFLIGHT PASS (21 OCT 2026):**
 > Both agreed metadata-only workflows now completed successfully,
 > with **no audio downloads**. MTG-Jamendo split-0 / official
