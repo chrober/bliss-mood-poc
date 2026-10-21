@@ -1,5 +1,53 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## 21 October 2026: all tested real MP3/FLAC/WAV Windows numeric gates PASS
+
+**Latest authoritative checkpoint superseding historical preflight blockers:**
+user's completed **original independent lossless** Bandcamp-source test
+`benchmark-bandcamp-lossless-20261020-220117` PASSED.
+
+- Original native **FLAC 48 kHz / 24-bit stereo**: 604.75 seconds,
+  608 Essentia/Rust equal Mel patches, genre worst
+  **2.019999999991473e-6**, Mood/Theme **7.399999999990747e-7**,
+  Voice **3.7999999996651823e-7**.
+- Original native **WAV 44.1 kHz / 16-bit stereo**: 356.28 seconds,
+  358 patches, genre worst **1.3999999999292356e-6**,
+  Mood/Theme **5.149999999995436e-7**,
+  Voice **1.360000000005801e-6**. The artwork MJPEG stream does not
+  affect the first audio stream probe.
+- Both PASS strict unchanged **0.001** maximum absolute class-score
+  tolerance, same original C++ versus corrected Rust v5 model-weight
+  SHA and class definitions, no patch mismatches. Private report
+  `D:\LMS\bliss-mood-poc\benchmark-bandcamp-lossless-20261020-220117\natural-lossless-parity-private.json`
+  remains on user's workstation; preserve it. The earlier 420-second
+  FLAC preflight rejection is explained by the actual 604.75-second
+  duration, and was not a classifier parity failure.
+- Previous 100-real-MP3-song/14,500-score four-worker and
+  adaptive-enabled-six-worker parity, exact Rust result invariance,
+  and controlled 837-patch PCM WAV24/FLAC checks remain PASS.
+  **Stop repeated parity rescans of the same dataset.**
+
+**Now implement/verify distribution blockers without distributing
+any more binaries:** `scripts/audit_windows_native_release.py`
+checks `D:\LMS\essentia-cli-test` read-only: actual PE-x64 and
+SHA256 closure, `worker-dependencies.json` and the installed
+`NATIVE-PROVENANCE.json` (including available notices and MSYS2
+package IDs/versions). Auditor may return `binary_integrity=PASS`
+yet **must return `distribution_release_status=BLOCKED`**, because
+there is no legal release approval. Tests use entirely synthetic
+PE/package manifests. Run the one-block PowerShell and read
+release blockers in [release-qualification-gates.md](release-qualification-gates.md).
+
+**Merge/release decision:** numeric Windows Rust-v5 and original
+Essentia frontend parity is technically accepted for the test scope,
+not globally guaranteed. Keep #17 Draft until review/approvals;
+do not publish a native DLL kit as production or assert
+MIT/AGPL/FFmpeg/MTG-ONNX license compatibility without a formal audit.
+Similarity PR #16 remains separate and can proceed with the existing
+locally verified scanner. Do not modify `main` or #16.
+
+---
+
 ## 20 Oct 2026: two Bandcamp lossless originals, preflight blocker diagnosed
 
 The user prepared TWO genuine local lossless downloads for the bounded
