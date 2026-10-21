@@ -391,18 +391,18 @@ For the PR #16 eight-pair listening pilot, run
 It defaults to **dry run**, uses the exact local CSV keys and a
 configured stable Lyrion player ID, and explicitly decodes Lyrion
 JSON-RPC bytes as UTF-8. Configure locally via
-`LYRION_SERVER_URL`, `LYRION_PLAYER_ID`, `LYRION_LISTENING_CSV`.
+`LYRION_SERVER_URL`, `LYRION_PLAYER_ID`,
+`LYRION_LISTENING_CSV`, and the **absolute Pi music folder**
+`LYRION_MUSIC_ROOT` (for example `/mnt/music`).
 Only opt in to writing with `LYRION_APPLY=true` after reviewing a
 complete dry run. It **appends** the tracks in pairwise order, without
 replacing the existing queue or starting playback. The script keeps
 LAN addresses, private player IDs and audio paths out of the public
-source tree. Relative `TracksV2.File` paths are matched
-**only** against complete decoded relative-path suffixes of actual
-`titles ... tags:u` Lyrion file URLs from a paginated catalog. This
-handles the first real CSV failure caused by passing a relative path
-to `songinfo url:...`, which expects Lyrion's own full URL.
-Ambiguous or absent matches cause a preflight failure rather than an
-unsafe artist/title lookup. See
+source tree. Relative `TracksV2.File` keys are joined to the
+configured Pi music folder and resolved with **direct, bounded
+`songinfo url:file:///...`** queries. The returned ID and fully
+decoded absolute URL must match exactly; no expensive 77k-song
+catalog scan or unsafe title search is performed. See
 [exact-key mapping and listening queue safety](docs/similarity-metric-evaluation.md#lyrion-listening-pilot-exact-tracksv2file--lms-song-url-mapping). Never rerun the apply mode blindly: it would append
 duplicates.
 
