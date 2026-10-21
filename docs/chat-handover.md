@@ -1,5 +1,38 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **MTG/MAGNATAGATUNE REAL METADATA PREFLIGHT PASS (21 OCT 2026):**
+> Both agreed metadata-only workflows now completed successfully,
+> with **no audio downloads**. MTG-Jamendo split-0 / official
+> Essentia JSON classes audited at
+> [39586686845](https://github.com/chrober/bliss-mood-poc/actions/runs/39586686845):
+> 87 Genre head classes, train/validation/test 32572/11043/11479;
+> 56 Mood/Theme, 9949/3802/4231; zero artist-ID/track-ID
+> overlap across official splits (not proof of exact ONNX training
+> provenance or no encoder training overlap).
+>
+> MagnaTagATune schema + **human votes and clip joins** validated
+> in [39587323227](https://github.com/chrober/bliss-mood-poc/actions/runs/39587323227):
+> 533 odd-one-out triple questions, 7650 human votes, 1019 distinct
+> referenced MP3 paths, 903 apparent song groups, 214 artist
+> strings; 87 tied top-vote questions, 228 unique >=70% consensus
+> questions, 160 unanimous. The source clip catalog has 31382 rows,
+> of which 5519 have empty MP3 path. These are research metadata
+> only. The corrected parser detects original CSV delimiters;
+> continuous synthetic Linux/Windows CI
+> [39587511195](https://github.com/chrober/bliss-mood-poc/actions/runs/39587511195)
+> PASSED. No unfiltered audio benchmark executed or metric selected.
+> See [formal preflight results](external-evidence-preflight-results-2026-10-21.md).
+>
+> **NEXT:** Plan a rights-compliant, bounded study processing the
+> 1019 distinct MTT clips only; first verify physical ZIP member
+> mapping and archive integrity/disk budget, then paired, artist-grouped
+> human triplet agreement and uncertainty against all seven metrics.
+> For MTG-Jamendo, consider auxiliary human classification annotations
+> on official split-0 test data, but DO NOT pretend these are
+> independent evidence of original ONNX training. Every audio workflow
+> gets stage walltimes, worker counts, peak RAM and throughput.
+> No main/PR #13/PR #17 merges.
+>
 > **EXTERNAL EVIDENCE ROADMAP / PERFORMANCE POLICY — 21 Oct 2026:**
 > The user explicitly wants **continued GitHub Actions runtime optimization
 > alongside musical evidence research**. See the detailed
