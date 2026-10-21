@@ -39,7 +39,7 @@ class LocalResearchExportTests(unittest.TestCase):
         )
         (self.binarydir / "BUILD.txt").write_text(
             f"Experimental research only\nPinned Rust-v5 commit: {exp.PINNED_SOURCE}\n"
-            "Research overlay commit: 1234567890abcdef\n"
+            f"Research overlay commit: {exp.REQUIRED_OVERLAY_COMMIT}\n"
         )
         encoder = "discogs-effnet-bsdynamic-1.onnx"
         genre = "genre.onnx"
@@ -112,6 +112,14 @@ class LocalResearchExportTests(unittest.TestCase):
             self._call(limit=3, execute=True)
         self.assertFalse(self.out.exists())
 
+    def test_rejects_old_windows_binary_even_when_base_rust_revision_matches(self):
+        manifest = self.binarydir / "BUILD.txt"
+        valid = manifest.read_text(encoding="utf-8")
+        manifest.write_text(valid.replace(exp.REQUIRED_OVERLAY_COMMIT, "95e576670ddd92cfb0786fb2d17d040b1966e23f"), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Outdated research executable"):
+            self._call()
+        self.assertFalse(self.out.exists())
+
     def test_wrong_model_hash_or_wrong_binary_is_rejected(self):
         (self.models / "genre.onnx").write_bytes(b"CHANGED")
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
@@ -156,6 +164,7 @@ class LocalResearchExportTests(unittest.TestCase):
         with patch.object(exp.subprocess, "run", side_effect=self._fake_run):
             result = self._call(execute=True, resume=True, limit=3)
         self.assertEqual(result["failed"], 1)
+        self.assertEqual(result["failure_stages"]["existing_embedding_invalid"], 1)
         self.assertEqual(result["status"], "incomplete_do_not_use_for_scoring")
         self.assertEqual(file.read_text(), '{"invalid": true}')
 
