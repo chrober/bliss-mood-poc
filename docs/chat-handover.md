@@ -1,3 +1,25 @@
+
+> **NEW MTT ARTIST-FROZEN DEVELOPMENT BENCHMARK, 21 OCT 2026:**
+> `scripts/benchmark_magnatagatune.py --selection-mode frozen-development`
+> and workflow [magnatagatune-development.yml](../.github/workflows/magnatagatune-development.yml)
+> implement **all 31 artist-only development triplets** using the locked
+> 128/256 SHA-256 artist split. The script verifies both count and
+> triplet fingerprint BEFORE audio. It excludes the **56** holdout
+> candidates and **259** mixed triples, and NEVER scores the
+> **48 still-unexposed holdout questions**.
+> Synthetic coverage includes leakage prevention on Linux and Windows.
+> First real run [39593423801](https://github.com/chrober/bliss-mood-poc/actions/runs/39593423801)
+> failed on a transient HTTP 000 / curl exit 28 when downloading
+> clip 22 of 92; 21 legitimate clips already analyzed, no scores
+> reported. Bounded HTTP retries with preserved 206/CRC/size guards
+> implemented and verified by [Python tests 39594080260](https://github.com/chrober/bliss-mood-poc/actions/runs/39594080260).
+> Corrected repeat [39594161136](https://github.com/chrober/bliss-mood-poc/actions/runs/39594161136)
+> was started: CHECK real completion / artifact before quoting scores.
+> Documented in [MTT sparse audio benchmark](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+> Keep stage runtime, worker count and Rust build/download trade-offs
+> visible. No holdout optimization, production metric choice, merge, local
+> user library scan or raw audio artifact.
+>
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
 > **UPDATED MTT HOLDOUT METADATA AUDIT, 21 OCT 2026:**
