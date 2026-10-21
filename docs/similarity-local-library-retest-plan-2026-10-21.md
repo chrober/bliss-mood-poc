@@ -190,3 +190,17 @@ head coverage and any known local embedding-sidecar location
 to decide whether bounded additional 1280D exports are necessary.
 Do not scan the whole library or propose listening pairs until
 this inventory is reviewed. This is **M1 only**, not the M2 listening pilot.
+
+## M1 checkpoint: Windows experimental research binary and bounded local exporter
+
+**Build verified:** [Windows x64 research run 39661674510](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) PASSED, including the pinned Rust-v5 source check, song-embedding unit tests, executable startup and `--embedding-out` CLI option. The [`research-song-embedding-windows-x64` artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) contains only the experimental executable, available runtime DLLs, `BUILD.txt`, and `SHA256SUMS.txt`; it includes **no original audio, models or per-track features**. This does not certify complete real-song Windows/C++ parity.
+
+**Local export helper:** [`scripts/export_local_song_embeddings.py`](../scripts/export_local_song_embeddings.py) uses the original compatible schema-v3 research head cohort and is **dry-run by default**. It validates the experimental binary and executable SHA, the local encoder and classifier ONNX SHA against the stored head metadata, FFmpeg/ffprobe availability and **each original audio SHA** before allowing any output. Its track selection is bounded to at most 100 songs. There are **no private track names, paths, or vectors in stdout**.
+
+Only explicit `--execute` enables inference, using `analyze-features --embedding-out` **without `--db`**. Outputs go to a **new local, Git-ignored `benchmark-*/` directory**, named by SHA256 of exact song keys. Existing JSON is never overwritten; an interrupted output directory can be used again only with explicit `--execute --resume`, after revalidating existing JSON. Existing head SQLite data stays read-only. The official model weights and FFmpeg/ffprobe must already exist on the user's machine.
+
+**First user action:** retrieve the [verified Windows artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) into an ignored `bin/` subdirectory, then perform only a **one-song preflight** on the existing local DB, with the correct local audio root. The PowerShell handoff can run `gh run download 39661674510 --repo chrober/bliss-mood-poc --name research-song-embedding-windows-x64 --dir <ignored-bin-folder>`; after that, run the helper with `--db`, `--audio-root`, `--models-dir`, `--binary`, `--out-dir`, `--limit 1`, and `--seed 20261021`, **without `--execute`**. A successful dry-run outputs `status=dry_run_verified_no_changes`, `sample_count=1`, `audio_sha_verified=1` and `model_files_sha_verified=3`. Verify this before exporting even one song. No music/audio files or local SQLite/embeddings are uploaded.
+
+**Previous verified library baseline:** 100/100 correctly dimensioned and compatible 87D/56D v5 feature pairs, zero head provenance mismatches. Direct 1280D availability was **not assessed** (no embedding directory), so the initial report did not establish that those sidecars were absent.
+
+**Research test gates:** [synthetic Linux and Windows tests 39662462594](https://github.com/chrober/bliss-mood-poc/actions/runs/39662462594) PASSED for dry-run/no-change, model and audio drift, unsafe track keys, missing/existing exports, validation, resume and no-overwrite. The next independent human review remains phase 3 and does not require a whole-library rescan.
