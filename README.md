@@ -369,6 +369,17 @@ positive/negative pairs, and no audio/ONNX work. It deliberately
 **does not choose a winner or calibrate scores without real listening
 judgments**. Current model outputs remain experimental.
 
+The [listening-pair pilot generator](scripts/propose_similarity_listening_pairs.py)
+can prepare a small deterministic **unlabeled** CSV with separate Genre/Mood
+judgments, and a sealed private audit that must not be inspected before
+listening. It can use the numerically checked Rust-v5 real-MP3 schema-v3
+sidecar **directly** without merging experimental native Essentia C++
+PR #17, running ONNX, rescanning music or modifying SQLite. The sampling
+deliberately includes head/metric disagreements, low Mood activations and
+random controls. Its curated pairs are **not** an unbiased held-out
+benchmark or proof of a metric winner. See
+[exact Windows command and methodology](docs/similarity-metric-evaluation.md#21-october-2026--restart-on-numerically-checked-rust-v5-vectors-pr-17-not-required).
+
 ## Local files and Git hygiene
 
 `.gitignore` excludes root-level `benchmark-*/` benchmark runs,
