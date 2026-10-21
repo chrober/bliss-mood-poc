@@ -109,3 +109,31 @@ remains necessary before choosing a user-facing similarity policy.
 
 PR #16 stays Draft. No local/private music rescan, no
 production mixer change, no merge to main, no commits to PR #13/#17.
+
+
+## Updated FMA training-provenance warning
+
+[Completed metadata-only FMA/MTG screening
+39605675932](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932)
+found **42 possible exact artist/title MTG-Jamendo
+catalog matches among 800 FMA VALIDATION songs**,
+**35 of 100** in Hip-Hop alone; FMA TRAINING had
+121 candidates among 6,400. MTG artist-only matches
+were 68 VALIDATION / 260 TRAINING.
+**These do NOT establish literal audio duplication or
+ONNX training exposure**, nor do their nonmatches
+prove training disjointness. The untouched official
+FMA TEST split is still reserved.
+
+The [catalog-filtered FMA validation research
+workflow](../.github/workflows/fma-genre-filtered-validation.yml)
+and its Python parser exclude the 42 potential exact
+catalog candidates before validation sampling and
+model inference, reusing a pinned Rust-v5 binary.
+The new filtered 80-song cohort is **not paired with**
+the earlier 80-song FMA validation cohort; comparison
+must remain descriptive. The filtered real
+[run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+needs a completed result before any updated Genre
+P@5/mAP/nDCG statements. Audit and reproducibility:
+[FMA-MTG metadata screen](fma-mtg-catalog-overlap-2026-10-21.md).
