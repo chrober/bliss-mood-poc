@@ -2,6 +2,10 @@
 
 **Research only. No selected production metric or calibrated similarity probability.**
 
+**NEUER ENTSCHEIDUNGSRAHMEN (21.10.2026):** Dieses Dokument bewertet die sieben Metriken ausschließlich auf den bereits extrahierten 87D-Genre-/56D-Mood-Klassifikationswerten (**Ansatz A**). Noch nicht bewertet sind **1280D Discogs-EffNet-Audio-Embeddings (Ansatz B)** und eine **calibrierte Fusion aus Embedding + Genre + Mood (Ansatz C)**. Forschungs- und Übergabeplan: [Drei Repräsentationsansätze](similarity-three-representation-approaches-handover-2026-10-21.md). Weder Song-Level-Embedding-Pooling noch Embedding-Cosine oder Feature-Fusion ist bereits empirisch in PR #16 validiert. Dies ist eine andere Entscheidungsebene als Bliss-first/Feature-first/Hybrid-Kandidatengewinnung.
+
+
+
 The benchmark compares 87-dimensional Genre and 56-dimensional Mood/Theme
 Sigmoid classification vectors independently. It never modifies BlissMixerLab
 or music files, opens the existing schema-v3 SQLite database read-only,
