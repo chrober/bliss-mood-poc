@@ -263,6 +263,15 @@ jobs:
               --seed 20261021
           echo "parallel_analysis_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Summarize all 14 metric/head combinations with coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/summarize_mtt_benchmark.py \
+            --report results/mtt-all-exploratory-aggregate.json \
+            --out results/mtt-seven-metric-scorecard.md
+          cat results/mtt-seven-metric-scorecard.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publish only aggregate research results (never audio/features/votes)
         if: success()
         uses: actions/upload-artifact@v4
@@ -271,5 +280,6 @@ jobs:
           path: |
             results/mtt-directory-preflight.json
             results/mtt-all-exploratory-aggregate.json
+            results/mtt-seven-metric-scorecard.md
           if-no-files-found: error
           retention-days: 14
