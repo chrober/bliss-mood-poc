@@ -1,5 +1,24 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **GH CI / FMA FOLLOW-UP — 21 Oct 2026:** The real FMA validation
+> run [39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733)
+> failed **before inference**, after downloading the archives, because
+> `scripts/benchmark_fma_genre.py` rejected one unexpectedly sized MP3
+> anywhere in the archive. The code now excludes isolated size anomalies
+> and fails closed on excessive damage; synthetic tests were added.
+> The corrected GH validation run is
+> [39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757):
+> **verify completion/artifact before claiming FMA retrieval results**.
+> General CI was split into Rust-only and Python/PowerShell-only workflows;
+> both now use path-filtered **push** triggers (not push+pull_request),
+> so each in-repository commit runs a check at most once per relevant
+> workflow, and docs-only changes do not execute those checks. See
+> [GitHub Actions audit](github-actions-trigger-and-worker-audit-2026-10-21.md).
+> FMA/DEAM audio analysis is currently **serial** (`analyze-features` for
+> each track, `--threads 1`); adaptive workers belong to `scan-features`
+> and are not active. Benchmark fixed-two-worker vs serial only after
+> an isolated, validated batch/sidecar implementation.
+>
 > **UPDATED CURRENT STATUS 21 OCT 2026 — 240-song DEAM and FMA validation:**
 > Two 240-song DEAM GitHub Actions benchmarks passed: unfiltered
 > [39577605466](https://github.com/chrober/bliss-mood-poc/actions/runs/39577605466),
