@@ -19,6 +19,8 @@ jobs:
 
       - name: Evaluate similarity metrics on read-only synthetic feature fixture
         run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate DEAM metadata and offline similarity benchmark fixtures
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_deam.py'
       - name: Generate deterministic unlabeled pilot listening pairs with strict Rust v5 fingerprint
         run: python3 -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
 
@@ -35,6 +37,8 @@ jobs:
           python-version: '3.13'
       - name: Verify SQLite handles close before tempdir cleanup
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate DEAM archive matching, independent V/A retrieval and read-only reports
+        run: python -m unittest discover -s tests -p 'test_benchmark_deam.py'
       - name: Verify SQLite, UTF-8 filenames and read-only hearing set generation
         run: python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
       - name: Validate Lyrion song URL mapping and safe append against mock JSON-RPC server
