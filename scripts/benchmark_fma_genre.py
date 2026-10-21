@@ -204,29 +204,47 @@ def balanced_sample(songs: dict, available: dict, split: str,
 
 
 def run_inference(binary: Path, models_dir: Path, archive_path: Path,
-                  members: dict, chosen: list[str], database: Path) -> None:
+                  members: dict, chosen: list[str], database: Path,
+                  embedding_dir: Path | None = None) -> None:
     if database.exists():
         raise FileExistsError("Never overwrite existing feature database")
     database.parent.mkdir(parents=True, exist_ok=True)
+    if embedding_dir is not None:
+        if embedding_dir.exists():
+            raise FileExistsError("Never overwrite existing private song embeddings")
+        embedding_dir.mkdir(parents=True)
     with zipfile.ZipFile(archive_path) as archive:
         for index, ident in enumerate(chosen, 1):
             with tempfile.TemporaryDirectory(prefix="fma-validation-") as temp:
                 source = Path(temp) / (ident + ".mp3")
                 with archive.open(members[ident]) as data, source.open("wb") as output:
                     shutil.copyfileobj(data, output, length=1024 * 1024)
+                track_key = f"FMA/{ident}.mp3"
+                cmd = [
+                    str(binary.resolve()), "analyze-features", str(source),
+                    "--models-dir", str(models_dir.resolve()),
+                    "--models", "genre,moodtheme" if embedding_dir is not None else "genre",
+                    "--threads", "1",
+                    "--db", str(database.resolve()), "--track-key", track_key,
+                ]
+                if embedding_dir is not None:
+                    # Opaque stable filenames, no song names/identifiers in ZIP or artifacts.
+                    embedding_file = embedding_dir / (
+                        hashlib.sha256(track_key.encode("utf-8")).hexdigest() + ".json"
+                    )
+                    cmd.extend(["--embedding-out", str(embedding_file.resolve())])
                 completed = subprocess.run(
-                    [str(binary.resolve()), "analyze-features", str(source),
-                     "--models-dir", str(models_dir.resolve()),
-                     "--models", "genre", "--threads", "1",
-                     "--db", str(database.resolve()),
-                     "--track-key", f"FMA/{ident}.mp3"],
-                    check=False, capture_output=True, text=True, timeout=600
+                    cmd, check=False, capture_output=True, text=True, timeout=600
                 )
                 if completed.returncode != 0:
                     raise RuntimeError(
                         f"FMA analysis failed for item {index}/{len(chosen)}: "
                         f"{completed.stderr[-2000:]}"
                     )
+                if embedding_dir is not None and (
+                    not embedding_file.is_file() or embedding_file.stat().st_size == 0
+                ):
+                    raise RuntimeError("Private FMA embedding not produced")
             print(f"Analyzed FMA item {index}/{len(chosen)}", flush=True)
 
 
@@ -365,6 +383,8 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=20261021)
     p.add_argument("--mtg-metadata-tsv", type=Path)
     p.add_argument("--exclude-mtg-catalog-matches", action="store_true")
+    p.add_argument("--embedding-dir", type=Path,
+                   help="Research only: export versioned private 1280D vectors from the same encoder pass")
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
         p.error("Benchmark output exists; no overwrite permitted")
@@ -377,6 +397,12 @@ def main() -> None:
             args.split != "validation" or args.mtg_metadata_tsv is None
             or not args.mtg_metadata_tsv.is_file()):
         p.error("MTG catalog exclusion requires validation and --mtg-metadata-tsv")
+    if args.embedding_dir is not None and (
+            args.split != "validation" or not args.exclude_mtg_catalog_matches
+            or args.per_genre != 10 or args.seed != 20261021):
+        p.error("1280D FMA A/B requires the frozen 80-song screened VALIDATION cohort")
+    if args.embedding_dir is not None and args.embedding_dir.exists():
+        p.error("Private embedding directory already exists")
     songs = load_fma_small(args.metadata_zip,
                           include_artist_title=args.exclude_mtg_catalog_matches)
     available = match_audio(args.audio_zip, songs)
@@ -393,7 +419,7 @@ def main() -> None:
           f"analyzing {len(chosen)} distinct-artist tracks, "
           f"{args.per_genre} per genre, split={args.split}.", flush=True)
     run_inference(args.binary, args.models_dir, args.audio_zip,
-                  available, chosen, args.db)
+                  available, chosen, args.db, embedding_dir=args.embedding_dir)
     report = evaluate(args.db, chosen, songs, args.seed, args.split)
     report["dataset"]["metadata_zip_sha256"] = sha256_file(args.metadata_zip)
     report["dataset"]["audio_zip_sha256"] = sha256_file(args.audio_zip)
