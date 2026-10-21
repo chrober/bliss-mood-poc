@@ -35,6 +35,17 @@ MOOD_COSINE_REFERENCE = {
     "arousal": 0.2726358463243648,
     "valence_arousal": 0.286784551387186,
 }
+# Frozen per-cohort reference from original screened 240-track run 39579552118.
+MOOD_COSINE_SUBCOHORT_REFERENCE = {
+    "earlier_excerpt": {
+        "valence":0.22675277180682427,"arousal":0.3034197131915111,
+        "valence_arousal":0.3399893505844028,
+    },
+    "full_song_2015": {
+        "valence":0.14556320644763385,"arousal":0.09953072134599075,
+        "valence_arousal":0.18759773195542612,
+    },
+}
 AXES = ("valence", "arousal", "valence_arousal")
 METHODS = {
     "embedding_cosine": ("embedding", ev.cosine),
@@ -196,17 +207,21 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
 
 
 def evaluate(db: Path, embeddings: Path, ids: list[str],
-             annotations: dict, prior: dict) -> dict:
+             annotations: dict, prior: dict | None = None) -> dict:
     validate_selected(ids,annotations,SAMPLE_SHA)
-    if (prior["dataset"]["sample_id_sha256"]!=SAMPLE_SHA
-            or prior["dataset"]["train_overlap_check"] !=
-            "partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness"):
+    if prior is not None and (
+        prior["dataset"]["sample_id_sha256"]!=SAMPLE_SHA
+        or prior["dataset"]["train_overlap_check"] !=
+        "partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness"
+    ):
         raise ValueError("Prior DEAM screened 240-run is not the registered baseline")
     vectors,encoder_sha,fp=read_representations(db,embeddings,ids)
     result=paired_va(vectors,ids,annotations,seed=20261021)
     for axis in AXES:
         value=result["methods"]["mood_cosine"]["axes"][axis]
-        previous=prior["per_head"]["moodtheme"]["cosine"]["axes"][axis]["mean_query_spearman"]
+        previous = (prior["per_head"]["moodtheme"]["cosine"]["axes"][axis]
+                    ["mean_query_spearman"] if prior is not None
+                    else MOOD_COSINE_REFERENCE[axis])
         if abs(value-previous)>1e-9 or abs(value-MOOD_COSINE_REFERENCE[axis])>1e-9:
             raise ValueError("Paired DEAM mood cosine baseline changed from original 240 run")
     subcohorts={}
@@ -219,10 +234,14 @@ def evaluate(db: Path, embeddings: Path, ids: list[str],
                 replicates=400,
             ),
         }
-        prior_group=prior["subcohorts"][group]["per_head"]["moodtheme"]["cosine"]["axes"]
+        prior_group=(prior["subcohorts"][group]["per_head"]["moodtheme"]["cosine"]["axes"]
+                     if prior is not None else None)
         for axis in AXES:
             score=subcohorts[group]["evaluation"]["methods"]["mood_cosine"]["axes"][axis]
-            if abs(score-prior_group[axis]["mean_query_spearman"])>1e-9:
+            previous=(prior_group[axis]["mean_query_spearman"] if prior_group is not None
+                      else MOOD_COSINE_SUBCOHORT_REFERENCE[group][axis])
+            if (abs(score-previous)>1e-9
+                    or abs(score-MOOD_COSINE_SUBCOHORT_REFERENCE[group][axis])>1e-9):
                 raise ValueError("DEAM same-protocol subcohort mood cosine baseline changed")
     return {
         "schema":"deam-240-screened-embedding-vs-heads-paired-v1",
@@ -258,7 +277,8 @@ def main():
     p.add_argument("--mtg-metadata-tsv",type=Path,required=True)
     p.add_argument("--db",type=Path,required=True)
     p.add_argument("--embedding-dir",type=Path,required=True)
-    p.add_argument("--previous-filtered-report",type=Path,required=True)
+    p.add_argument("--previous-filtered-report",type=Path,
+                   help="Optional retained earlier aggregate; frozen code constants suffice")
     p.add_argument("--out",type=Path,required=True)
     args=p.parse_args()
     if args.out.exists():
@@ -271,12 +291,14 @@ def main():
     ):
         if deam.sha256_file(path)!=expected:
             raise ValueError("Registered DEAM source SHA differs: "+name)
-    previous=json.loads(args.previous_filtered_report.read_text(encoding="utf8"))
-    if (previous["dataset"]["annotation_archive_sha256"]!=ANNOTATION_SHA
-            or previous["dataset"]["audio_archive_sha256"]!=AUDIO_SHA
-            or previous["dataset"]["overlap_screen"]["deam_metadata_sha256"]!=METADATA_SHA
-            or previous["dataset"]["overlap_screen"]["mtg_raw_metadata_sha256"]!=MTG_SHA):
-        raise ValueError("Prior filtered DEAM report has different publisher provenance")
+    previous=None
+    if args.previous_filtered_report is not None:
+        previous=json.loads(args.previous_filtered_report.read_text(encoding="utf8"))
+        if (previous["dataset"]["annotation_archive_sha256"]!=ANNOTATION_SHA
+                or previous["dataset"]["audio_archive_sha256"]!=AUDIO_SHA
+                or previous["dataset"]["overlap_screen"]["deam_metadata_sha256"]!=METADATA_SHA
+                or previous["dataset"]["overlap_screen"]["mtg_raw_metadata_sha256"]!=MTG_SHA):
+            raise ValueError("Prior filtered DEAM report has different publisher provenance")
     labels=deam.load_annotations(args.annotations_zip)
     members=deam.match_audio(args.audio_zip,labels)
     screened,audit=deam.screen_catalog_overlaps(
