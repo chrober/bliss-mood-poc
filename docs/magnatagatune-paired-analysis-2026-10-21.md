@@ -177,3 +177,52 @@ confirmed true Rust-v5 binary cache HIT (no Cargo build)
 and 1,019-clip research cache HIT (no original archive download).
 Verify its final status, numerical parity, inference walltime
 and peak resource measurements before choosing worker count.
+
+
+## Completed real four-worker + both-cache-HIT comparison (21 Oct 2026)
+
+**PASS:** [run 39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932),
+[aggregate-only artifact 12346509848](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932/artifacts/12346509848).
+Four isolated `bliss-mood analyze-features` worker processes,
+one ONNX thread each, **1,019 identical CRC-verified MP3 clips**,
+same pinned encoder and 87D/56D heads, same 346 questions and
+human votes as the 2-worker paired result
+[run 39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906).
+
+**Both** caches truly hit: the 119,689,247-byte curated 1,019-audio
+clip cache, and the separate pinned corrected Rust-v5 binary cache;
+the Rust compiler, Cargo target restoration and original 2.77-GiB
+source downloads were skipped. SHA256 self-check and
+`analyze-features --help` succeeded.
+
+| Measured stage | Two workers, run 39602475906 | Four workers, run 39602865932 |
+| --- | ---: | ---: |
+| Rust-v5 binary cache | **MISS / compiled** | **HIT / build skipped** |
+| MP3 research cache | HIT | HIT |
+| Audio inference + SQLite sidecar merge | **291.251 s** | **172.324 s** |
+| Standalone metric scoring | 1.053 s | 0.929 s |
+| Actual GitHub Actions job execution measured from first to last log timestamp | **~367.1 s** | **~228.4 s** |
+
+**Observed difference:** Four workers reduced inference+merge time
+by **118.927 seconds (~40.8%)** in this pair of runs. Actual
+job execution time was **~138.7 s (~37.8%) shorter**, although
+this also reflects the separately cached binary and host variability.
+GitHub workflow queue time is excluded: the 4-worker run was
+queued behind the earlier same-concurrency-group benchmark.
+
+**Aggregate result parity:** All **14 reported head × metric**
+scorecard rows and all **8 highlighted paired contrast rows**
+in the GitHub logs were **textually identical** across the two
+completed runs. This does not by itself prove bitwise per-track
+feature-vector parity, since those vectors are never uploaded.
+The research cohort hashes and fixed human reference are identical.
+One run per worker setting is not sufficient for a general
+performance confidence interval; prior same-two-worker analysis
+timings varied from ~145 to ~291 seconds on different runners.
+
+Keep fixed **4 workers (one ONNX thread each)** as a provisional
+research-workflow configuration on four-vCPU GitHub runners;
+perform further same-runner repeated A/B measurements if
+precise speed claims or adaptive orchestration are warranted.
+No effect on production worker settings, the Lyrion library,
+or the chosen similarity metric.
