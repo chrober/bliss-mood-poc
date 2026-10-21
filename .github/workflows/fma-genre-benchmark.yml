@@ -87,7 +87,14 @@ jobs:
           fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
           sha256sum models/*
 
-      - name: Download canonical FMA archives without full extraction
+      - name: Restore bounded private FMA-Small VALIDATION selection cache
+        id: fma_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-unscreened-selected-v1-pergenre-${{ env.FMA_PER_GENRE }}-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
+
+      - name: Download publisher metadata and FMA audio ONLY on cache miss
         shell: bash
         run: |
           set -euo pipefail
@@ -103,17 +110,43 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors \
             --connect-timeout 30 --max-time 2400 --silent --show-error \
             "$base/fma_metadata.zip" -o fma-private/fma_metadata.zip
-          curl --fail --location --retry 3 --retry-all-errors \
-            --connect-timeout 30 --max-time 5400 --silent --show-error \
-            "$base/fma_small.zip" -o fma-private/fma_small.zip
-          test "$(stat -c%s fma-private/fma_small.zip)" -gt 7000000000
+          if [[ "${{ steps.fma_cache.outputs.cache-hit }}" != "true" ]]; then
+            /usr/bin/time -f 'fma_source_download_elapsed_s=%e peak_kib=%M' \
+              curl --fail --location --retry 3 --retry-all-errors \
+                --connect-timeout 30 --max-time 5400 --silent --show-error \
+                "$base/fma_small.zip" -o fma-private/fma_small.zip
+            test "$(stat -c%s fma-private/fma_small.zip)" -gt 7000000000
+          fi
           python3 - <<'PY'
           import zipfile
-          for name in ("fma-private/fma_metadata.zip", "fma-private/fma_small.zip"):
-              with zipfile.ZipFile(name) as archive:
-                  members = archive.infolist()
-              print("Verified FMA archive", name, "members:", len(members))
+          with zipfile.ZipFile("fma-private/fma_metadata.zip") as archive:
+              print("Verified official FMA metadata archive:",len(archive.infolist()))
           PY
+
+      - name: Restore or pack source-pinned selected FMA songs
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--bundle fma-private/fma-selected-cache/selected.zip
+                --manifest fma-private/fma-selected-cache/selection.json
+                --metadata-zip fma-private/fma_metadata.zip
+                --per-genre "$FMA_PER_GENRE" --seed 20261021)
+          if [[ "${{ steps.fma_cache.outputs.cache-hit }}" == "true" ]]; then
+            python3 scripts/fma_selected_audio_cache.py verify "${args[@]}"
+          else
+            python3 scripts/fma_selected_audio_cache.py pack "${args[@]}" \
+              --source-audio-zip fma-private/fma_small.zip
+            rm -f fma-private/fma_small.zip
+          fi
+          echo "fma_selected_cache_hit=${{ steps.fma_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "fma_selected_cache_mib=$(du -sm fma-private/fma-selected-cache | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save only selected FMA-Small audio rather than full archive
+        if: steps.fma_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-unscreened-selected-v1-pergenre-${{ env.FMA_PER_GENRE }}-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
 
       - name: Analyze VALIDATION songs and calculate seven Genre retrieval metrics
         shell: bash
@@ -121,7 +154,8 @@ jobs:
           set -euo pipefail
           python3 scripts/benchmark_fma_genre.py \
             --metadata-zip fma-private/fma_metadata.zip \
-            --audio-zip fma-private/fma_small.zip \
+            --audio-zip fma-private/fma-selected-cache/selected.zip \
+            --selected-cache-manifest fma-private/fma-selected-cache/selection.json \
             --binary validated-rust-v5/target/release/bliss-mood \
             --models-dir models \
             --db fma-private/fma-validation-features.db \
