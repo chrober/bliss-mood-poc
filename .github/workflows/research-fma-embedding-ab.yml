@@ -1,0 +1,249 @@
+name: Research - FMA 80 catalog-screened 1280D versus heads A-B
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/research-fma-embedding-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-fma-80-embedding-ab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fma-genre-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      FMA_PER_GENRE: '10'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned corrected Rust-v5 scanner in a separate directory
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      # Regression gate: sealed official TEST rows may contain unusable
+      # identifiers; filtered validation skips them before parsing IDs.
+      - name: Verify bounded validation-only study
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          per_genre = int(os.environ["FMA_PER_GENRE"])
+          if not 2 <= per_genre <= 100:
+              raise SystemExit("FMA_PER_GENRE must be 2..100")
+          print("FMA validation only; tracks per genre:", per_genre)
+          PY
+          # Synthetic metadata schema and retrieval/Top-K abstention gates:
+          # avoid a 7.2-GiB download if the evaluation semantics regress.
+          python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+          python3 -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
+          python3 -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py'
+          python3 -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
+          python3 -m unittest discover -s tests -p 'test_check_song_embedding_smoke.py'
+          echo "Runner CPUs: $(nproc)"
+          echo "Workflow runs one audio analysis subprocess at a time (--threads 1)."
+          echo "Multi-track/adaptive workers require a separately tested batch scheduler."
+
+      - name: Apply 1280D research overlay to immutable pinned Rust-v5 checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_rust_v5_embedding_export.py --checkout validated-rust-v5
+          git -C validated-rust-v5 diff --check
+
+      - name: Ensure FFmpeg and ffprobe prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+          key: research-1280d-v1
+
+      - name: Locked Rust-v5 build, pooling unit tests and optional CLI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "rust_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          cargo test --locked --manifest-path validated-rust-v5/Cargo.toml song_embedding::tests
+          /usr/bin/time -f 'research_cargo_release_elapsed_s=%e peak_rss_kib=%M' \
+            cargo build --release --locked --manifest-path validated-rust-v5/Cargo.toml
+          validated-rust-v5/target/release/bliss-mood analyze-features --help | grep -q -- '--embedding-out'
+          echo "rust_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch upstream Discogs encoder plus Genre/Mood heads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 30 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
+          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
+          sha256sum models/*
+          printf '%s  %s\n' \
+            'a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c' models/discogs-effnet-bsdynamic-1.onnx \
+            '637acf45315191a2c9a87d5977d48f02da6fc823192fe794a1537c55e7c7ce6a' models/mtg_jamendo_genre-discogs-effnet-1.onnx \
+            '7d6270acaa5f4bba4b115a0d6849aca05ed6bd153dcb6d9da4f6ab9f99ef10ff' models/mtg_jamendo_moodtheme-discogs-effnet-1.onnx \
+            | sha256sum --check
+
+      - name: Download METADATA only and prove validation catalog exclusion
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private results
+          echo "metadata_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2700 --silent --show-error \
+            https://os.unil.cloud.switch.ch/fma/fma_metadata.zip \
+            -o fma-private/fma_metadata.zip
+          test "$(stat -c%s fma-private/fma_metadata.zip)" -gt 100000000
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 900 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o fma-private/mtg-raw.meta.tsv
+          test "$(stat -c%s fma-private/mtg-raw.meta.tsv)" -gt 10000
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from audit_fma_mtg_overlap import inspect
+          result=inspect(Path("fma-private/fma_metadata.zip"), Path("fma-private/mtg-raw.meta.tsv"))
+          assert result["by_split"]["validation"]["possible_exact_artist_title_catalog_matches"] == 42
+          assert result["by_split"]["training"]["possible_exact_artist_title_catalog_matches"] == 121
+          assert result["coverage"]["test_metadata_rows_not_inspected"] == 800
+          print("FMA-Jamendo metadata screening PASS: 42 possible validation catalog overlaps; FMA TEST untouched.")
+          PY
+          echo "metadata_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download official FMA-Small audio ZIP once, no full extraction or publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private results
+          python3 - <<'PY'
+          import shutil
+          free = shutil.disk_usage(".").free
+          print("Runner free disk before FMA data download (GiB):", round(free/1024**3, 2))
+          if free < 9 * 1024**3:
+              raise SystemExit("Insufficient scratch space for 7.2 GiB FMA-Small ZIP")
+          PY
+          base=https://os.unil.cloud.switch.ch/fma
+          echo "audio_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'fma_audio_download_elapsed_s=%e peak_rss_kib=%M' \
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 30 --max-time 5400 --silent --show-error \
+              "$base/fma_small.zip" -o fma-private/fma_small.zip
+          echo "audio_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          test "$(stat -c%s fma-private/fma_small.zip)" -gt 7000000000
+          python3 - <<'PY'
+          import zipfile
+          for name in ("fma-private/fma_metadata.zip", "fma-private/fma_small.zip"):
+              with zipfile.ZipFile(name) as archive:
+                  members = archive.infolist()
+              print("Verified FMA archive", name, "members:", len(members))
+          PY
+
+      - name: Analyze EXACT previous 80 catalog-filtered VALIDATION songs; export private 1280D same pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "fma_inference_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'fma_inference_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/benchmark_fma_genre.py \
+            --metadata-zip fma-private/fma_metadata.zip \
+            --audio-zip fma-private/fma_small.zip \
+            --binary validated-rust-v5/target/release/bliss-mood \
+            --models-dir models \
+            --db fma-private/fma-filtered-validation-features.db \
+            --embedding-dir fma-private/song-embeddings \
+            --report results/fma-validation-catalog-filtered-summary.json \
+            --per-genre "$FMA_PER_GENRE" \
+            --exclude-mtg-catalog-matches \
+            --mtg-metadata-tsv fma-private/mtg-raw.meta.tsv \
+            --split validation \
+            --seed 20261021
+          echo "fma_inference_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json
+          with open("results/fma-validation-catalog-filtered-summary.json", encoding="utf8") as file:
+              report = json.load(file)
+          assert report["dataset"]["official_split"] == "validation"
+          assert report["dataset"]["sample_size"] == 80
+          assert report["dataset"]["sample_id_sha256"] == "f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509"
+          assert abs(report["metric_results"]["cosine"]["precision_at_5"]["macro_mean"] - .32) < 1e-9
+          assert report["catalog_overlap_exclusion"]["possible_catalog_matches_excluded"] == 42
+          assert report["catalog_overlap_exclusion"]["validation_eligible_after_exclusion"] == 758
+          assert report["catalog_overlap_exclusion"]["status"].startswith("partial_exact")
+          print("FMA distinct validation artists:", report["dataset"]["distinct_artists"])
+          print("Random P@5:", report["baseline_random_precision_at_5"])
+          for name, details in report["metric_results"].items():
+              print(f"{name}: P@5={details['precision_at_5']['macro_mean']} "
+                    f"mAP@10={details['map_at_10']['macro_mean']} "
+                    f"nDCG@10={details['ndcg_at_10']['macro_mean']} "
+                    f"queries={details['precision_at_5']['query_count']}")
+          PY
+
+      - name: Paired 1280D vs 87D/56D retrieval - same 80 anchors and 79 candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "fma_paired_evaluation_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'fma_paired_evaluation_elapsed_s=%e peak_rss_kib=%M' \
+            python3 scripts/evaluate_fma_embedding_ab.py \
+              --metadata-zip fma-private/fma_metadata.zip \
+              --audio-zip fma-private/fma_small.zip \
+              --mtg-metadata-tsv fma-private/mtg-raw.meta.tsv \
+              --db fma-private/fma-filtered-validation-features.db \
+              --embedding-dir fma-private/song-embeddings \
+              --original-genre-report results/fma-validation-catalog-filtered-summary.json \
+              --out results/fma-80-embedding-vs-heads-aggregate.json
+          python3 - <<'PY'
+          import json, os
+          result=json.load(open("results/fma-80-embedding-vs-heads-aggregate.json"))
+          assert result["sample_size"] == result["distinct_artists"] == 80
+          assert result["official_split"] == "validation"
+          assert all(v["query_denominator"] == 80 for v in result["methods"].values())
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
+              out.write("\\n## FMA catalog-screened 80-song VALIDATION (not TEST)\\n\\n")
+              out.write("| Representation | P@5 | mAP@10 | nDCG@10 | Query coverage |\\n|---|---:|---:|---:|---:|\\n")
+              for name,item in result["methods"].items():
+                  out.write(f"| {name} | {item['precision_at_5']:.4f} | {item['map_at_10']:.4f} | {item['ndcg_at_10']:.4f} | {item['query_coverage']:.1%} |\\n")
+              out.write("\\nShared candidates, paired query resampling is descriptive, NOT independent population CI. No FMA official TEST accessed.\\n")
+          PY
+          echo "fma_paired_evaluation_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload only aggregate FMA A/B metrics (no audio/labels/vectors)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fma-80-embedding-vs-heads-aggregate
+          path: |
+            results/fma-validation-catalog-filtered-summary.json
+            results/fma-80-embedding-vs-heads-aggregate.json
+          if-no-files-found: error
+          retention-days: 14
