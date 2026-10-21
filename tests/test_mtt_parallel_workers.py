@@ -144,7 +144,6 @@ class ParallelSidecarTests(unittest.TestCase):
             p.write_bytes(data*200)
             parts.append(p)
         source=local.LocalMultipartRanges(parts,[1600,1600,2000])
-        self.assertEqual(source.read(1595,12),b"fghab"+"ijklmnop"[:7]) if False else None
         self.assertEqual(source.read(1597,7),b"fghijkl")
         self.assertEqual(source.total_bytes,7)
         with self.assertRaisesRegex(ValueError, "outside"):
