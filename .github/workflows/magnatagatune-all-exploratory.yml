@@ -11,6 +11,11 @@ on:
         description: 'Research-only 1019-clip audio cache (~117 MB), not whole archive'
         type: boolean
         default: true
+      workers:
+        description: 'Number of isolated Rust-v5 clip workers (one ONNX thread each)'
+        type: choice
+        options: ['1', '2', '4']
+        default: '4'
 
 permissions:
   contents: read
@@ -284,13 +289,14 @@ jobs:
           sha256sum models/*
           echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Analyze 1019 clips with two isolated bliss-mood workers
+      - name: Analyze 1019 clips with selected isolated bliss-mood workers
         shell: bash
         run: |
           set -euo pipefail
           read -r p1 p2 p3 < benchmark-private/parts.txt
           echo "parallel_analysis_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
-          echo "runner_vcpus=$(nproc) workers=2 onnx_threads_per_worker=1" >> "$GITHUB_STEP_SUMMARY"
+          MTT_WORKERS="${{ inputs.workers || '4' }}"
+          echo "runner_vcpus=$(nproc) workers=$MTT_WORKERS onnx_threads_per_worker=1" >> "$GITHUB_STEP_SUMMARY"
           /usr/bin/time -f 'parallel_audio_elapsed_s=%e max_rss_kib=%M' \
             python3 scripts/benchmark_magnatagatune.py \
               --comparisons benchmark-private/comparisons_final.csv \
@@ -302,7 +308,7 @@ jobs:
               --models-dir models \
               --db benchmark-private/mtt-all-exploratory-features.db \
               --report results/mtt-all-exploratory-aggregate.json \
-              --selection-mode all-exploratory --workers 2 \
+              --selection-mode all-exploratory --workers "$MTT_WORKERS" \
               --seed 20261021
           echo "parallel_analysis_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
