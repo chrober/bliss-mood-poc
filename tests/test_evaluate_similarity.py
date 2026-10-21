@@ -273,8 +273,8 @@ class ReadOnlySimilarityEvaluationTests(unittest.TestCase):
     def test_pair_diagnostics_do_not_require_or_perform_random_sampling(self):
         labels = Path(self.tmp.name) / "single.csv"
         labels.write_text(
-            "left;right;genre_label;mood_label\\n"
-            "Rock/A.flac;Metal/C.flac;0;1\\n", encoding="utf-8"
+            "left;right;genre_label;mood_label\n"
+            "Rock/A.flac;Metal/C.flac;0;1\n", encoding="utf-8"
         )
         output = ev.pair_details_report(self.dbfile, True, labels)
         self.assertEqual(len(output["pair_details"]), 1)
