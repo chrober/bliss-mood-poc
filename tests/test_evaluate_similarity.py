@@ -226,6 +226,62 @@ class ReadOnlySimilarityEvaluationTests(unittest.TestCase):
                 self.assertEqual(mood["positives"]["count"], 3)
                 self.assertEqual(mood["negatives"]["count"], 2)
 
+    def test_semicolon_csv_and_exact_pair_diagnostics_are_read_only(self):
+        labels = Path(self.tmp.name) / "judged-semicolon.csv"
+        with labels.open("w", encoding="utf-8-sig", newline="") as file:
+            writer = csv.writer(file, delimiter=";")
+            writer.writerow(("left", "right", "genre_label", "mood_label"))
+            writer.writerow(("Rock/A.flac", "Rock/B.flac", "1", "0"))
+            writer.writerow(("Rock/A.flac", "Metal/C.flac", "0", "1"))
+            writer.writerow(("Rock/B.flac", "Metal/D.flac", "0", "1"))
+
+        before_db = self.dbfile.read_bytes()
+        before_labels = labels.read_bytes()
+        report = ev.pair_details_report(self.dbfile, True, labels)
+
+        self.assertEqual(report["schema"], "similarity-pair-diagnostics-v1")
+        self.assertTrue(report["source"]["read_only"])
+        self.assertEqual(report["labeled"]["judged_pairs"], 3)
+        self.assertEqual(len(report["pair_details"]), 3)
+        self.assertEqual(
+            [(pair["genre_label"], pair["mood_label"])
+             for pair in report["pair_details"]],
+            [(1, 0), (0, 1), (0, 1)],
+        )
+        self.assertEqual(
+            report["models"]["moodtheme"]["model_key"], "moodtheme-new"
+        )
+        for pair in report["pair_details"]:
+            self.assertEqual(set(pair["scores"]), set(ev.MODELS))
+            for head in ev.MODELS:
+                self.assertEqual(set(pair["scores"][head]), set(ev.METRICS))
+        for head in ev.MODELS:
+            for metric in ev.METRICS:
+                scores = report["pair_details"]
+                positives = [p["scores"][head][metric] for p in scores
+                             if p["genre_label" if head == "genre" else "mood_label"] == 1]
+                negatives = [p["scores"][head][metric] for p in scores
+                             if p["genre_label" if head == "genre" else "mood_label"] == 0]
+                self.assertEqual(
+                    ev.auc([v for v in positives if v is not None],
+                           [v for v in negatives if v is not None]),
+                    report["labeled"][head]["metrics"][metric]["roc_auc"],
+                )
+        self.assertEqual(self.dbfile.read_bytes(), before_db)
+        self.assertEqual(labels.read_bytes(), before_labels)
+
+    def test_pair_diagnostics_do_not_require_or_perform_random_sampling(self):
+        labels = Path(self.tmp.name) / "single.csv"
+        labels.write_text(
+            "left;right;genre_label;mood_label\\n"
+            "Rock/A.flac;Metal/C.flac;0;1\\n", encoding="utf-8"
+        )
+        output = ev.pair_details_report(self.dbfile, True, labels)
+        self.assertEqual(len(output["pair_details"]), 1)
+        self.assertNotIn("unlabeled", output)
+        self.assertEqual(output["labeled"]["moodtheme"]["pairs_judged_for_head"], 1)
+        self.assertIsNone(output["labeled"]["moodtheme"]["metrics"]["cosine"]["roc_auc"])
+
     def test_duplicate_labels_rejected(self):
         file = Path(self.tmp.name) / "labels.csv"
         file.write_text(
