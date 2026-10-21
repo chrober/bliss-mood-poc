@@ -46,6 +46,13 @@ class HoldoutTests(unittest.TestCase):
         groups=a["artist_disjoint_questions"]
         self.assertEqual(sum(x["count"] for x in groups.values()),6)
         self.assertEqual(a["artist_component_graph"]["components"],6)
+        self.assertIn("less_than_128", a["artist_hash_policy"])
+        smoke = a["prior_four_triplet_smoke_exposure"]
+        self.assertEqual(
+            smoke["holdout_triplets_touching_smoke_artists"]
+            + smoke["holdout_triplets_never_touched_by_smoke_artists"],
+            a["artist_disjoint_questions"]["holdout"]["count"]
+        )
         for cutoff in ("51", "85", "128"):
             design = a["candidate_artist_holdout_designs"][cutoff]
             self.assertEqual(sum(design["questions"].values()), 6)
