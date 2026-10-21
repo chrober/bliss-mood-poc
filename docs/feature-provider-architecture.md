@@ -1,6 +1,19 @@
 # Model-independent features and future mixing strategies
 
-**Update 21.10.2026:** Die bestehenden separaten 87D/56D-Kopfvektoren sind nur **eine** mögliche Song-Repräsentation. Direkte **1280D-Discogs-EffNet-Embeddings** (vor den Klassifikationsköpfen) und **kalibrierte Kombinationen aus Embedding/Genre/Mood** sind gleichberechtigte, noch nicht implementiert/evaluierte Forschungsansätze. Der Encoder liefert den 1280D-Patch-Vektor intern, das aktuelle schema-v3-Feature-Sidecar persistiert ihn aber nicht als Song-Embedding. Minimaler Umsetzungsplan, Paritätsanforderungen, externe Beispiele und Abgrenzung zur hier diskutierten **Bliss-first/Mood-/Genre-first/Hybrid**-Kandidatenarchitektur: [Handover der drei Similarity-Repräsentationsansätze](similarity-three-representation-approaches-handover-2026-10-21.md).
+**Research update (2026-10-21):** The stored 87D Genre and 56D
+Mood/Theme heads are only **one** possible song representation.
+Direct 1280D Discogs-EffNet embeddings from the shared encoder
+and carefully calibrated combinations of Embedding/Genre/Mood are
+separate A/B/C research approaches. The encoder produces 1280D
+patch features internally, but schema-v3 does not persist a pooled
+1280D song vector. Since this initial design note, the optional
+1280D research exporter and paired MTT/FMA benchmarks have been
+implemented; the relevant proven results, parity limits and current
+status are tracked in the
+[central roadmap](similarity-lyrion-roadmap.md) and
+[three-representation study](similarity-three-representation-approaches-handover-2026-10-21.md).
+Representation fusion is **not** the same decision as
+Bliss-first/feature-first/hybrid candidate selection.
 
 ## Current implementation (experimental)
 
