@@ -258,16 +258,28 @@ def main() -> None:
     p.add_argument("--embedding-dir", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--original-genre-report", type=Path, required=True)
+    p.add_argument("--selected-cache-manifest", type=Path,
+                   help="Prove original FMA-Small archive SHA via checked selected-song manifest")
     args = p.parse_args()
     if args.out.exists():
         p.error("Never overwrite an existing aggregate research report")
     for name,path,sha in (
         ("FMA metadata",args.metadata_zip,FROZEN_METADATA_SHA256),
-        ("FMA audio",args.audio_zip,FROZEN_AUDIO_SHA256),
         ("MTG catalog",args.mtg_metadata_tsv,FROZEN_MTG_SHA256),
     ):
         if fma.sha256_file(path) != sha:
             raise ValueError(name + " publisher input SHA changed from registered FMA 80-song run")
+    cached = None
+    if args.selected_cache_manifest is not None:
+        import fma_selected_audio_cache as fc
+        cached = fc.verify(
+            args.audio_zip,args.selected_cache_manifest,metadata=args.metadata_zip,
+            mtg=args.mtg_metadata_tsv,screened=True,per_genre=10,seed=20261021
+        )
+        if cached["publisher_audio_zip_sha256"]!=FROZEN_AUDIO_SHA256:
+            raise ValueError("FMA selected cache origin archive fingerprint mismatch")
+    elif fma.sha256_file(args.audio_zip)!=FROZEN_AUDIO_SHA256:
+        raise ValueError("Original full FMA source archive SHA changed")
     original = json.loads(args.original_genre_report.read_text(encoding="utf-8"))
     if (original["dataset"]["official_split"] != "validation"
             or original["dataset"]["sample_size"] != 80
@@ -276,10 +288,18 @@ def main() -> None:
     if original["catalog_overlap_exclusion"]["possible_catalog_matches_excluded"] != 42:
         raise ValueError("Changed FMA/MTG catalog screening result")
     songs = fma.load_fma_small(args.metadata_zip, include_artist_title=True)
-    available = fma.match_audio(args.audio_zip, songs)
+    if cached is not None:
+        chosen = cached["chosen"]
+        available = {ident:cached["entries"][ident]["filename"] for ident in chosen}
+    else:
+        available = fma.match_audio(args.audio_zip, songs)
     excluded, audit = fma.screen_mtg_catalog_matches(songs,args.mtg_metadata_tsv,"validation")
     available = {ident: path for ident, path in available.items() if ident not in excluded}
-    chosen = fma.balanced_sample(songs, available, "validation", 10, 20261021)
+    if cached is not None:
+        if len(available)!=len(chosen):
+            raise ValueError("Cached FMA selection overlaps rejected MTG catalog")
+    else:
+        chosen = fma.balanced_sample(songs, available, "validation", 10, 20261021)
     validate_study_scope(chosen, songs, FROZEN_FMA80_SAMPLE_SHA256)
     if digest_ids(chosen) != original["dataset"]["sample_id_sha256"]:
         raise ValueError("FMA A/B not paired with the existing genre-only run")
