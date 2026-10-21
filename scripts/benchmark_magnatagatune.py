@@ -164,6 +164,11 @@ class RangeFetcher:
         self.part_sizes = part_sizes
         self.total_bytes = 0
         self.requests = 0
+        # Public archive server timed out after ~21-25 rapid GETs in two
+        # otherwise successful GH runs. Cap request rate conservatively.
+        self.min_request_spacing_seconds = 3.5
+        self.next_request_at = 0.0
+        self.range_pacing_sleep_seconds = 0.0
 
     def read(self, start: int, length: int) -> bytes:
         if length < 1 or length > MAX_MEMBER_COMPRESSED + 10000:
@@ -197,6 +202,11 @@ class RangeFetcher:
     def _part_range(self, part: int, start: int, end: int) -> bytes:
         url = BASE + f"mp3.zip.{part:03d}"
         expected = end - start + 1
+        wait_seconds = self.next_request_at - time.monotonic()
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+            self.range_pacing_sleep_seconds += wait_seconds
+        self.next_request_at = time.monotonic() + self.min_request_spacing_seconds
         # Each request is bounded to a single compressed MP3; never
         # permit an ignored Range to download a complete GB-sized part.
         with tempfile.TemporaryDirectory(prefix="mtt-range-") as temp:
@@ -207,14 +217,14 @@ class RangeFetcher:
                 # timeout after 21 successful clips; retry only bounded
                 # Range requests, never whole multi-gigabyte ZIP parts.
                 "curl", "--fail", "--location", "--retry", "5",
-                "--retry-all-errors", "--retry-delay", "2",
-                "--retry-max-time", "300", "--connect-timeout", "15",
+                "--retry-all-errors", "--retry-delay", "8",
+                "--retry-max-time", "360", "--connect-timeout", "15",
                 "--max-time", "50", "--max-filesize", str(expected + 10000),
                 "--silent", "--show-error", "--header", "Accept-Encoding: identity",
                 "--range", f"{start}-{end}",
                 "--dump-header", str(headers),
                 "--output", str(body), "--write-out", "%{http_code}", url
-            ], capture_output=True, text=True, check=False, timeout=330)
+            ], capture_output=True, text=True, check=False, timeout=390)
             if call.returncode != 0 or call.stdout.strip() != "206":
                 raise RuntimeError(
                     f"HTTP range download failed for MTT part {part}; "
@@ -310,6 +320,9 @@ def run_inference(binary: Path, models_dir: Path, db: Path, selected: list,
         "analyze_and_sparse_download_wall_seconds": round(time.monotonic()-start, 3),
         "http_range_requests": getter.requests,
         "downloaded_audio_zip_bytes": getter.total_bytes,
+        "http_request_min_spacing_s": getter.min_request_spacing_seconds,
+        "http_range_pacing_sleep_seconds":
+            round(getter.range_pacing_sleep_seconds, 3),
         "workers": 1,
         "onnx_threads_per_song": 1,
     }
