@@ -355,39 +355,69 @@ def evaluate(db: Path, selected: list, triplets: dict) -> dict:
         for head in ev.MODELS:
             scores = {}
             for name, fn in ev.METRIC_FUNCS.items():
-                correct, pred, abstain = 0, 0, 0
+                correct, pred = 0, 0
+                undefined, metric_ties, zero_overlap, human_ties = 0, 0, 0, 0
                 weighted_votes, eligible_votes = 0, 0
+                consensus = {"under_70pct": [0, 0], "at_least_70pct": [0, 0]}
                 for triple in selected:
                     a, b, c = triple
+                    votes = triplets[triple]["votes"]
+                    majority_count = max(votes.values())
+                    if sum(v == majority_count for v in votes.values()) != 1:
+                        human_ties += 1
+                        continue
+                    winner = max(votes, key=votes.get)
                     pair_scores = [
                         fn(vectors[keys[x]][head], vectors[keys[y]][head])
                         for x, y in ((a, b), (a, c), (b, c))
                     ]
                     if any(s is None or not math.isfinite(s) for s in pair_scores):
-                        abstain += 1
+                        undefined += 1
                         continue
                     best = max(pair_scores)
-                    # No meaningful overlap, no unique closest pair.
-                    if (len([v for v in pair_scores if abs(best-v) <= 1e-12]) != 1
-                            or (name.startswith("topk") and best <= 0)):
-                        abstain += 1
+                    if name.startswith("topk") and best <= 0:
+                        zero_overlap += 1
+                        continue
+                    if len([v for v in pair_scores if abs(best-v) <= 1e-12]) != 1:
+                        metric_ties += 1
                         continue
                     prediction = (c, b, a)[pair_scores.index(best)]
-                    votes = triplets[triple]["votes"]
-                    winner = max(votes, key=votes.get)
-                    if sum(v == votes[winner] for v in votes.values()) != 1:
-                        abstain += 1
-                        continue
                     pred += 1
-                    correct += int(prediction == winner)
+                    hit = int(prediction == winner)
+                    correct += hit
+                    group = ("at_least_70pct" if majority_count /
+                             triplets[triple]["total"] >= .7 else "under_70pct")
+                    consensus[group][0] += hit
+                    consensus[group][1] += 1
                     weighted_votes += votes.get(prediction, 0)
                     eligible_votes += triplets[triple]["total"]
+                abstain = undefined + metric_ties + zero_overlap + human_ties
+                if pred + abstain != len(selected):
+                    raise ValueError("MTT vote accounting is incomplete")
+                human_scorable = len(selected) - human_ties
                 scores[name] = {
+                    "total_unique_unordered_questions": len(selected),
+                    "human_tied_majority_questions": human_ties,
+                    "human_scorable_questions": human_scorable,
                     "evaluated_questions": pred,
                     "abstained_questions": abstain,
+                    "metric_undefined_scores": undefined,
+                    "metric_prediction_ties": metric_ties,
+                    "metric_zero_overlap": zero_overlap,
+                    "prediction_coverage_of_scorable_questions":
+                        pred / human_scorable if human_scorable else None,
                     "majority_odd_one_out_accuracy": correct / pred if pred else None,
+                    "majority_odd_one_out_correct_count": correct,
+                    "majority_accuracy_with_metric_abstentions_as_incorrect":
+                        correct / human_scorable if human_scorable else None,
                     "human_vote_weighted_agreement": weighted_votes / eligible_votes
                     if eligible_votes else None,
+                    "random_odd_one_out_reference": 1 / 3,
+                    "consensus_strata": {
+                        key: {"evaluated": n, "correct": hits,
+                              "majority_accuracy": hits / n if n else None}
+                        for key, (hits, n) in consensus.items()
+                    },
                 }
             report[head] = {
                 "model_key": cohort[head]["model_key"],
