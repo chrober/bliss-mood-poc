@@ -128,6 +128,31 @@ class FmaGenreBenchmarkTests(unittest.TestCase):
         self.assertNotIn("FMA/000101.mp3", serialized)
         self.assertNotIn('"101"', serialized)
 
+    def test_anomalous_mp3_is_excluded_without_failing_entire_zip(self):
+        songs = fma.load_fma_small(self.meta)
+        original_id = next(iter(songs))
+        with zipfile.ZipFile(self.audio, "a") as archive:
+            archive.writestr(
+                "fma_small/000/000999.mp3", b"not a sampled song"
+            )
+        found = fma.match_audio(self.audio, songs)
+        self.assertEqual(len(found), 16)
+        with zipfile.ZipFile(self.audio, "w") as archive:
+            for ident in songs:
+                archive.writestr(f"fma_small/{ident}.mp3",
+                                 b"x" * (100 if ident == original_id else 16000))
+        found = fma.match_audio(self.audio, songs)
+        self.assertEqual(len(found), 15)
+        self.assertNotIn(original_id, found)
+
+    def test_excessive_anomalies_fail_closed(self):
+        songs = fma.load_fma_small(self.meta)
+        with zipfile.ZipFile(self.audio, "w") as archive:
+            for ident in songs:
+                archive.writestr(f"fma_small/{ident}.mp3", b"tiny")
+        with self.assertRaisesRegex(ValueError, "Too few valid|Too many anomalous"):
+            fma.match_audio(self.audio, songs)
+
     def test_zero_overlap_is_not_invented_as_neighbor(self):
         p, ap, ndcg = fma._retrieval([False, False, True, True, False], 2, 5)
         self.assertEqual(p, .4)
