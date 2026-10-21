@@ -68,6 +68,18 @@ class DEAMPairedTests(unittest.TestCase):
         self.assertEqual(result["methods"]["mood_cosine"]["queries_complete"],12)
         self.assertEqual(result["methods"]["embedding_cosine"]["axes"]["valence_arousal"],0.)
 
+    def test_sample_sha_replays_original_deam_backslash_n_contract(self):
+        ids = ["1", "2", "2001", "2002"]
+        # Original DEAM v1 serializer: two literal ASCII chars (backslash, n).
+        reference = hashlib.sha256(
+            (r"\n".join(ids) + r"\n").encode("ascii")
+        ).hexdigest()
+        changed = hashlib.sha256(
+            ("\n".join(ids) + "\n").encode("ascii")
+        ).hexdigest()
+        self.assertEqual(ab.sample_hash(ids), reference)
+        self.assertNotEqual(ab.sample_hash(ids), changed)
+
     def test_frozen_cohort_fingerprint_and_protocol(self):
         ids=[str(i) for i in range(1,198)]+[str(i) for i in range(2001,2044)]
         labels={id:(4.,5.) for id in ids}
