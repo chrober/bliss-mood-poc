@@ -30,6 +30,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
           python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
           python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
           python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
