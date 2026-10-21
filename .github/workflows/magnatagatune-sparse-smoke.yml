@@ -1,0 +1,173 @@
+name: MagnaTagATune 4-triplet sparse audio smoke (research)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/magnatagatune-sparse-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: magnatagatune-sparse-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic preflight before network or Rust
+        run: |
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+
+      - name: Fetch official research metadata and only 8 MiB of ZIP directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          echo "runner_vcpu=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "metadata_zip_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for name in comparisons_final.csv clip_info_final.csv; do
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 240 --silent --show-error \
+              "$base/$name" -o "benchmark-private/$name"
+          done
+          test "$(stat -c%s benchmark-private/comparisons_final.csv)" -gt 10000
+          test "$(stat -c%s benchmark-private/clip_info_final.csv)" -gt 200000
+          for n in 1 2 3; do
+            file=$(printf 'mp3.zip.%03d' "$n")
+            http=$(curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 150 --max-filesize 100000 \
+              --silent --show-error --header 'Accept-Encoding: identity' \
+              --range 0-0 --dump-header "benchmark-private/probe_$n.headers" \
+              --output "benchmark-private/probe_$n.bin" \
+              --write-out '%{http_code}' "$base/$file")
+            test "$http" = 206 || { echo "::error::No 206 Partial Content; abort before GB download"; exit 1; }
+          done
+          http=$(curl --fail --location --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 --max-filesize 9500000 \
+            --silent --show-error --header 'Accept-Encoding: identity' \
+            --range -8388608 --dump-header benchmark-private/tail.headers \
+            --output benchmark-private/zip-tail.bin \
+            --write-out '%{http_code}' "$base/mp3.zip.003")
+          test "$http" = 206 || { echo "::error::No ZIP suffix range support"; exit 1; }
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def parse(name):
+              raw = Path(name).read_text(encoding="iso-8859-1")
+              m = re.findall(
+                  r"(?im)^content-range:\s*bytes\s+(\d+)-(\d+)/(\d+)\s*$",
+                  raw
+              )
+              if not m:
+                  raise SystemExit("Missing HTTP Content-Range: "+name)
+              return tuple(map(int, m[-1]))
+          sizes = []
+          for n in range(1,4):
+              start, end, length = parse(f"benchmark-private/probe_{n}.headers")
+              if (start, end) != (0, 0):
+                  raise SystemExit("Invalid probe range response")
+              sizes.append(length)
+          start, end, length = parse("benchmark-private/tail.headers")
+          if (length != sizes[2] or end != length-1
+                  or start != length-8388608
+                  or Path("benchmark-private/zip-tail.bin").stat().st_size != 8388608):
+              raise SystemExit("Wrong or incomplete ZIP suffix")
+          Path("benchmark-private/parts.txt").write_text(
+              " ".join(map(str, sizes)), encoding="ascii"
+          )
+          print("Confirmed multipart ZIP sizes in bytes:", sizes)
+          PY
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          python3 scripts/audit_magnatagatune_archive.py \
+            --last-part-tail benchmark-private/zip-tail.bin \
+            --part-sizes "$p1" "$p2" "$p3" \
+            --comparisons benchmark-private/comparisons_final.csv \
+            --clips benchmark-private/clip_info_final.csv \
+            --report results/mtt-directory-preflight.json
+          echo "metadata_zip_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout pinned corrected Rust-v5 analyzer (without merging PR 17)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+      - name: Build validated Rust-v5 CLI using locked Cargo dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "cargo_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ./validated-rust-v5/target/release/bliss-mood analyze-features --help
+          echo "cargo_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download pinned upstream Essentia encoder and both heads
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "model_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          for head in mtg_jamendo_genre mtg_jamendo_moodtheme; do
+            fetch classification-heads/$head "$head-discogs-effnet-1.onnx"
+            fetch classification-heads/$head "$head-discogs-effnet-1.json"
+          done
+          sha256sum models/*
+          echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Analyze FOUR artist-disjoint development triplets via sparse MP3 byte ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          echo "sparse_inference_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'sparse_development_smoke_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/benchmark_magnatagatune.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --binary validated-rust-v5/target/release/bliss-mood \
+              --models-dir models \
+              --db benchmark-private/mtt-development-features.db \
+              --report results/mtt-development-smoke-aggregate.json \
+              --development-triplets 4 \
+              --seed 20261021
+          echo "sparse_inference_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish only aggregate research results (never audio/features/votes)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnatagatune-sparse-dev-smoke-aggregate
+          path: |
+            results/mtt-directory-preflight.json
+            results/mtt-development-smoke-aggregate.json
+          if-no-files-found: error
+          retention-days: 14
