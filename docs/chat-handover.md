@@ -1,467 +1,148 @@
-## Einstieg: zentrale Roadmap und aktuelle Phasenzuordnung (21.10.2026)
+# Current research handover: similarity representations and Lyrion integration
 
-**Bitte als erstes lesen:** [Song-Similarity bis Lyrion-Integration – Roadmap Phase 0–6](similarity-lyrion-roadmap.md).
-Vier GitHub-renderbare Mermaid-Diagramme, Status und
-kleine Stop-/Go-Pakete. Dieses Dokument ist der
-**aktuelle Gesamtplan**; historische Handover-Abschnitte
-darunter können mittlerweile abgeschlossene Arbeiten
-noch als „offen“ bezeichnen und sind chronologisch
-zu interpretieren.
+**Updated:** October 21, 2026. **Read first:**
+[Central phase-0-to-6 research and integration roadmap](similarity-lyrion-roadmap.md).
+The roadmap contains four Mermaid diagrams, status, research constraints,
+and small stop/go work packages. This handover summarizes the current state;
+the preserved sections further below record **historical milestones**,
+including statements that have since been superseded.
 
-**„Analysierte Song-Features“:**
-Phase **0** erzeugt 87D Genre, 56D Mood und
-optional 1280D Audio-Embeddings offline;
-Phase **2** prüft / vervollständigt die drei
-Repräsentationen auf **denselben** lokalen
-Library-Songs ohne Full-Rescan;
-Phase **6** umfasst erst nach Qualitäts-, Lizenz-
-und Ressourcenprüfung produktive Vollständigkeit.
-Die 1280D-Embeddings sind nicht automatisch
-in der lokalen schema-v3-Feature-DB vorhanden.
+**Critical status correction:** Phase **0 is not completed**.
+Offline 87D Genre, 56D Mood/Theme and optional 1280D
+EffNet song-feature extraction exist for research;
+the full matrix of broad numerical reference parity,
+cross-platform correctness, deployment and licensing
+release gates is still open. Phase **2** is a bounded
+read-only audit of compatible representations for
+the **same songs in the user's library**,
+not a full rescan. Production-wide feature
+lifecycle belongs to phase **6**, after all gates.
 
-**Nächster Schritt:** isolierter DEAM-Host-/SHA-Preflight;
-bei weiter bestehendem externem Blocker lokal
-read-only Feature-Completeness L0,
-danach gesonderter 12-Kontraste-Hörpilot.
-FMA-80-Selected-Clip-Cache wurde warm
-und cross-workflow erfolgreich verifiziert.
-PR #16 bleibt Draft, keine Produktionsänderung.
+## Goal: compare the representation, not just the distance function
 
-## AKTUELLER FORSCHUNGSHANDOVER — Repräsentation statt nur Metrik (21.10.2026)
+Three representations are being investigated:
 
-**Bitte in der nächsten Chat-Session ZUERST lesen:**
-[Ausführlicher Drei-Ansätze-Handover](similarity-three-representation-approaches-handover-2026-10-21.md).
-Dieser Abschnitt ist die **neue Arbeitspriorität**; ältere Meldungen darunter
-dokumentieren abgeschlossene Implementierung und Benchmarks.
+| Candidate | What it compares | Current status |
+| --- | --- | --- |
+| **A — Classifier head vectors** | Independent 87D Genre and 56D Mood/Theme Sigmoid scores, using cosine, centered cosine, weighted Jaccard and previous alternatives | Extensively explored on MTT, FMA and DEAM reference tasks |
+| **B — Direct audio embedding** | Pooled 1280D Discogs-EffNet patch features, songwise L2 and cosine | Implemented as a separate versioned research export; same-song MTT and FMA studies completed |
+| **C — Calibrated fusion** | Genre/Mood and direct audio similarities combined with explicit scale and abstention policy | Four fixed triplet-local rank ablations evaluated; transferable fusion not validated |
 
-Wir möchten die **musikalische Ähnlichkeit zweier analysierter Songs**
-bestimmen. Bisher wurde nur die Frage getestet, welche von sieben
-Distanz-/Similarity-Metriken auf **87D Genre- und 56D Mood/Theme-
-Klassifikationsvektoren** gut funktioniert. Jetzt muss zusätzlich
-die **Repräsentation** selbst untersucht werden:
+**Keep the next level separate:** Bliss-first, feature-first
+and hybrid **candidate generation** are Lyrion playlist
+architectures. They are not methods A/B/C and
+remain undecided. A combination of embeddings and head
+scores can be used in any candidate strategy.
+See [representation-level contract](similarity-three-representation-approaches-handover-2026-10-21.md),
+[technical A/B/C handover](similarity-representation-comparison-handover-2026-10-21.md),
+and [Bliss integration plan](lyrion-bliss-mood-genre-integration.md).
 
-1. **A — Classifier-Vektoren:** Genre 87D / Mood 56D getrennt;
-   bereits implementiert und auf FMA, DEAM und MagnaTagATune
-   gegen externe Referenzen getestet. Genre-/Mood-Cosine,
-   Centered Cosine und Weighted Jaccard bleiben Baselines.
-2. **B — Audio-Embeddings:** den **1280D Discogs-EffNet-Patch-Vektor
-   vor den beiden ONNX-Klassifikationsköpfen** als Song-Embedding
-   (anfangs Patch-Mittelwert, dann L2/Cosine) experimentell
-   bereitstellen und validieren. Externes Beispiel:
-   [cosine.club FAQ](https://cosine.club/about); außerdem
-   [Essentia-Embedding- und Contrastive-Modelle](https://essentia.upf.edu/models.html).
-   **Im derzeitigen Feature-Sidecar NICHT persistiert oder evaluiert.**
-   Der Encoder erzeugt 1280D intern; echtes Rust-v5-Ausgabeschema,
-   Pooling und numerische Essentia-Parität sind offen.
-3. **C — Fusion:** normalisierte/kalibrierte Similarity aus 1280D
-   Audio + 87D Genre + 56D Mood mit **festen Ablationen**,
-   erst später Development-only-Gewichtsoptimierung.
-   **B und C wurden noch nicht auf unseren Datensätzen gemessen.**
+## Latest verified research evidence
 
-**Unbedingt zwei Ebenen unterscheiden:**
-Die obigen drei **Feature-Repräsentationsansätze** sind NICHT
-die drei *Lyrion-Kandidatenstrategien*
-**Bliss-first / Mood-/Genre-/Embedding-first / Hybrid
-aus Kandidatenquellen**; letztere sind eine davon getrennte
-Produkt-/Host-Entscheidung. Ein Feature-Fusion-Score kann
-auch in einem Bliss-first-Reranking verwendet werden.
-Siehe [Lyrion-Integrationskonzept](lyrion-bliss-mood-genre-integration.md).
+- **MTT:** 346 unique unordered human odd-one-out questions,
+  293 with a unique human majority and 53 human ties;
+  1,019 clips. Direct 1280D cosine **182/293 = 62.12%**,
+  Genre cosine **191/293 = 65.19%**,
+  Mood cosine **192/293 = 65.53%**,
+  Mood centered cosine **193/293 = 65.87%**.
+  [Full A/B PASS 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250);
+  [synthetic numeric replay PASS 39618323154](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154).
+  No MTT human questions remain as a fresh holdout.
+- **Fixed rank fusion C (exploratory):**
+  [PASS 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040);
+  equal-rank Audio+Genre **163/293**,
+  Audio+Mood **170/293**, Genre+Mood **167/293**,
+  all three **192/293** with **283/293**
+  prediction coverage. Unfused Mood centered
+  remains **193/293, 100% coverage**.
+  A local midrank is not a global per-song score.
+- **FMA-Small official VALIDATION:** same 80
+  catalogue-screened, artist-distinct recordings
+  and 79 candidates per anchor; direct embedding
+  cosine P@5 **0.2800**, Genre cosine **0.3200**,
+  Genre centered **0.3225**,
+  [PASS 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310).
+  Potential exact MTG artist/title matches excluded
+  (42/800 VALIDATION songs). **FMA official TEST
+  remains untouched**; nonmatches are not evidence
+  of full model training independence.
+- **FMA bounded music cache:** 80 selected MP3s,
+  **76.51 MiB**, original archive/per-MP3
+  SHA256 verified;
+  [cold 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
+  and [warm cross-workflow 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
+  **PASS**. The 7.2-GiB download was skipped on
+  the restored warm run.
+- **DEAM filtered 240 songs:** 197 earlier excerpts
+  and 43 full-song 2015 recordings; old Mood-Cosine
+  mean-query VA Spearman **0.286784551387186**
+  independently replayed. New paired 1280D A/B
+  not completed: the evaluator's original
+  sample-hash serialization mismatch was fixed,
+  [Linux/Windows CI 39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
+  **PASS**; later runs were blocked by the
+  official `cvml.unige.ch:443` host outage.
+  [Fast-fail source check 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
+  confirms failure before a costly build.
 
-**Evidenz / Grenzen:** Auf MTT alle **346** einzigartigen Triple-Fragen
-(293 eindeutige Menschen-Mehrheiten, 1019 Clips) nur für A evaluiert;
-**kein MTT-Holdout** mehr. FMA Validierungs-Audit fand **42/800**
-mögliche MTG-Jamendo Künstler-/Titel-Katalogtreffer (kein
-Nachweis von Audio-/Trainingsidentität); der gefilterte
-FMA-Validierungslauf mit 80 anderen Songs PASS, offizieller
-FMA-TEST-Split unberührt. DEAM Mood Valence/Arousal ist nur
-ein Proxy für die 56D-Kategorien. Keine der Metriken ist
-als Produktionsstandard bewiesen. Siehe
-[Cross-Dataset-Evidenz](similarity-cross-dataset-evidence-2026-10-21.md).
+These reference targets are not interchangeable:
+MTT human odd-one-out, FMA coarse Genre,
+DEAM valence/arousal proximity and local playlist
+transitions measure different things.
+All current results are exploratory; there
+is **no production winner** or valid
+post-hoc weight-fitting holdout.
 
-**Konkret als Nächstes:** Den gepinnten, korrigierten
-Rust-v5-Encoder aus PR #17 (immutable Revision
-`2c3d44401436b3b41b6e067199016a1ed2335fbf`)
-prüfen; minimalinvasiv versionierte 1280D-Ausgabe
-plus Patch-Pooling bereitstellen, gegen Essentia
-numerisch prüfen, auf identischen lizenzierten
-Entwicklungsclips zuerst **A vs B** testen,
-anschließend **C** mit vorab festgelegten Gewichten.
-Vier isolierte GH-Actions-Worker / kuratierter
-119.689.247-Byte-MTT-Audiocache und gepinnter
-Rust-v5-Binary-Cache sind bereits vorhanden;
-nur Versions-/Cache-Anpassungen nach Änderungen,
-keinen privaten Bibliotheks-Rescan und keinen
-FMA-TEST-Zugriff. Keine Produktionsänderung und
-kein Merge nach `main`; PR #16 Draft,
-PR #13 und PR #17 nicht verändern.
-Bei neuen Resultaten diesen Handover **und** den
-ausführlichen Drei-Ansätze-Handover aktualisieren.
+## Next small actions
+
+1. **N1:** Validate DEAM publisher/mirror
+   reachability, archive SHA/layout and licence
+   **without compiling Rust**. Do not invent DEAM
+   embedding scores while source-blocked.
+2. **N2 (independent):** Make a read-only
+   inventory of the user's existing
+   schema-v3 Genre/Mood rows and optional
+   1280D research sidecars for a bounded,
+   exactly mapped set of songs. Do not scan
+   the entire private library.
+3. **N3:** After source verification,
+   run the frozen 240-song paired DEAM A/B
+   with exact sample SHA and head baseline.
+4. **N4:** Review ~12 new library contrasts
+   including positive/negative controls
+   and methodological disagreements, then
+   design a **new** unseen ~24–40-pair block
+   with independent Genre, Mood,
+   audible similarity and playlist
+   successor judgments.
+5. **N5:** Compare A/B/C on the same songs
+   with clear abstentions and uncertainty;
+   only then compare Bliss-only versus
+   Bliss-first, feature-first and hybrid
+   candidate strategies.
+
+**Engineering constraints:** Keep PR #16 Draft;
+change only `feat/similarity-metric-evaluation`.
+Do not alter `main`, PR #13/#17 or production mixer.
+All local music, NAS paths, Lyrion identifiers,
+per-track feature vectors and human judgments
+remain local. Use GitHub Actions for Rust builds.
+No local Windows Rust build by default;
+complete PowerShell scripts must use
+`& { ... }` per
+[PowerShell conventions](powershell-script-conventions.md).
 
 ---
 
-> **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
->
-> **Eindeutige Lesereihenfolge für die nächste Chat-Session:**
-> 1. [**Maßgebliches Drei-Ansätze-Handover**](similarity-three-representation-approaches-handover-2026-10-21.md) — Entscheidungsebene, Ziele, Ist-Stand und konkrete E1-Implementierungsaufgabe.
-> 2. [**Technischer Anhang zu A/B/C**](similarity-representation-comparison-handover-2026-10-21.md) — Formeln, Persistenz-/Poolingvertrag, Messplan, Benchmarks und Qualitäts-Gates.
-> Beide Dokumente behandeln denselben Forschungswechsel; keines enthält eine bereits gemessene Überlegenheit von B oder C.
->
-> | Neuer Similarity-Ansatz | Repräsentation | Implementierungsstand |
-> | --- | --- | --- |
-> | **A Klassifikations-Similarity** | 87D Genre und 56D Mood/Theme Sigmoid-Score-Vektoren; sieben bisher untersuchte Metriken pro Kopf | **Vorhanden**; FMA Validation, DEAM VA-Proxy und volle MTT-Tripel explorativ evaluiert; kein eindeutiger Sieger |
-> | **B Direkte Audio-Embedding-Similarity** | **1.280D Discogs-EffNet-Embedding vor dem Klassifikationskopf**; Song-Pooling, L2-Normierung und Cosine als erste Baseline | **Pro Patch schon intern berechnet**, aber **nicht als Song-Level-Vektor gespeichert oder evaluiert** |
-> | **C Späte Fusion** | Getrennte, kalibrierte/rangbasierte Kombination von Embedding-, Genre- und Mood-Nähe für ein definiertes Musikziel | **Hypothese**, noch nicht getestet oder produktiv gewählt |
->
-> **Zwei Ebenen nicht verwechseln:** A/B/C sind Audio-*Repräsentationen*
-> und Similarity-/Rank-Policies. `Bliss-first`, `Mood-/Genre-first`
-> und `Hybrid` sind eigenständige *Lyrion-Kandidaten-/Mixstrategien*
-> ([Strategieentscheid](lyrion-bliss-mood-genre-integration.md)).
-> Embedding-/Head-Fusion (C) ist nicht dasselbe wie eine
-> `Hybrid`-Kandidatengenerierung in Lyrion.
->
-> **Technisches Faktum:** `src/features.rs` besitzt je Patch
-> bereits einen Float32-1280D-Vektor aus
-> `discogs-effnet-bsdynamic-1.onnx`, der die Head-Scores erzeugt.
-> Der gegenwärtige schema-v3-Sidecar speichert nur die 87/56D
-> Head-Aggregate (`feature_tracks.scores_f32_le`), **keine 1280D-
-> Song-Embeddings**. Für B zuerst einen **optionalen, versionierten
-> Song-Embedding-Export** ergänzen: rohe Patches mitteln, erst
-> danach Song-Vektor für Cosine L2-normalisieren; Encoder-/Modell-
-> Hash, Pooling-Version, Patchcount, Floatformat, CRC/Nullnorm-
-> Grenzen und Rust-v5-Head-Parität prüfen. Kein zweiter Encoder-
-> Lauf für identische Patches nötig.
->
-> **Externe Vorbilder:** Offizieller Essentia-Katalog beschreibt
-> separate *kontrastive* Artist/Label/Release/Track/Multi-Modelle;
-> diese sind **andere Gewichte/Ziele** und dürfen nicht stillschweigend
-> gegen unseren aktuellen Style-Klassifikations-Encoder ausgetauscht
-> werden. [cosine.club](https://cosine.club/about) nutzt bereits
-> **Discogs-EffNet-1280D + Cosine** für produktive Musikähnlichkeitssuche
-> (Beleg für Realisierbarkeit, **nicht** für bessere Lyrion-Qualität).
->
-> **Priorität der nächsten Session:** (P0) Schema/Pooling/Regression für B
-> implementieren und gegen Essentia-/Python-Referenz prüfen; (P1) B auf
-> denselben vorhandenen, rechtmäßig erreichbaren FMA-/DEAM-/MTT-Tracks
-> mit A vergleichen, Kosten/CI/Abstentionen messen; (P2) C mit
-> wenigen eingefrorenen Gewicht-/Rank-Policies testen, **ohne**
-> unberührten FMA-TEST zu öffnen oder MTT wieder als Holdout
-> auszugeben. Erst danach separater Lyrion-Bliss-first/Feature-first/
-> Hybrid- und Hörtest. GitHub Actions mit Cache, Path-Triggern,
-> passenden Workern und Stage-Zeiten betreiben.
->
-> **Forschungsgates:** 346 MTT-Tripel schon komplett exploriert
-> (53 menschliche Mehrheits-Ties, 293 auswertbar; **kein MTT-Holdout**).
-> FMA official TEST weiterhin gesperrt; FMA Validation 42/800 mögliche
-> Artist-/Title-Katalogtreffer gegen MTG, **keine bewiesenen Trainings-
-> Duplikate**; DEAM VA kein direktes 56-Tag-Ground-Truth.
-> B/C sind **noch nicht** evaluiert; keine behauptete Embedding-
-> Überlegenheit, keine fixen Fusionsgewichte und **kein**
-> Produktionsmetrikwinner. Kein Scan privater Musik, keine Audio-
-> Weitergabe, `main`/PR #13/#17 unberührt, Draft PR #16.
->
+## Historical engineering and experiment handover (archival)
 
-> **CURATED CACHE REAL MISS→HIT VERIFIED (21 OCT 2026):**
+The following originally English material covers
+earlier scanner work, GitHub Actions binary workflows,
+Windows/NAS testing, adaptive workers and
+Lyrion SPI architecture. It is retained for
+reproducibility, not as an override of the
+current roadmap or verified subsequent studies.
 
-> **FMA CATALOG-FILTERED GENRE VALIDATION FINISHED (21 OCT 2026):**
-> [Real filtered run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
-> **PASS**, [aggregate artifact 12349595666](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307/artifacts/12349595666).
-> The preflight removed **42 possible exact FMA VALIDATION /
-> MTG-Jamendo artist+title catalog matches among 800**,
-> including 35/100 Hip-Hop. All 80 selected validation
-> MP3s then analyzed with distinct artists, 10 per
-> top-level genre, pinned corrected Rust-v5, official
-> publisher music, **no FMA TEST use**. Verified Rust-v5
-> binary cache HIT and no Cargo build; no FMA audio cached
-> or uploaded.
->
-> Filtered FMA Genre **Precision@5**:
-> RMS **0.3000**, Cosine **0.3200**, Centered Cosine
-> **0.3225**, Weighted Jaccard **0.3000**, old cutoff
-> Top-K WJ **0.3025**, Ranked Top-6 **0.3125**, Ranked
-> Top-12 **0.3050**. Centered Cosine leads narrowly
-> on filtered P@5 and mAP@10 (**0.1781**), Ranked
-> Top-6 on filtered nDCG@10 (**0.3048** versus
-> Centered **0.3043**). Random P@5 expected **0.113924**;
-> all seven metrics had 80 query scores.
-> Previous unfiltered 80-song FMA validation numbers
-> are from a DIFFERENT cohort; comparing them is
-> descriptive, **NOT a paired estimate of overlap
-> effects, not proof of ONNX training disjointness**.
-> A corpus-level metadata coincidence does NOT
-> establish shared audio or training usage.
->
-> Completed [FMA catalog research doc](fma-mtg-catalog-overlap-2026-10-21.md)
-> and [FMA plan](fma-genre-benchmark-plan.md) should
-> be read with [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
-> **Next:** preregister expanded validation and
-> paired-query Genre scoring, audit actual model
-> training split/encoder provenance, only then
-> unlock FMA TEST as a single independent check;
-> consider separate human transition judgments.
-> PR #16 Draft; no merge, no local/private music
-> scan or updates to PR #13/#17.
->
-
-> **FMA–MTG CATALOG SCREEN COMPLETED / FILTERED VALIDATION RUNNING (21 OCT 2026):**
-> Metadata-only [GitHub Actions 39605675932](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932)
-> **PASS**, aggregate [artifact 12347897819](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932/artifacts/12347897819).
-> On FMA-Small **TRAINING**: 121/6,400 possible exact
-> artist+title MTG-Jamendo catalog matches, 260 artist-only
-> matches. On official **VALIDATION**: **42/800 possible
-> exact matches**, 68 artist-only; of those exact matches,
-> **35 of 100 Hip-Hop validation songs**. TEST's 800 records
-> were counted only for official split-size checking; NO
-> TEST artist/title/genre/MP3/prediction was examined.
-> These are **possible metadata matches, not verified
-> recordings or actual ONNX training examples**.
-> Existing 80-song unfiltered VALIDATION result is NOT
-> guaranteed MTG-independent.
->
-> Added `scripts/audit_fma_mtg_overlap.py`, synthetic tests,
-> [.github/workflows/fma-mtg-overlap-audit.yml](../.github/workflows/fma-mtg-overlap-audit.yml);
-> extended `scripts/benchmark_fma_genre.py` with
-> `--exclude-mtg-catalog-matches --mtg-metadata-tsv PATH`
-> for **validation-only**, filtering potential exact matches
-> BEFORE artist-distinct sample selection and inference.
-> The official TEST partition is now skipped before
-> even parsing its song ID in this discovery CLI.
-> [Linux+Windows Python CI 39606799883](https://github.com/chrober/bliss-mood-poc/actions/runs/39606799883)
-> PASS after correcting synthetic sealed TEST-row fixture.
-> New [filtered FMA workflow 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
-> has verified its source/42-match metadata preflight,
-> a TRUE pinned Rust-v5 binary-cache HIT, and is downloading
-> the official 7.2-GiB FMA-Small ZIP (no audio caching).
-> **CHECK final PASS/artifact before reporting filtered
-> genre-retrieval scores or new walltimes**. New sample
-> differs from old unfiltered 80-track cohort; score
-> deltas CANNOT be interpreted as a controlled causal effect.
->
-> Research details:
-> [FMA/MTG catalog methodology](fma-mtg-catalog-overlap-2026-10-21.md),
-> [FMA genre validation plan](fma-genre-benchmark-plan.md),
-> [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
-> No TEST evaluation, PR merge, Lyrion queue/library scan,
-> or production metric selection; PR #16 remains Draft.
->
-
-> **MTT FOUR-WORKER BINARY+MUSIC CACHE A/B COMPLETED (21 OCT 2026):**
-> [Four-worker run 39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
-> **PASS** ([aggregate artifact 12346509848](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932/artifacts/12346509848)).
-> It reused BOTH caches: previously verified **119,689,247-byte
-> 1,019-clip** research package and source-keyed Linux Rust-v5
-> binary, verified its cached checksum and CLI; original 2.77-GiB
-> download and Cargo toolchain/build **SKIPPED**.
-> Four independent Rust-v5 processes (ONNX `--threads 1` each)
-> processed all 1,019 clips against the identical 346-triplet
-> human questions. **Actual 4-worker inference+SQLite merge:
-> 172.324 s**, score 0.929 s. The completed 2-worker paired
-> [run 39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
-> needed **291.251 s** inference+merge, 1.053 s score. Thus
-> **118.927 s / 40.8% faster observed inference** in these
-> two runs; full actual job execution from first/last logs
-> **~228 s vs ~367 s**, BUT 2-worker run compiled Rust and
-> hosted-runner variability is large. Not a controlled claim
-> of general speedup. All **14 metric/head scorecard rows
-> and 8 displayed paired contrast rows match exactly** between
-> completed two- and four-worker reports; per-track float-bit parity
-> not checked from aggregate-only reports.
->
-> **COMPLETED PAIRED EVIDENCE:** real 2-worker paired
-> [39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
-> PASS, aggregate artifact 12347665613; on the common 293
-> MTT human-majority-scorable triplets, Cosine minus
-> Centered Cosine **0.0 pp Genre (5/5 discordance),
-> −0.3 pp Mood (8/9 discordance)**. Exploratory
-> paired IID-triplet and artist-weight sensitivity intervals
-> straddle zero in both heads, NOT independent population
-> confidence intervals. Cosine minus old Top-K WJ
-> +5.1 pp Genre and +21.2 pp Mood when abstentions
-> counted as errors. No production winner or independent
-> MTT holdout. See
-> [paired/performance document](magnatagatune-paired-analysis-2026-10-21.md)
-> and [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
-> Keep 4 fixed workers provisionally in expensive exploratory
-> GH workflow, only change with matched A/B evidence;
-> adaptive local scanner not active in this GH runner.
-> PR #16 Draft, `main`, PR #13/#17 and private library untouched.
->
-
-> **MTT PAIRED EVIDENCE AND RUST-V5 BINARY CACHE (21 OCT 2026):**
-> The confirmed full [curated-audio cache HIT run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
-> reported **346 unordered triplets; 53 human-majority ties; 293
-> common scorable questions**, 1,019 clips, two Rust-v5 subprocess
-> workers, 231.053 seconds inference + merge; complete GitHub run
-> 327 seconds. The 1,019-clip audio package was just **119,689,247
-> bytes**, CRC-verified against original publisher metadata, and
-> prevented the full 2.77-GiB download.
->
-> Real scores on a COMMON 293-question denominator, with metric
-> abstentions counted as incorrect: **Genre** RMS 63.5%, Cosine
-> 65.2%, Centered Cosine 65.2%, Weighted Jaccard 63.8%,
-> old Top-K Weighted Jaccard 60.1%, Ranked Top-6 61.8%,
-> Ranked Top-12 64.5%. **Mood** respectively 54.6%, 65.5%,
-> 65.9%, 61.1%, **44.4% old Top-K with only 71.7% coverage**,
-> 62.5%, 64.8%. Cosine-Centered Mood difference ~0.4pp;
-> **NOT enough for a metric-winner claim**, same corpus and
-> no unseen holdout.
->
-> [scripts/mtt_paired_evidence.py](../scripts/mtt_paired_evidence.py)
-> and [tests/test_mtt_paired_evidence.py](../tests/test_mtt_paired_evidence.py)
-> implement 21 paired contrasts/head (42 total) on the identical
-> 293 human-scorable questions, metric abstentions as zero,
-> deterministic 600x shared-triplet bootstrap intervals and
-> artist-weight dependency *sensitivity* intervals. These are
-> **not valid population CIs or a formal independent-cluster
-> bootstrap**: all 214 artists are connected. No per-song
-> ID, vector or answer is exported. Linux and Windows
-> [Python CI 39602141111](https://github.com/chrober/bliss-mood-poc/actions/runs/39602141111)
-> PASS. The first synthetic CI failure was a test wording assertion
-> only and was corrected without changing math.
-> Actual paired 2-worker benchmark
-> [39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
-> requires final PASS/artifact verification before quoting
-> numerical paired intervals.
->
-> Workflow now also caches the pinned exact **Rust-v5 compiled
-> binary**, separate from licensed clip cache; verifies SHA256 and
-> CLI before use; a MISS builds with locked Cargo and saves it.
-> To A/B runtime, the next automatic
-> [39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
-> is configured with **four** isolated workers, ONNX 1 thread
-> each, vs previous **two** on the same 1,019-clip cohort.
-> Do NOT claim a 4-worker speedup or metric parity before
-> real run completion.
-> Full detailed [scientific/performance handover](magnatagatune-paired-analysis-2026-10-21.md).
-> Next: verify both runs, compare paired uncertainty and A/B
-> walltimes, cross-reference DEAM/FMA, seek independent perceptual
-> test, no production choice. PR #16 Draft; main, PR #13/#17,
-> private music unchanged.
->
-> [First curated run 39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
-> **PASS**: `scripts/mtt_selected_clip_cache.py` packed exactly
-> 1,019 CRC-verified referenced MagnaTagATune MP3s into
-> **119,689,247 bytes (114.14 MiB)**; all official CRCs/lengths
-> verified before Rust-v5. Packaging took **1.18 s**, full recheck
-> **0.59 s**. Only this package was saved in `actions/cache`;
-> original 2.77-GiB publisher files were deleted and never cached.
-> Actual Actions cache storage approx 130.5 MB.
-> The exact two-worker Genre/Mood 346-triple benchmark again
-> passed with Mood-Cosine **0.6552901** valid-prediction
-> majority accuracy. Its analysis+merge took **244.677 s** vs
-> **145.505 s** on earlier full-source run: avoid claiming a
-> controlled inference speedup from cache alone.
-> [Second run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
-> verified a **true cache HIT**: publisher source ZIP download
-> and repack steps were SKIPPED, package reverified from original
-> 8-MiB central-directory tail; check final Actions result and
-> fourteen-row head×metric scorecard before reporting total timings.
-> Dedicated offline tests for complete, corrupt/missing clip caches
-> and scorecard run in Linux/Windows
-> [Python CI 39600399370](https://github.com/chrober/bliss-mood-poc/actions/runs/39600399370)
-> PASS. The 346 unique triplets are fully exploratory, with
-> **NO independent MagnaTagATune holdout** remaining.
-> Further tasks: compare MISS/HIT true stage times, compile
-> all-metric coverage/abstention scorecard, improve build
-> reuse and do dependence-aware uncertainty analysis across
-> co-occurring artists; corroborate on DEAM, FMA, and independent
-> human similarity sources before any production metric choice.
-> No music in git or upload-artifact; GH caches not confidential.
->
-
-> **CURATED MTT AUDIO CACHE — 21 OCT 2026:**
-> User approved caching **ONLY 1,019 actually referenced MagnaTagATune
-> MP3 clips**, rather than the 2.77-GiB original ZIP parts. New
-> [scripts/mtt_selected_clip_cache.py](../scripts/mtt_selected_clip_cache.py)
-> builds a lossless, deterministic **ZIP_STORED curated research cache**
-> of approximately 117 MB (real size must be checked in Actions), with
-> SHA-256-hashed internal names, exact 1,019-file cardinality, and
-> original-publisher MP3 length + CRC cross-checks. Original 3-part
-> archive downloaded *once on cache miss*, immediately deleted after
-> packing and never uploaded or cached. Cache hit only fetches original
-> CSV metadata plus 8-MiB ZIP directory tail, validates all 1,019 audio
-> payloads, then Rust-v5's **two independent workers** process cached
-> bytes. Automated feature-branch workflow uses
-> [actions/cache/restore](../.github/workflows/magnatagatune-all-exploratory.yml)
-> and cache/save with fixed source identity, manual `cache_audio`
-> defaults true and can be disabled. GitHub caches **are not private**,
-> third-party CC BY-NC-SA research audio remains subject to access and
-> license conditions; no music is ever uploaded as an artifact or git.
->
-> **REAL QUALITY BASELINE VERIFIED:**
-> [346-triplet run 39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
-> PASS: 1,019 real clips, all seven metrics/both heads,
-> two parallel isolated SQLite workers; **145.505 s inference+merge**,
-> 145.714 s audio-analysis+scoring, 0.209 s evaluation alone.
-> Mood cosine ~**0.6553** majority agreement on *defined*
-> predictions (not all-question/holdout accuracy). All 346 triplets
-> exploratory => **NO independent MTT holdout remains**.
-> Curated-cache seed run
-> [39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
-> must be examined for completed outcome and actual saved package
-> size; **a second true cache-hit run is required** to measure any
-> build/download speedup. The synthetic 1,019-member CRC/cache tests
-> [Python CI 39599073019](https://github.com/chrober/bliss-mood-poc/actions/runs/39599073019)
-> passed Linux/Windows. See the
-> [updated sparse-audio benchmark doc](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
-> Next: verify cache MISS→HIT timing and metric parity, run
-> paired / artist-sensitive confidence intervals on 346 triplets,
-> cross-check DEAM/FMA/MTG and seek independent human similarity
-> reference for final production metric choice. Do not use MTT as
-> an independent held-out test, merge PRs, or rescan private music.
->
-
-> **FULL 346-TRIPLET EXPLORATORY MTT & CACHE POLICY (21 Oct 2026):**
-> The user decided to score **ALL 346 unique unordered triplets /
-> 1,019 distinct MagnaTagATune clips**, consuming the 48
-> previously untouched artist-holdout candidates. This is explicitly
-> **exploratory only; there is NO remaining independent MTT holdout**.
-> New `scripts/benchmark_magnatagatune.py --selection-mode all-exploratory`
-> uses pinned source file hashes and exact 346/1019 cardinality.
-> New `scripts/mtt_parallel_workers.py` uses **2 concurrent isolated
-> Rust-v5 processes, --threads 1 each**, separate schema-v3 SQLite
-> sidecars, validated/merged only after completion; no shared
-> concurrent SQLite writer. `scripts/mtt_local_archive.py` can read
-> ZIP members from the three staged publisher files without per-clip
-> HTTP calls. Real job
-> [39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
-> was triggered; check actual completed outcome/artifacts BEFORE
-> claiming 346-triplet scores or parallel performance.
-> Workflow [.github/workflows/magnatagatune-all-exploratory.yml](../.github/workflows/magnatagatune-all-exploratory.yml)
-> runs only on its own file update or manual dispatch.
->
-> **Audio cache is opt-in** via manual `workflow_dispatch`
-> `cache_audio: true`, not enabled by default. The full licensed
-> archive is 2.77 GiB, a large fraction of GitHub default
-> 10-GiB repository cache; default inactivity eviction ~7 days.
-> Caches are accessible to certain PRs/forks, so review research
-> CC BY-NC-SA 3.0 rights and accessibility before storing the audio.
-> Even a cache hit must pass publisher size + MP3 CRC checks; always
-> measure hit/restore vs publisher download, not assume it is faster.
-> No raw audio, per-track features or private data in run artifacts.
-> See [sparse audio doc](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
->
-
-> **NEW MTT ARTIST-FROZEN DEVELOPMENT BENCHMARK, 21 OCT 2026:**
-> `scripts/benchmark_magnatagatune.py --selection-mode frozen-development`
-> and workflow [magnatagatune-development.yml](../.github/workflows/magnatagatune-development.yml)
-> implement **all 31 artist-only development triplets** using the locked
-> 128/256 SHA-256 artist split. The script verifies both count and
-> triplet fingerprint BEFORE audio. It excludes the **56** holdout
-> candidates and **259** mixed triples, and NEVER scores the
-> **48 still-unexposed holdout questions**.
-> Synthetic coverage includes leakage prevention on Linux and Windows.
-> First real run [39593423801](https://github.com/chrober/bliss-mood-poc/actions/runs/39593423801)
-> failed on a transient HTTP 000 / curl exit 28 when downloading
-> clip 22 of 92; 21 legitimate clips already analyzed, no scores
-> reported. Bounded HTTP retries with preserved 206/CRC/size guards
-> implemented and verified by [Python tests 39594080260](https://github.com/chrober/bliss-mood-poc/actions/runs/39594080260).
-> Corrected repeat [39594161136](https://github.com/chrober/bliss-mood-poc/actions/runs/39594161136)
-> was started: CHECK real completion / artifact before quoting scores.
-> Documented in [MTT sparse audio benchmark](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
-> Keep stage runtime, worker count and Rust build/download trade-offs
-> visible. No holdout optimization, production metric choice, merge, local
-> user library scan or raw audio artifact.
->
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
 > **UPDATED MTT HOLDOUT METADATA AUDIT, 21 OCT 2026:**
@@ -971,383 +652,80 @@ be separately versioned once. Git status will continue showing it as
 untracked until added/committed.
 
 
-## PR #16: Audio-Embedding-Repräsentationsvergleich, erste Umsetzung (21.10.2026)
+## Latest PR #16 experiment handover (supersedes earlier drafts)
 
-Maßgeblicher Forschungsplan:
-[similarity-three-representation-approaches-handover-2026-10-21.md](similarity-three-representation-approaches-handover-2026-10-21.md).
-Implementierungsvertrag:
-[similarity-representation-comparison-handover-2026-10-21.md](similarity-representation-comparison-handover-2026-10-21.md).
+### Embedding export and parity
 
-Nach dem repräsentationszentrierten Handover wurde im PR-#16-Branch
-ein **optionaler** `--embedding-out`-Forschungs-Overlay für den
-**unveränderten und exakten** Rust-v5-Commit
-`2c3d44401436b3b41b6e067199016a1ed2335fbf`
-implementiert. Separates JSON-v1-Sidecar mit Encoder/Audio-Hash,
-1280D, f64-Rohpatchmittel, songweiser L2-Norm und
-Fingerprints. Schema-v3-Genre/Mood sowie Mixer bleiben unverändert.
-Erster Smoke: Rust-Unit-Tests und Release-Kompilierung bestanden,
-synthetischer Audio-Lauf zunächst an fehlendem `ffprobe`
-gescheitert; Workflow inzwischen korrigiert, finale Actions-
-Bestätigung prüfen.
+The temporary Rust-v5 overlay uses
+`--embedding-out` with the immutable
+upstream Rust-v5 commit
+`2c3d44401436b3b41b6e067199016a1ed2335fbf`.
+Direct raw 1280D patch features are averaged
+in f64, song-L2-normalized and emitted in
+versioned separate JSON with audio/encoder
+SHA, patch count, pooling and frontend
+fingerprints. Classification data remain in
+unchanged SQLite-v3 rows and **PR #17 is not
+merged or edited**.
 
-MTT-A/B-Recherche ist ebenfalls vorbereitet: über den kuratierten
-1019-Clip-Actions-Cache (bei Miss kein großer Archivdownload)
-privater Embedding-Export aus **demselben** Vier-Prozess-Inferenzlauf,
-danach fünf Methoden auf denselben 346 explorativen Fragen /
-293 eindeutigen menschlichen Mehrheiten. Keine neuen
-klanglichen Resultate behaupten, bevor der
-[MTT A/B Workflow](../.github/workflows/research-mtt-embedding-ab.yml)
-vollständig PASS mit aggregiertem Report ist.
-FMA-TEST unangetastet; die zwei Hybrid-Begriffe weiterhin trennen.
-PR #13, PR #17, `main` und produktiven Lyrion-Mixer nicht verändern.
+Independent synthetic raw-patch pooling,
+1-vs-2 ONNX threads, off/on head and SQLite
+equality were verified in
+[run 39618323154](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154).
+The maximum independent song-pooling difference
+was ~1.0855e−8, with identical model head
+outputs and SQLite rows. This is **ONNX-internal
+synthetic parity**, not proof of broad
+original Essentia C++ real-library parity.
+The separate original C++/Rust-v5 parity
+work remains governed by its own scope
+and release checks.
 
-## Verifiziert: erster vollständiger Embedding-A/B auf identischer MTT-Cohort (21.10.2026)
+### MTT concurrent worker smoke test correction
 
-**Achtung – ersetzt die oben noch als ausständig bezeichnete
-A/B-Messung.** [Run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
-ist **PASS**; 1019 Cache-Clips CRC-validiert, exakt 346
-explorative Menschenfragen, davon 293 mehrheitsentscheidbar.
-Auf denselben Aufnahmen lieferte **direkte 1280D-Cosine
-182/293 = 62,12 %**, Genre-Cosine **191/293 = 65,19 %**,
-Mood-Cosine **192/293 = 65,53 %** und
-Mood-Centered-Cosine **193/293 = 65,87 %**.
-Alle vier hatten wie das Embedding **100 % Abdeckung**.
-Das Embedding lag gegenüber Mood-Centered-Cosine um
-**−3,754 Prozentpunkte** zurück (nur Embedding korrekt 27,
-nur Mood-Centered korrekt 38). Naives gepaartes
-95-%-Tripel-Resampling für den Unterschied:
-**−9,215 bis +1,365 Prozentpunkte**; wegen
-Abhängigkeiten **kein unabhängiges Populations-CI**.
-Auch Künstlergewichts-Sensitivitäten sind kein valides
-Konfidenzintervall. Die Kausalinterpretation und
-Generalisierbarkeit bleiben offen.
+[Run 39621028716](https://github.com/chrober/bliss-mood-poc/actions/runs/39621028716)
+failed because a test glob named
+`process-worker-*.json` also captured
+`process-worker-heads-N.json` classifier
+reports, counting eight output files
+instead of four actual embedding workers.
+Exact basename/full-match discovery fixed
+the test harness; both
+[Linux and Windows CI 39622478825](https://github.com/chrober/bliss-mood-poc/actions/runs/39622478825)
+passed. This was **not** a confirmed
+ONNX inference numerical parity failure.
 
-Der vorherige unabhängige synthetische Rust-Smoke
-[Run 39616222834](https://github.com/chrober/bliss-mood-poc/actions/runs/39616222834)
-bestand Rust-Unit-Tests und Release-Kompilierung,
-brach aber beim externen Modell-Download wegen
-`essentia.upf.edu`-Netzwerk-Timeout ab. Deshalb
-wurde ein **synthetisches off/on/Pooling/Threads-Paritätsgate
-vor den 1019er-Lauf** des neuen A/B-Workflows
-hinzugefügt; dessen nachfolgenden Run erst auf
-PASS prüfen, bevor dieses Gate als bestätigt gilt.
+The successful complete MTT A/B, fixed
+fusion and FMA A/B results are recorded
+with exact cohorts and provenance in:
 
-Vollständiger Studienbericht mit Methoden,
-Paar-Discordanzen, statistischer Unsicherheit,
-CI-Runs, Fingerprints, Limitierungen und nächstem
-Evidenz-Gate:
-[Audio-Embedding vs. Kopf-Baselines: MTT-A/B-Resultate](similarity-audio-embedding-ab-results-2026-10-21.md).
-**Keine Fusion-Kalibrierung, keine Produktionsentscheidung,
-kein erneuter MTT-Holdout, kein FMA-TEST, kein Merge.**
+- [MTT 1280D-versus-heads results](similarity-audio-embedding-ab-results-2026-10-21.md)
+- [Fixed rank fusion details](similarity-fixed-rank-fusion-research-2026-10-21.md)
+- [FMA 80-song paired A/B](similarity-fma-embedding-ab-2026-10-21.md)
+- [FMA curated cache](fma-selected-audio-cache-2026-10-21.md)
+- [Cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md)
+- [DEAM source blocker and experimental setup](deam-similarity-benchmark.md)
+- [Local listening follow-up](similarity-local-library-retest-plan-2026-10-21.md)
 
-## C-Fusion: vier gleichgewichtete, **untrainierte** lokale Rangablationen (21.10.2026)
+### Historical first local listening pilot
 
-Nach dem ersten B-vs-A-Resultat wurden die vier Kombinationen
-Audio+Genre, Audio+Mood, Genre+Mood und Audio+Genre+Mood
-als **explorative** und explizit nicht optimierte
-Rangfusionen implementiert. Jede Cosine-Verteilung wird
-ausschließlich **innerhalb der jeweiligen Drei-Song-Frage**
-in die Midranks 0/0,5/1 transformiert, danach werden die
-enthaltenen Repräsentationen gleich gewichtet.
-Ranggleichstand zählt als Nichtvorhersage (im 293er
-Nenner falsch). **Das ist keine global kalibrierte
-Song-Similarity und darf nicht als Produktionsmetrik
-oder Playlist-Mixer eingesetzt werden.**
-Das feststehende Verfahren, die vier Kombinationen,
-Datenabhängigkeiten, Split-Grenzen und
-Anwendungsszenarien:
-[Similarity Fixed-Rank Fusion Research](similarity-fixed-rank-fusion-research-2026-10-21.md).
-Implementierung:
-[`scripts/fixed_rank_fusion.py`](../scripts/fixed_rank_fusion.py),
-optionales Evaluator-Flag `--fixed-rank-fusions`,
-separates Aggregate v2 und
-[`tests/test_fixed_rank_fusion.py`](../tests/test_fixed_rank_fusion.py).
-Python-Tests Linux/Windows [Run 39619643950](https://github.com/chrober/bliss-mood-poc/actions/runs/39619643950)
-sind PASS. Ein tatsächlicher Fusion-Lauf
-[39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
-wurde ausgelöst; seine Ergebnisse müssen für
-wissenschaftliche Schlussfolgerungen **noch abgelesen**
-werden. Die 346 MTT-Fragen sind bereits vollständig
-exploriert, daher keinesfalls Fusionsgewichte aus ihnen
-tunen.
+The first eight locally rated pairs produced
+**0 Genre positives / 8 negatives** and
+**4 Mood positives / 4 negatives**.
+ROC-AUC for Genre was undefined; Mood Cosine
+and Centered Cosine each returned **0.5625**
+with only 16 positive-negative comparisons.
+The selected eight were metric-informed and
+are not independent evidence for production.
+Private CSV files were sometimes semicolon
+separated; the paired evaluator supports
+both and should preserve original labels.
+See the
+[listening-review handover](similarity-listening-review-handover-2026-10-21.md).
 
-## Verifiziert: vollständiger explorativer A/B/C-Durchgang (21.10.2026)
-
-Die vorab implementierten **vier untrainierten Equal-Midrank-Fusionen**
-wurden zusammen mit den fünf bisherigen A/B-Methoden
-im [Actions Run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
-vollständig erfolgreich auf **exakt denselben 1019
-MagnaTagATune-Clips und 293 mehrheitsentscheidbaren
-Tripelfragen** ausgewertet. Synthetisches 1280D
-Original-Patchpooling-/Head-Off-On-/SQLite-/Thread-
-Paritätsgate erneut **PASS**.
-
-Die Fusions-Genauigkeit auf dem gemeinsamen 293er-Nenner
-(Abstentions als falsch): Audio+Genre **163/293 = 55,63 %**
-(Coverage 234/293), Audio+Mood **170/293 = 58,02 %**
-(241/293), Genre+Mood **167/293 = 57,00 %**
-(230/293), Audio+Genre+Mood **192/293 = 65,53 %**
-(283/293). Der bisherige Mood-Centered-Baselinewert
-bleibt **193/293 = 65,87 %** mit 100 % Abdeckung.
-Keine der vier einfachen, *tripellokalen* Rangfusionen
-verbessert diese Referenz. Die vielen Paargleichstände
-der Zweierkombinationen erklären den niedrigen
-Gesamtnenner-Erfolg; Quote auf nur vorhergesagten
-Fällen darf nicht isoliert verglichen werden.
-
-**Keine Kalibrierung/Optimierung aus diesen
-Ergebnissen.** Diese post-hoc MTT-Fusionsexperimente
-sind weder eine globale Song-Cosine-Kalibrierung
-noch eine unabhängige Validierung oder ein
-Lyrion-Übergangstest. Vollständige Rechenschritte,
-Gleichstands-/Coverageanalyse, Paardifferenzen,
-Caveats und Folgeexperimente:
-[Fixed-Rank Fusion Research Results](similarity-fixed-rank-fusion-research-2026-10-21.md).
-Das reproduzierbare, nur aggregierte
-[GitHub-Artefakt](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)
-enthält die Ergebnisberichte v1, v2 und
-das synthetische Paritätsprotokoll.
-
-## CI-Fehlerkorrektur und nächster Evidenzschritt (21.10.2026, nach A/B/C)
-
-Der [MTT-Run 39621028716, Job 119294123082](https://github.com/chrober/bliss-mood-poc/actions/runs/39621028716/job/119294123082)
-brach **beim erweiterten synthetischen Vierprozess-Paritätsgate** ab
-(`AssertionError: Expected all four independent process-level worker outputs`).
-Es ist ein **Fehler im Python-Test-Harness**, keine im Log nachgewiesene
-Rust-Inferenzabweichung: `glob("process-worker-*.json")` nahm sowohl die
-vier Embedding-Dateien `process-worker-1.json` … `-4.json` als
-auch die vier JSON-Klassifikationsberichte
-`process-worker-heads-1.json` … `-4.json` auf. Der Workflow
-hatte vorher bereits Rust-Unit-Tests, Release-Build, Downloads
-und vier parallele Prozesse erfolgreich abgeschlossen.
-
-**Korrektur ausschließlich in PR #16:**
-- `scripts/check_song_embedding_smoke.py` filtert exakt nummerierte
-  `process-worker-N.json`-Embedding-Dateien über `fullmatch`;
-  `--require-process-workers` zwingt vier vollständige Ausgaben
-  und kann nicht stillschweigend bei komplett fehlenden Dateien PASS liefern.
-- `.github/workflows/research-mtt-embedding-ab.yml` setzt das
-  zusätzliche Flag im neuen Concurrent-Worker-Gate.
-- `tests/test_check_song_embedding_smoke.py` bildet den
-  ursprünglichen Fehler nach (vier Embeddings plus vier Heads) und
-  überprüft fehlende, zusätzliche und insgesamt fehlende Worker;
-  `.github/workflows/python-checks.yml` führt diese Tests auf
-  Linux **und** Windows aus.
-
-Ein neuer Workflow wurde automatisch durch den
-Änderungscommit ausgelöst:
-[MTT-Forschungs-Workflow Run 39622530049](https://github.com/chrober/bliss-mood-poc/actions/runs/39622530049).
-Die endgültigen Results und den vierten
-Worker-Paritätsnachweis erst dann als PASS berichten,
-wenn der Run beendet ist. Die zuvor komplett
-erfolgreichen A/B/C-Resultate aus Run 39619708040
-bleiben unverändert. Ein bloßer Fehler des Testglobs
-widerlegt keine vorangegangene Messung.
-
-**Nächste Forschungspriorität – unabhängige, gleichgepaarte
-A-vs-B-Replikation, noch keine weitere MTT-Optimierung:**
-erst FMA-Small **katalogbereinigte VALIDATION** (80 Songs)
-mit unverändertem offiziellen TEST-Split,
-danach DEAM-development/validation (Valence/Arousal
-nur als Stimmung-Proxy).
-Für jeden Datensatz auf den **identischen** Clipausschnitten
-1280D-Cosine gegen vorhandene 87D/56D-Baselines,
-identische Grundgesamtheit, gültige Vorhersageabdeckung,
-katalog-/künstlerbewusste Abhängigkeitsanalyse und
-gepaarte Scores gegenüberstellen.
-Trainingskatalogüberschneidungen auch beim Encoder beachten.
-MTT (346 vollständig erforschte Tripel) ist **kein Holdout**.
-Unabhängige menschliche Klangähnlichkeits- und
-Playlist-Übergangsreferenzen bleiben das entscheidende
-separate Evidenzziel. Kontrastiv trainierte
-Discogs-Embedding-Modelle sind eine spätere **eigene
-Modellfamilie** mit eigenen Hashes/Provenienz.
-Keine Fusion-Gewichte an MTT nachoptimieren und keine
-Lyrion-Mixer-Änderung daraus ableiten. PR #16 Draft;
-PR #13, PR #17 und `main` unangetastet.
-
-### CI-Nachweis der Harness-Korrektur
-
-[Python and PowerShell tests, Run 39622478825](https://github.com/chrober/bliss-mood-poc/actions/runs/39622478825):
-**Linux PASS, Windows PASS**, einschließlich des neuen Offline-Regressionstests für
-vier Embedding- plus vier Head-JSONs. [Research-MTT-Recheck Run 39622530049](https://github.com/chrober/bliss-mood-poc/actions/runs/39622530049)
-wurde nach Aufnahme des `--require-process-workers`-Flags
-automatisch ausgelöst; zum Zeitpunkt dieses Eintrags war sein
-vollständiges echtes Parallel-Inferenz-Gate noch **queued**.
-Den Run vor Abschluss eines Vierprozess-Determinismusnachweises prüfen.
-
-## FMA-Small katalogbereinigte VALIDATION: eigener Embedding-A/B-Transfer (21.10.2026)
-
-**NEU:** Das nächste kontrollierte Forschungsgate für
-Repräsentation A gegen B ist implementiert:
-[`scripts/evaluate_fma_embedding_ab.py`](../scripts/evaluate_fma_embedding_ab.py),
-optional `--embedding-dir` im bestehenden
-[`scripts/benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py),
-[`research-fma-embedding-ab.yml`](../.github/workflows/research-fma-embedding-ab.yml),
-synthetische Linux-/Windows-
-[`tests/test_evaluate_fma_embedding_ab.py`](../tests/test_evaluate_fma_embedding_ab.py).
-
-Die vorherige **exakte** katalogbereinigte
-80-Song-VALIDATION-Kohorte wurde aus
-[FMA-Run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
-als SHA256 `f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509`
-übernommen. Ferner sind die drei
-Quellen-SHAs (FMA-Metadaten/Audiopaket, MTG-Katalog)
-und die früheren Genre-Cosine-Maße
-(P@5 0,3200; mAP@10 0,1748759921; nDCG@10
-0,2985332322) **als Regressions-Gate fixiert**.
-Die neu berechneten direkten 1280D- und
-87D/56D-Sidecars stammen im neuen Modus aus
-**demselben Encoder-Durchlauf** und werden nach
-Audio-SHA, Patchzahl und Modell-/Pooling-Fingerprint
-paarweise überprüft.
-
-Jeder der 80 Künstler-distinkten Query-Tracks
-vergleicht sich mit exakt denselben 79 Kandidaten;
-9 pro Query haben die gleiche FMA-Obergenreklasse.
-Verglichen werden Embedding-Cosine, Genre-Cosine
-und Centered-Cosine sowie Mood-Cosine/Centered
-als **Cross-Task-Kontrolle**. P@5, mAP@10,
-nDCG@10, gemeinsame Abdeckung, Abstentions
-als 0, stratifizierte gepaarte
-Query-Sensitivitätsintervalle. Abhängige Kandidaten,
-nur acht Genres und mögliche nicht erkannte
-Trainingskatalogüberschneidungen bedeuten:
-**kein unabhängiger Holdout/Populations-CI**.
-Offizieller FMA-TEST bleibt strikt unberührt.
-Audio und Embedding-Sidecars bleiben runner-privat,
-Artefakte sind nur aggregierte Reports.
-
-Ausführlicher Studienvertrag:
-[Similarity FMA Embedding A/B](similarity-fma-embedding-ab-2026-10-21.md).
-Erster Workflow:
-[Research FMA 80 Validation A/B](https://github.com/chrober/bliss-mood-poc/actions/workflows/research-fma-embedding-ab.yml).
-Solange nicht vollständig `PASS`: **keine neuen
-numerischen Ähnlichkeitsresultate behaupten**.
-Original FMA-Workflow, Original-Rust-v5-Pin und
-PR #13/#17 sowie Mixer unverändert, PR #16 Draft.
-Nach FMA ist DEAM Development als nächster
-gepaarter Mood-Proxy vorgesehen. Noch keine
-Fusion auf FMA VALIDATION optimieren.
-
-## Verifiziert: FMA-80-Embedding A/B Transfer auf katalogbereinigter VALIDATION (21.10.2026)
-
-**NEUER EMPIRISCHER BEFUND – älteren Abschnitt mit
-`ausständig` damit überholt:**
-[GitHub Actions Run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
-**PASS**, [Aggregate-Artefakt 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718).
-Identischer eingefrorener, bereits untersuchter
-FMA-Small VALIDATION-Sample-Fingerprint,
-**80 Künstler-distinkte Songs**, 8 Genres mit je
-10 Songs, pro Song dieselben 79 Kandidaten,
-Genre-Katalogscreening (42 mögliche MTG-Overlap-
-Treffer ausgeschlossen). Original FMA TEST nicht
-angetastet, keine Trainings-Disjointness behauptet.
-Die frühere Genre-Cosine-Referenz wurde
-**exakt** reproduziert (P@5 `0,3200`,
-mAP@10 `0,174876`, nDCG@10 `0,298533`).
-
-| Gepaarte Methode | P@5 | mAP@10 | nDCG@10 | Abdeckung |
-| --- | ---: | ---: | ---: | ---: |
-| EffNet 1280D Song-L2 + Cosine | **0,2800** | 0,163044 | 0,282363 | 80/80 |
-| Genre 87D Cosine | 0,3200 | 0,174876 | 0,298533 | 80/80 |
-| Genre 87D Centered Cosine | **0,3225** | **0,178147** | **0,304271** | 80/80 |
-| Mood/Theme 56D Cosine (Cross-Task) | 0,2775 | 0,150394 | 0,266065 | 80/80 |
-| Mood/Theme 56D Centered Cosine (Cross-Task) | 0,2675 | 0,152847 | 0,270372 | 80/80 |
-
-Embedding − Genre Centered P@5
-= **−4,25 Prozentpunkte**, explorativer
-95-%-genrestratifizierter gepaarter
-Query-Resampling-Sensitivitätsbereich
-**−8,76 bis +0,25 Prozentpunkte**;
-wegen gemeinsam verwendeter Kandidaten und
-bereits explorativ erforschter VALIDATION **kein
-independentes Konfidenzintervall/Signifikanzbeweis**.
-
-Damit ergibt sich eine **zweite andere
-Aufgaben-/Dataset-Indikation** neben MTT:
-das rohe nicht speziell kontrastive
-EffNet-Song-Mean-Embedding schlägt die
-aufgabenpassenden Genre-/Mood-Kopfvektoren
-hier nicht. MTT ist Menschen-Odd-One-Out,
-FMA ein **Genre-Label-Proxy**. Beide
-Zahlen dürfen nicht gepoolt und nicht
-als allgemeiner Produktionssieger gedeutet
-werden. Details, Protokoll, Paardifferenzen
-und Stage-Zeiten:
-[FMA-80-Embedding-A/B-Studie](similarity-fma-embedding-ab-2026-10-21.md).
-
-**Nächster Schritt:** DEAM-Entwicklungs-
-/Validierungsvergleich für Valence/Arousal
-bei identischen Clips und Modell-Provenienz
-als begrenztem Mood-Proxy, anschließend
-eigenständige Prüfung kontrastiver
-Discogs-Modelle und neue unabhängige
-menschliche Klang-/Playlist-Referenzen.
-Keine zusätzlichen Fusionsgewichte an
-MTT/FMA-VALIDATION optimieren.
-PR #16 bleibt Draft; `main`, PR #13,
-PR #17 und Lyrion-Produktivmixer unverändert.
-
-
-## Aktueller Abschluss in kleinen Schritten – FMA-Cache, DEAM-Blocker, Lyrion-Folgetest (21.10.2026)
-
-1. **FMA-Caching FERTIG und verifiziert** nach
-   [MagnaTagATune-Cache-Vorbild](https://github.com/chrober/bliss-mood-poc/actions/workflows/magnatagatune-all-exploratory.yml):
-   Cold [FMA 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
-   PASS, ca. 246 s Originalarchiv-Download; Warm
-   [FMA 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
-   PASS, ca. 74 MB Selected-Song-Cache wiederhergestellt,
-   7,2 GiB Download SKIPPED. 80-Song-Sample-
-   Fingerprint/Original-Archiv-SHA/MP3-SHA werden
-   gegen Metadaten verifiziert. Auch unbereinigter
-   FMA-Genre-Workflow erhält separaten Cache-Key
-   ([39633600832](https://github.com/chrober/bliss-mood-poc/actions/runs/39633600832)
-   Cold PASS). Lizenzvorsicht: Actions-Caches
-   sind **nicht** vertraulich. Details:
-   [FMA 80 Studie](similarity-fma-embedding-ab-2026-10-21.md).
-
-2. **DEAM-Hash-Fehler behoben, CI PASS.**
-   Der ältere DEAM-Probenfingerprint benutzt
-   literal `\\n` als Trennzeichen, nicht
-   echten Zeilenumbruch. Neuer gepaarter
-   1280D-Evaluator repariert, Offline-Regressionstest
-   Linux/Windows
-   [39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
-   PASS. Die frühere exakt wiederholte
-   240-Song-Mood-Cosine-VA-Spearman-Referenz
-   `0.286784551387186` wurde bereits
-   [in 39634196144](https://github.com/chrober/bliss-mood-poc/actions/runs/39634196144)
-   bestätigt; dieser Lauf scheiterte erst am
-   **Hash-Serialisierungsfehler** nach Inferenz.
-
-3. **Aktuell externer DEAM-Datenblocker:**
-   [Run 39638292554](https://github.com/chrober/bliss-mood-poc/actions/runs/39638292554)
-   vier HTTPS-TCP-Timeouts beim Publisher
-   `cvml.unige.ch:443`, noch vor Musikanalyse.
-   [Run 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
-   beweist Nichterreichbarkeit durch einen
-   **neuen Fast-Fail-Preflight vor Rust-Build**.
-   **Noch KEIN erfolgreicher neuer
-   DEAM-Embedding-vs-Mood-Spearman-Vergleich.**
-   Keine alternativen Archive ohne
-   Provenienz-SHA- und Lizenzprüfung
-   übernehmen. Details:
-   [DEAM Benchmark](deam-similarity-benchmark.md).
-
-4. **Nächster unabhängiger Schritt – kleine
-   lokale Musik-Library-Hörprobe**:
-   [Plan für L0–L3](similarity-local-library-retest-plan-2026-10-21.md).
-   Zunächst nur read-only 87D/56D/1280D-
-   Provenienz auf begrenzten vorhandenen Songs,
-   dann ca. zwölf neue Kontraste mit
-   menschlichen Genre-/Mood-/Klang-/Playlist-
-   Kriterien und Urteilssicherheit, **noch
-   nicht ausgeführt**. Keine private Musik in
-   GitHub, keine Queue-/DB-Änderung ohne
-   eigenen Vorbereitungsschritt.
-   Den früheren 8-Paar-Pilot nicht als
-   unabhängige Validierung ausgeben
-   (Genre 0 positive). Arbeit strikt
-   PR #16 Draft, keine anderen Branches
-   oder Produktivkomponenten verändern.
+**No unapproved actions:** Do not overwrite
+private feature databases, automatically
+alter the Lyrion queue, move to production,
+merge PRs or publish personal recording
+identities. Version and model provenance
+must be verified before any new comparison.
