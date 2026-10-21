@@ -23,6 +23,18 @@ jobs:
       DEAM_LIMIT: '240'
     steps:
       - uses: actions/checkout@v4
+      - name: Fast-fail if official DEAM source host is unreachable (no audio downloaded)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This avoids building Rust and fetching ONNX models for a known
+          # external outage. Probe only TCP 443: no audio, labels or metadata.
+          if ! timeout 12 bash -c 'exec 3<>/dev/tcp/cvml.unige.ch/443'; then
+            echo "::error::Official DEAM archive host cvml.unige.ch:443 unavailable. No model change; retry only after source recovery."
+            exit 1
+          fi
+          echo "deam_source_tcp_443=reachable" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout pinned numerically verified Rust-v5 analyzer (separate tree)
         uses: actions/checkout@v4
         with:
