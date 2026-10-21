@@ -250,6 +250,27 @@ jobs:
             --embedding-out research-smoke/embedding-threads2.json > research-smoke/threads2.json
           "$exe" embedding-dump research-smoke/smoke.wav --models-dir models --threads 1 \
             --max-patches 64 > research-smoke/patch-dump.json
+          # Exercise four separate process-wide ONNX environments concurrently,
+          # matching the MTT worker isolation while using the SAME test audio.
+          process_pids=()
+          for worker in 1 2 3 4; do
+            "$exe" "${common[@]}" --threads 1 \
+              --embedding-out "research-smoke/process-worker-$worker.json" \
+              > "research-smoke/process-worker-heads-$worker.json" &
+            process_pids+=("$!")
+          done
+          for pid in "${process_pids[@]}"; do
+            wait "$pid"
+          done
+          test "$(find research-smoke -maxdepth 1 -name 'process-worker-[1-4].json' -type f | wc -l)" -eq 4
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          target=json.loads(Path("research-smoke/on.json").read_text())["classifications"]
+          for worker in range(1,5):
+              heads=json.loads(Path(f"research-smoke/process-worker-heads-{worker}.json").read_text())["classifications"]
+              assert heads == target, "Worker-concurrent classification output differs"
+          PY
           python3 scripts/check_song_embedding_smoke.py --directory research-smoke \
             --summary research-smoke/smoke-check-summary.json
           cat research-smoke/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
