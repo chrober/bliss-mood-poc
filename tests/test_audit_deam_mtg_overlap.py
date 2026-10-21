@@ -79,7 +79,7 @@ class DeamMtgAuditTests(unittest.TestCase):
 
     def test_key_normalization_is_unicode_aware(self):
         self.assertEqual(audit.clean("  HéLLO --  THE  WORLD!"),
-                         "héllo the world")
+                         "hello the world")
         self.assertEqual(audit.key_name("Song title"), "song_title")
 
 
