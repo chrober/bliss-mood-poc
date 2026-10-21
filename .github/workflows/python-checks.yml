@@ -29,6 +29,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
       - name: Validate 1019-clip-only audio cache integrity on Linux
         run: python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+      - name: Validate paired MTT artist-sensitive outcomes on Linux
+        run: python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
       - name: Validate 7-metric MTT result summary schema on Linux
         run: python3 -m unittest discover -s tests -p 'test_summarize_mtt_benchmark.py'
       - name: Validate sparse MTT MP3 extraction and human triplet scoring (offline)
@@ -71,6 +73,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
       - name: Validate curated research audio cache on Windows
         run: python -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+      - name: Validate paired MTT dependence sensitivity on Windows
+        run: python -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
       - name: Validate MTT result scorecard on Windows
         run: python -m unittest discover -s tests -p 'test_summarize_mtt_benchmark.py'
       - name: Validate sparse MTT audio CRC/votes on Windows
