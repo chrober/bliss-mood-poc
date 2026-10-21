@@ -172,3 +172,9 @@ several methods on 80 songs cannot identify a
 reliable production winner. Use separate Genre
 ground truth vs Mood VA vs general human-triplet
 judgments, never numerical averaging of these units.
+
+## Next research axis (2026-10-21): Compare *representations*, not just metrics
+
+The current seven metrics have been evaluated on already-pooled **87D Genre / 56D Mood/Theme classifier scores** only. The shared Discogs-EffNet model also internally provides **1,280D audio embeddings per patch**, but schema-v3 currently stores only the classifier heads. **No 1,280D song-level embedding baseline or multi-signal fusion has yet been evaluated.**
+
+The next controlled experiment explicitly compares **A: per-head classification similarity**, **B: pooled direct 1,280D embedding cosine**, and **C: calibrated/rank-based task-aware fusion**, using identical clips and reference questions with strict cohort provenance. See [the canonical new-session handover](similarity-representation-comparison-handover-2026-10-21.md) for definitions, 1280D export/pooling design, reproducibility/parity gates, external Essentia/cosine.club precedents, CI costs, ground-truth caveats and prioritized implementation. Do not confuse fusion of similarity signals with Lyrion's separate Bliss-first / Feature-first / Hybrid candidate-admission strategy choice. Official FMA TEST remains unexamined, full MTT is exploratory, and no production choice has been made.
