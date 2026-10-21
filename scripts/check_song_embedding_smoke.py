@@ -79,6 +79,21 @@ def check(directory: Path) -> dict:
     thread_diff = max(abs(a - b) for a, b in zip(actual, actual_threaded))
     assert thread_diff < 1e-5, f"ONNX thread nondeterminism exceeded tolerance: {thread_diff}"
 
+    # Four independently initialized ONNX worker processes on the SAME audio.
+    # Different completion order cannot alter immutable song embeddings.
+    workers = sorted(directory.glob("process-worker-*.json"))
+    if workers:
+        if len(workers) != 4:
+            raise AssertionError("Expected all four independent process-level worker outputs")
+        for worker in workers:
+            output = read(worker)
+            if output["vector_f32"] != actual:
+                raise AssertionError("Process-worker result differs from single-process embedding")
+            if output["representation_fingerprint"] != emb["representation_fingerprint"]:
+                raise AssertionError("Process-worker model/pooling fingerprint differs")
+            if output["audio_sha256"] != emb["audio_sha256"]:
+                raise AssertionError("Process-worker audio provenance differs")
+
     for head in off["classifications"]:
         ref = off["classifications"][head]["scores"]
         check_scores = threaded["classifications"][head]["scores"]
@@ -109,6 +124,7 @@ def check(directory: Path) -> dict:
         "embedding_unit_norm_error": abs(norm - 1.0),
         "max_pooled_patch_reference_error": diff,
         "max_1_vs_2_threads_embedding_error": thread_diff,
+        "independent_process_workers_identical": len(workers) if workers else "NOT_TESTED",
         "classification_equal_without_export": True,
         "sqlite_schema_v3_and_head_rows_identical": True,
         "official_tf_embedding_parity": "NOT_TESTED_IN_THIS_WORKFLOW",
