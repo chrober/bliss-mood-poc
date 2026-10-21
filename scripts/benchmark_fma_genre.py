@@ -112,7 +112,7 @@ def match_audio(audio_zip: Path, songs: dict) -> dict[str, str]:
         raise ValueError(
             f"Too many anomalous FMA MP3 archive members: {invalid_sizes}"
         )
-    if len(members) < max(100, len(songs) - 50):
+    if len(members) < max(6, len(songs) - min(50, max(1, len(songs) // 100))):
         raise ValueError(
             f"Too few valid FMA MP3 files: {len(members)} of {len(songs)}"
         )
