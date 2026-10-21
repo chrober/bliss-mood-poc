@@ -1,9 +1,11 @@
 # Planned FMA genre-retrieval benchmark — Draft PR #16
 
-**Status:** design only; not yet an implemented, executed or validated
-GitHub Actions genre benchmark. The reproducible DEAM research pipeline
-must be assessed before expensive FMA audio downloads. No production
-similarity metric or mixer decision is made here.
+**Status (21 Oct 2026):** metadata-only CI preflight PASSED; a real
+artist-unique **validation-only** FMA-Small Genre retrieval benchmark
+is now implemented and its first bounded Actions run is under way.
+Check run 39581435733 for a completed audio/report artifact before
+making any real-data retrieval claims. No production similarity metric
+or mixer decision is made here; the official TEST split remains untouched.
 
 ## Data and provenance
 
