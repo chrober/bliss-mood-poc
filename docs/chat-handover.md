@@ -1,5 +1,47 @@
 > **CURATED CACHE REAL MISS→HIT VERIFIED (21 OCT 2026):**
 
+> **MTT FOUR-WORKER BINARY+MUSIC CACHE A/B COMPLETED (21 OCT 2026):**
+> [Four-worker run 39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
+> **PASS** ([aggregate artifact 12346509848](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932/artifacts/12346509848)).
+> It reused BOTH caches: previously verified **119,689,247-byte
+> 1,019-clip** research package and source-keyed Linux Rust-v5
+> binary, verified its cached checksum and CLI; original 2.77-GiB
+> download and Cargo toolchain/build **SKIPPED**.
+> Four independent Rust-v5 processes (ONNX `--threads 1` each)
+> processed all 1,019 clips against the identical 346-triplet
+> human questions. **Actual 4-worker inference+SQLite merge:
+> 172.324 s**, score 0.929 s. The completed 2-worker paired
+> [run 39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
+> needed **291.251 s** inference+merge, 1.053 s score. Thus
+> **118.927 s / 40.8% faster observed inference** in these
+> two runs; full actual job execution from first/last logs
+> **~228 s vs ~367 s**, BUT 2-worker run compiled Rust and
+> hosted-runner variability is large. Not a controlled claim
+> of general speedup. All **14 metric/head scorecard rows
+> and 8 displayed paired contrast rows match exactly** between
+> completed two- and four-worker reports; per-track float-bit parity
+> not checked from aggregate-only reports.
+>
+> **COMPLETED PAIRED EVIDENCE:** real 2-worker paired
+> [39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
+> PASS, aggregate artifact 12347665613; on the common 293
+> MTT human-majority-scorable triplets, Cosine minus
+> Centered Cosine **0.0 pp Genre (5/5 discordance),
+> −0.3 pp Mood (8/9 discordance)**. Exploratory
+> paired IID-triplet and artist-weight sensitivity intervals
+> straddle zero in both heads, NOT independent population
+> confidence intervals. Cosine minus old Top-K WJ
+> +5.1 pp Genre and +21.2 pp Mood when abstentions
+> counted as errors. No production winner or independent
+> MTT holdout. See
+> [paired/performance document](magnatagatune-paired-analysis-2026-10-21.md)
+> and [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
+> Keep 4 fixed workers provisionally in expensive exploratory
+> GH workflow, only change with matched A/B evidence;
+> adaptive local scanner not active in this GH runner.
+> PR #16 Draft, `main`, PR #13/#17 and private library untouched.
+>
+
 > **MTT PAIRED EVIDENCE AND RUST-V5 BINARY CACHE (21 OCT 2026):**
 > The confirmed full [curated-audio cache HIT run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
 > reported **346 unordered triplets; 53 human-majority ties; 293
