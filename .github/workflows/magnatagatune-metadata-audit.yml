@@ -47,6 +47,7 @@ jobs:
               --output results/mtt-metadata-preflight.json
       - name: Verify vote parser on synthetic triplets
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+      # Re-run after aligning strict parser with observed official delimiter.
       - name: Audit official outlier votes and unique needed clips, no audio
         shell: bash
         run: |
