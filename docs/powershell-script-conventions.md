@@ -1,54 +1,48 @@
-# PowerShell-Skript-Konvention – direkt ausfuehrbare Chat-Beispiele
+# PowerShell script convention — complete, directly executable examples
 
-**Verbindliche Anforderung fuer diesen Projekt-Workflow (21.10.2026):**
+**Binding requirement for this project workflow (October 21, 2026):**
 
-Alle vom Assistenten an den Anwender gelieferten PowerShell-Befehle,
-insbesondere mehrzeilige Test-, Build-, Audit-, Lyrion- und Git-Skripte,
-werden als **vollstaendige, eigenstaendig kopierbare** Script-Bloecke im
-folgenden Format ausgegeben:
+Every PowerShell command delivered to the user, particularly multi-line
+testing, building, auditing, Lyrion, and Git scripts, must be presented as
+**one complete and independently copyable script block**:
 
 ~~~powershell
 & {
     $ErrorActionPreference = 'Stop'
 
-    # Konfiguration, Hilfsfunktionen, Arbeitsschritte und Pruefungen
-    # stehen gemeinsam innerhalb dieses einzigen Script-Blocks.
-    Write-Host 'Beispiel'
+    # Keep configuration, helper functions, commands, and validation
+    # together in this single script block.
+    Write-Host 'Example'
 }
 ~~~
 
-## Regeln
+## Rules
 
-1. **Immer eine aeussere Huelle** mit dem exakten Beginn
-   `& {` und dem schliessenden `}` verwenden,
-   auch fuer Nachbesserungen oder einzelne PowerShell-Aktionen.
-2. Bei Fehlerkorrekturen das **ganze korrigierte Skript** liefern –
-   niemals nur den auszutauschenden Teil und niemals voraussetzen,
-   dass der Benutzer Code aus mehreren Antworten zusammensetzt.
-3. Konfiguration und vorausgesetzte Dateipfade unmittelbar am Anfang
-   benennen. Das Skript soll in Windows PowerShell 5.1 und – soweit
-   moeglich – PowerShell 7 verwendbar sein; bei Abweichungen explizit
-   kennzeichnen.
-4. Destruktive, externe oder wiederholt wirksame Aktionen erst nach
-   erfolgreichen Vorabpruefungen erlauben. Fuer Queue-Schreibaktionen
-   explizites Dry-Run/Apply-Verhalten und bestehende Playlist erhalten.
-5. GitHub-CLI-, Python- und externe Prozessfehler pruefen
-   (einschliesslich `$LASTEXITCODE`), bevor ein Erfolg gemeldet wird.
-6. Eingebettete Unicode-Namen/JSON aus Netzwerkschnittstellen korrekt
-   als UTF-8 behandeln. Lyrion-Player nach stabiler Player-ID statt
-   nach durch fehlerhafte Zeichencodierung veraendertem Namen finden.
-7. Bei JSON-RPC Lyrion extended CLI `songinfo` gibt es typischerweise
-   ein `songinfo_loop` mit Feldobjekten; eine direkte
-   `result.id` ist nicht die einzige moegliche Darstellung.
-   Exakte Song-/URL-Zuordnung pruefen, niemals stillschweigend
-   Kuenstler/Titel als Ersatz verwenden.
-8. Script-Dateien im Repository, die unmittelbar per PowerShell gestartet
-   werden sollen, ebenfalls als `& { ... }` formulieren.
-   README oder Handover sollen diese Konvention verlinken.
-9. Keine private Songliste oder persoenliche NAS-Pfade in
-   oeffentliche CI-Logs uebernehmen. Fuer PR #16 bleiben
-   Similarity-Untersuchungen read-only bis zu einem vom Benutzer
-   ausdruecklich aktivierten Playlist-Append.
+1. **Always use the outer wrapper** with exact opening `& {` and closing
+   `}`, including corrections and individual PowerShell actions.
+2. When fixing a problem, provide the **entire corrected script**, never
+   only a replacement fragment or instructions requiring the user to
+   concatenate snippets across answers.
+3. Declare configuration and required file paths at the beginning. Prefer
+   compatibility with Windows PowerShell 5.1 and PowerShell 7; identify
+   incompatibilities explicitly.
+4. Perform preflight checks before destructive, external, or repeatable
+   side effects. Playlist queue mutations require explicit dry-run/apply
+   behavior and must preserve the existing playlist.
+5. Check GitHub CLI, Python, and other process errors, including
+   `$LASTEXITCODE`, before reporting success.
+6. Handle Unicode names and JSON from network endpoints as UTF-8. Identify
+   the Lyrion player by stable player ID rather than a possibly
+   incorrectly decoded display name.
+7. Lyrion extended JSON-RPC `songinfo` typically returns a
+   `songinfo_loop` with field objects; direct `result.id` is not
+   the only possible response shape. Verify exact URL/song mapping.
+   Never silently fall back to artist/title matching.
+8. Repository script files intended for direct PowerShell execution must
+   also use `& { ... }`. Link this convention from the README or handover.
+9. Do not disclose private song lists or personal NAS paths in public CI
+   logs. PR #16 similarity work remains read-only until the user explicitly
+   authorizes a playlist append.
 
-Diese Dokumentation ist unabhaengig von Modell-/DSP-/Similarity-Entscheidungen
-und bleibt als Anforderung fuer kuenftige PowerShell-Antworten bestehen.
+This convention is independent of model, DSP, and similarity decisions and
+applies to future PowerShell scripts and responses.
