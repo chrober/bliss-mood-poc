@@ -1,5 +1,26 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **CURRENT HANDOVER (21 October 2026): Similarity-Metriken auf Rust-v5-Daten, PR #16.**
+> Dieses Dokument beschreibt den historischen Scanner- und Worker-Stand vom
+> 19. Oktober und ist **nicht** die aktuelle Aufgabenliste.
+> Für die neue Chat-Session zunächst **[Similarity-Hörtest-Handover
+> 2026-10-21](similarity-listening-review-handover-2026-10-21.md)** lesen.
+> **Expliziter nächster Schritt: auf die vom Benutzer bearbeitete
+> `listening-pairs-review-first8.csv` bzw. seine Auswertung WARTEN.**
+> Der Benutzer hört jetzt acht Songpaare und bewertet
+> `genre_label`/`mood_label`; vor seinen Ergebnissen keine neue
+> Evaluation, keine Repo-/Queue-Veränderung, keine Neu-Scans.
+> Im [Draft-PR #16](https://github.com/chrober/bliss-mood-poc/pull/16)
+> ist bereits seine Lyrion-Korrektur für die 16 vorgesehenen Queue-Positionen
+> (15 unterschiedliche IDs) vorhanden: Einzel-Anfügen,
+> Längen-/Reihenfolgenkontrolle, Schutz vor der alten 15er-Queue.
+> **Keine erneute Apply-Ausführung während des Hörtests!**
+> PR #13 und #17 bleiben separat und Draft; `main` bleibt unverändert.
+> Für PowerShell-Ausgaben gilt die dokumentierte Pflicht,
+> **vollständige `& { ... }`-Blöcke** auszugeben.
+>
+
+
 > **Purpose:** Start a new development chat without losing the current project
 > state. The detailed performance experiment, raw benchmark measurements,
 > implementation details and open questions are in
