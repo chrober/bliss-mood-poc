@@ -26,6 +26,7 @@ import tempfile
 import zipfile
 
 import evaluate_similarity as ev
+from audit_deam_mtg_overlap import clean, load_mtg_metadata
 
 FMA_SOURCE = "https://github.com/mdeff/fma"
 AUDIO_NAME = re.compile(r"^(\d{6})\.mp3$", re.IGNORECASE)
@@ -40,7 +41,8 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_fma_small(metadata_zip: Path) -> dict[str, dict]:
+def load_fma_small(metadata_zip: Path,
+                   *, include_artist_title: bool = False) -> dict[str, dict]:
     """Read official FMA two-row tracks.csv header. Internal IDs never export."""
     with zipfile.ZipFile(metadata_zip) as archive:
         files = [p for p in archive.namelist() if Path(p).name == "tracks.csv"]
@@ -59,6 +61,9 @@ def load_fma_small(metadata_zip: Path) -> dict[str, dict]:
                         ("track", "genre_top"), ("artist", "id"))
             if any(k not in cols for k in required):
                 raise ValueError("Missing official FMA-Small split/genre/artist columns")
+            if include_artist_title and any(k not in cols for k in
+                    (("track", "title"), ("artist", "name"))):
+                raise ValueError("Filtered FMA validation requires artist.name and track.title")
             songs = {}
             for row in reader:
                 if len(row) != len(groups) or row[cols[("set", "subset")]].strip() != "small":
@@ -72,17 +77,60 @@ def load_fma_small(metadata_zip: Path) -> dict[str, dict]:
                 key = f"{ident:06d}"
                 if key in songs:
                     raise ValueError("Duplicate FMA-Small track ID")
+                split = row[cols[("set", "split")]].strip().lower()
+                if split == "test":
+                    # Never inspect TEST genre, artist, title in discovery.
+                    continue
+                if split not in ("training", "validation"):
+                    raise ValueError("Unknown FMA official split")
                 genre = row[cols[("track", "genre_top")]].strip()
                 artist = row[cols[("artist", "id")]].strip()
-                split = row[cols[("set", "split")]].strip().lower()
-                if not genre or not artist or split not in ("training", "validation", "test"):
-                    raise ValueError("FMA-Small track missing official split, genre or artist")
+                if not genre or not artist:
+                    raise ValueError("Missing FMA development genre or artist")
                 songs[key] = {"genre": genre, "artist": artist, "split": split}
+                if include_artist_title:
+                    a = clean(row[cols[("artist", "name")]].strip())
+                    t = clean(row[cols[("track", "title")]].strip())
+                    songs[key]["artist_title"] = (
+                        (a, t) if (a and t and a not in ("unknown","various artists")
+                                    and t not in ("unknown","untitled")) else None
+                    )
     if len(songs) < 8:
         raise ValueError("Too few FMA-Small metadata tracks")
     if len({song["genre"] for song in songs.values()}) != CLASSES:
         raise ValueError("Expected eight FMA-Small major genre classes")
     return songs
+
+
+def screen_mtg_catalog_matches(songs: dict, mtg_tsv: Path,
+                               split: str) -> tuple[set[str], dict]:
+    """Screen before inference, not the specific ONNX model training set."""
+    if split != "validation":
+        raise ValueError("Only official FMA VALIDATION is eligible for exploratory screen")
+    pairs, rows = load_mtg_metadata(mtg_tsv)
+    eligible = {ident: song for ident,song in songs.items()
+                if song["split"] == "validation"}
+    if any("artist_title" not in song for song in eligible.values()):
+        raise ValueError("FMA artist and title metadata not loaded")
+    excluded = {ident for ident,song in eligible.items()
+                if song["artist_title"] is not None and song["artist_title"] in pairs}
+    joinable = sum(song["artist_title"] is not None for song in eligible.values())
+    if len(eligible) != 800 or joinable < 750 or len(excluded) > 500:
+        raise ValueError("Unexpected validation metadata screening coverage")
+    return excluded, {
+        "status": "partial_exact_artist_title_catalog_exclusion_NOT_verified_training_disjointness",
+        "validation_total": len(eligible),
+        "validation_joinable": joinable,
+        "possible_catalog_matches_excluded": len(excluded),
+        "validation_eligible_after_exclusion": len(eligible)-len(excluded),
+        "mtg_catalog_rows": rows,
+        "mtg_metadata_sha256": sha256_file(mtg_tsv),
+        "caveats": [
+            "Exact artist/title matches only suggest possible shared recordings.",
+            "Nonmatches do not prove classifier or encoder training disjointness.",
+            "The filtered and previous unfiltered validation cohorts are NOT paired.",
+        ],
+    }
 
 
 def match_audio(audio_zip: Path, songs: dict) -> dict[str, str]:
@@ -314,6 +362,8 @@ def main() -> None:
     p.add_argument("--per-genre", type=int, default=10)
     p.add_argument("--split", choices=["validation", "training"], default="validation")
     p.add_argument("--seed", type=int, default=20261021)
+    p.add_argument("--mtg-metadata-tsv", type=Path)
+    p.add_argument("--exclude-mtg-catalog-matches", action="store_true")
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
         p.error("Benchmark output exists; no overwrite permitted")
@@ -322,8 +372,20 @@ def main() -> None:
             p.error(f"Missing required benchmark input: {path}")
     if not args.models_dir.is_dir():
         p.error("Models directory does not exist")
-    songs = load_fma_small(args.metadata_zip)
+    if args.exclude_mtg_catalog_matches and (
+            args.split != "validation" or args.mtg_metadata_tsv is None
+            or not args.mtg_metadata_tsv.is_file()):
+        p.error("MTG catalog exclusion requires validation and --mtg-metadata-tsv")
+    songs = load_fma_small(args.metadata_zip,
+                          include_artist_title=args.exclude_mtg_catalog_matches)
     available = match_audio(args.audio_zip, songs)
+    overlap = None
+    if args.exclude_mtg_catalog_matches:
+        excluded, overlap = screen_mtg_catalog_matches(
+            songs, args.mtg_metadata_tsv, args.split
+        )
+        available = {ident: member for ident,member in available.items()
+                     if ident not in excluded}
     chosen = balanced_sample(songs, available, args.split,
                              args.per_genre, args.seed)
     print(f"Matching FMA audio members: {len(available)}; "
@@ -334,6 +396,9 @@ def main() -> None:
     report = evaluate(args.db, chosen, songs, args.seed, args.split)
     report["dataset"]["metadata_zip_sha256"] = sha256_file(args.metadata_zip)
     report["dataset"]["audio_zip_sha256"] = sha256_file(args.audio_zip)
+    report["catalog_overlap_exclusion"] = overlap or {
+        "status": "NOT_PERFORMED_possible_MTG_catalog_overlap_not_removed"
+    }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x", encoding="utf-8") as out:
         json.dump(report, out, indent=2, ensure_ascii=False, allow_nan=False)
