@@ -162,6 +162,137 @@ Read the extended report after repeating the documented evaluation command:
 This is **diagnostic evidence only**. No model-head class output, score
 percentile, or filename association by itself establishes playlist quality.
 
+## 21 October 2026 — restart on numerically checked Rust v5 vectors (PR #17 NOT required)
+
+The original Essentia C++ investigation established genuine numerical
+parity for the **same 100 real MP3 tracks** using corrected Rust v5.
+The saved *read-only* v5 sidecar is:
+
+`D:\LMS\bliss-mood-poc\benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db`
+
+The original C++/Rust parity gate passed **14,500 class scores**, zero
+Mel-patch mismatches and worst score error 1.2695789337158203e-5
+(unchanged 0.001 tolerance). A separate six-worker Rust-v5 run
+was bitwise equal to the fixed-four v5 scores. These observations
+validate numerical implementation on the tested tracks; they do **not**
+validate musical meaning or turn raw sigmoid activations into
+calibrated percentages. The previous v4 similarity-score behavior will
+likely be similar but should not be assumed bit-identical without a
+direct check.
+
+**No Rust/Essentia C++ build, native DLL, model download, new music
+scan or merge of PR #17 is needed to resume PR #16.** Python only
+reads the existing schema-v3 SQLite feature sidecar. No `main`,
+PR #13 or PR #17 changes belong to this similarity experiment.
+
+### A small listening *pilot*, without pre-filling subjective labels
+
+The new `scripts/propose_similarity_listening_pairs.py` makes this
+step reproducible. It draws a **bounded set (24 by default)** from a
+deterministically sampled matching Genre+Mood cohort. The candidate
+pool is capped at 20,000 pairs, with 300 input tracks maximum.
+Selection attempts to cover eight *sampling* strata: strong similarity
+according to both heads; genre-high/mood-low; mood-high/genre-low;
+both-low; Genre or Mood metric disagreement between cosine and
+ranked Top-6 Jaccard; low absolute Mood activity; and random controls.
+It rotates strata, limits overused tracks when possible and shuffles
+pair order. These strata are **model-generated selection heuristics,
+NOT correct human genre/mood labels**. Some may be absent in a given
+cohort. They **cannot** be used as ground truth or as scientific
+proof one metric ranks music better.
+
+It outputs two files inside a **new ignored local benchmark directory**:
+
+- `listening-pairs.csv` with exactly
+  `left,right,genre_label,mood_label`; every label cell is **blank**
+  until somebody actually hears the recordings. Song keys match
+  `TracksV2.File` and CSV quoting preserves commas/Unicode.
+- `selection-audit-private.json`: a private, separate document
+  containing the models' numerical scores, sampling strata and
+  candidate pool percentiles. **Do not inspect it until after
+  listening** if you want to avoid knowing the tested methods' answers.
+
+The reviewer is not blind to song filenames/artists (they are needed
+to play the recordings), but is **blind to the metric scores and
+sampling stratum** while listening. A genuinely double-blind listening
+evaluation would require separate randomized audio playback and
+artist-label masking, which this script does not provide.
+
+**Ready-to-run Windows PowerShell:**
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $db = Join-Path $repo 'benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db'
+    $output = Join-Path $repo (
+        'benchmark-similarity-v5-pilot-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    )
+
+    Set-Location $repo
+    git switch feat/similarity-metric-evaluation
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot switch to PR16 branch' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot update PR16' }
+
+    python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Similarity evaluator tests failed' }
+    python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Pilot selector tests failed' }
+
+    Write-Host "`n=== STRICT RUST V5 SIDE-CAR, NO AUDIO/ONNX ==="
+    python scripts/propose_similarity_listening_pairs.py `
+        --db $db --out-dir $output --require-v5 `
+        --count 24 --limit 300 --pool-pairs 20000 --seed 20261021
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Pilot selection failed. Verify original local v5 SQLite DB and model fingerprint'
+    }
+
+    python scripts/evaluate_similarity.py `
+        --db $db --include-experimental --limit 300 `
+        --pairs 3000 --seed 20261021 --examples 5 `
+        > (Join-Path $output 'unlabeled-metric-diagnostics.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Unlabeled evaluation failed' }
+    Write-Host "Private pilot directory: $output"
+    Write-Host 'Fill only genuine independent listening verdicts; never auto-label.'
+}
+~~~
+
+The pilot's `--require-v5` enforces the exact corrected Rust
+preprocessing identity `experimental-essentia-audio-v5-f32-src-ratio-unvalidated`
+for both heads, avoiding accidental reuse of old Rust-v4 or mismatched
+C++ feature cohorts. This is a fingerprint check, **not an override
+of the database's validation flag**; `--include-experimental` remains
+required for these diagnostic-only vectors.
+
+### What to judge, and what to do afterward
+
+Do not assign labels because two filenames share a genre, album or
+artist. Listen to the music. Grade `genre_label` as similarity of
+musical style (0/1), and `mood_label` independently as felt mood and
+energy (0/1). A blank cell is explicitly *not judged for that head*,
+but the evaluator requires at least **one** of these two labels for
+**every retained row**. Delete any pair you deliberately skip, or
+judge at least one dimension.
+
+Once you have listening judgments, run the existing evaluator with
+`--labels $csv` and `--include-experimental`, retaining an
+unchanged private copy of both the judged CSV and output JSON.
+This reports per-head positive/negative distributions and tie-aware
+ROC-AUC only for the actual supplied labels.
+
+**Methodological limit:** The model and metric heuristics influenced
+which pairs were selected. ROC-AUC on this *actively selected pilot*
+is therefore **selection-biased**, even if humans supply independent
+labels. Use the pilot to find failure modes and refine rating criteria,
+**not to pick a universally winning metric**. For a final metric
+choice, collect a new untouched held-out cohort with independently
+randomized or explicitly stratified design and separate train/test
+artist or seed groups; report both heads independently. Candidate
+coverage and real playlist listening remain essential.
+
+---
+
 ## Evaluate manually judged pairs
 
 Create a CSV in the same ignored directory. Each row uses exact feature DB
