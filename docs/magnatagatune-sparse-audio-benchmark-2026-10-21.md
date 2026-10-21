@@ -412,29 +412,63 @@ New implementation:
   strata. This is *descriptive* same-corpus evidence and accounts
   for correlated triplets sharing artists/songs.
 
-### Caching: deliberately opt in, do not publish raw audio artifacts
+### Implemented: cache only the exact 1,019 relevant MP3s
 
-The original three source ZIP parts occupy **2,972,769,864 bytes**
-(~2.77 GiB); `actions/cache@v4` could retain these between jobs.
-GitHub's standard repository cache allowance is about **10 GiB**,
-with default **seven-day inactivity eviction**; larger cache usage
-can incur cost. Crucially, **GitHub caches are not confidential**:
-cache contents can be accessible through authorized PR workflows,
-including fork-derived base-branch caches. Research audio under
-the original TagATune **CC BY-NC-SA 3.0** conditions must not
-silently be reposted as a public artifact or retained in a cache
-without a deliberate licensing/access review.
+**User decision 21 Oct 2026:** Use a small *selected-clip-only* GitHub
+Actions cache instead of retaining the complete 2.77-GiB multipart
+audio archive. Scripts:
+- [mtt_selected_clip_cache.py](../scripts/mtt_selected_clip_cache.py):
+  on the initial cache miss, reads just the 1,019 referenced members from
+  the publisher ZIP locally, verifies their **original ZIP CRC32 and
+  uncompressed lengths**, then assembles a single deterministic
+  **ZIP_STORED** file (`mtt-required-1019-clips.zip`) containing
+  exactly the selected clip payloads under hashed internal filenames.
+  Expected size is about 117 MB, but actual byte count must be read
+  from the real GH Actions run rather than assumed.
+- On a cache hit the workflow downloads only official **metadata plus
+  the 8-MiB ZIP directory tail**. It verifies the complete cached
+  package's 1,019 file names, types, lengths and CRCs against the
+  original central directory **before Rust is built**.
+- [benchmark_magnatagatune.py](../scripts/benchmark_magnatagatune.py)
+  accepts `--selected-clip-cache`; two isolated `bliss-mood`
+  workers analyze those cached audio bytes, never the original full
+  archive. The 346-triplet sampling and all seven scores are identical
+  to the successful earlier full-archive run.
+- Cache miss: original files are temporarily downloaded, checked against
+  HTTP Content-Range sizes, compacted and **deleted from the runner**.
+  Only the 1,019-clip package is passed to
+  `actions/cache/save@v4`. **No full source ZIP** is cached,
+  committed or uploaded through GitHub artifacts.
+- Cache is automatically reused on the trusted research feature branch.
+  Manual `workflow_dispatch` has `cache_audio` (default true);
+  set false to bypass caching for that manual run.
+  Cache keys pin the source CSV cohort and archive size; all stored clips
+  undergo the same per-run original-CRC checks, preventing silent
+  corruption or inaccurate provenance.
 
-For that reason the new workflow only enables the audio cache
-when manually dispatched with **`cache_audio: true`**.
-All automatic runs and default manual runs download from the
-official publisher and stage the archives **only on the ephemeral
-runner**. Cache misses redownload safely. Cache hits are rechecked
-against source Content-Range sizes, and all selected MP3 members
-undergo CRC verification. Cache restore/upload may have
-significant I/O time: **a cache hit is not automatically a measured
-speedup**. Never upload music, per-track vectors, artist IDs or
-human per-clip votes through `upload-artifact` or git.
+**Security/licensing condition:** The package still contains third-party
+**CC BY-NC-SA 3.0 research audio**. GitHub Actions caches are **not
+confidential** and some PR workflows targeting the cache-bearing branch
+may gain access; feature-branch scoping reduces accidental sharing but
+does not eliminate this access model. Treat the cache as restricted
+research material, not approved commercial redistribution, and disable
+caching if those access conditions are unacceptable. No music in
+`upload-artifact` or public git.
+
+**Verification:** Offline cache-specific synthetic tests cover
+all 1,019 clips, missing/corrupt payloads, publisher CRC mismatch,
+strict ZIP contents, and cache read restrictions. GitHub Action
+[39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
+is the initial real cache-seeding attempt; **check completed outcome
+before claiming size, successful cache save, speedup or metric parity**.
+A subsequent completed run with actual `cache-hit: true` is required
+to substantiate measured time savings.
+
+GitHub's default repository cache budget is about 10 GiB; cached
+items are not permanent and can be evicted after inactivity or
+under quota pressure. On a miss the workflow deterministically
+recreates and validates the curated package, without changing
+musical similarity reference scores.
 
 Track actual walltimes in GitHub step summary for central-directory
 preflight, archive stage, Cargo build, model downloads, parallel
@@ -446,3 +480,24 @@ Official GitHub cache policies:
 https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching
 Original TagATune research terms:
 https://tagatune.org/details.html
+
+## Verified first complete 346-triplet, two-worker run
+
+[Actions run 39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
+**PASSED**, using full publisher archive staged ephemerally, two
+isolated Rust-v5 worker sidecars, both model heads and all seven
+metrics. [Aggregate report](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438/artifacts/12345475102).
+
+The benchmark processed **1,019 clips**, grouped **346 unique
+unordered human triplets**, and recorded **145.505 s** for
+parallel inference+SQLite merge and **145.714 s** for download-free
+local analysis plus scoring. Model scoring alone took ~0.209 s.
+The Mood-Cosine majority-choice accuracy on defined predictions
+was **0.6552901**; see report for human ties, abstention-inclusive
+coverage and the remaining six metrics. No artist-disjoint holdout
+remains in this all-346 exploratory run.
+
+This first successful full-run timing is a **two-worker baseline**,
+not proof that workers are faster than a matched one-worker run.
+The curated-cache optimization is intended to reduce **archive
+download and restore time**, not claim that inference is faster.
