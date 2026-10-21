@@ -250,3 +250,16 @@ mit exakt gleichen Provenienz-/Coverage-
 Regeln. Neue echte Hörreferenzen wären für
 Klangnähe/Playlist-Übergänge weiterhin
 aussagekräftiger.
+
+
+## FMA-Small Selected-Audio-Cache – implementiert und warm verifiziert
+
+**Quelle des Designs:** [MagnaTagATune Exploratory Cache Workflow](https://github.com/chrober/bliss-mood-poc/actions/workflows/magnatagatune-all-exploratory.yml). Analog zu dessen `actions/cache/restore@v4` / `actions/cache/save@v4` wird für FMA **nicht das 7,2-GiB-Originalarchiv** zwischengespeichert, sondern nur die nach vorregistrierter Auswahl benötigte komprimierte MP3-Teilmenge.
+
+- Der Code [`scripts/fma_selected_audio_cache.py`](../scripts/fma_selected_audio_cache.py) erzeugt ein separates Selected-ZIP und Manifest, das die komplette Publisher-Archiv-SHA, den eingefrorenen Sample-Fingerprint, die 80 Song-Mitgliedschaften und SHA256 je MP3 enthält. Wiederherstellungen prüfen diese Werte gegen das vorhandene FMA-Metadaten-ZIP und den MTG-Katalog; kein FMA-TEST.
+- **Cold build PASS:** [Run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381), voller Publisher-Download nur einmal (`fma_audio_download_elapsed_s=246.39`).
+- **Warm-Cross-Workflow-Restore PASS:** [Run 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262), aus dem vorigen A/B-Lauf wiederhergestellter Cache ca. **74 MiB/MB Größenordnung**, und der komplette 7,2-GiB-Download wurde **SKIPPED**.
+- Für die zusätzliche *nicht* MTG-bereinigte FMA-Genre-Untersuchung ist ein **separater** Cache-Key/Cohort-Pin verwendet: [Run 39633600832](https://github.com/chrober/bliss-mood-poc/actions/runs/39633600832) PASS nach erstmaligem Anlegen. Die Filtervarianten dürfen nicht verwechselt werden.
+- Neue Offline-Cache-Tests laufen in Linux und Windows; kein Raw-Audio und keine Single-Song-Embeddings werden als `upload-artifact` publiziert.
+
+**Risiko/Policy:** GitHub Actions Caches sind **keine vertrauliche Datenspeicherung** und können für berechtigte Pull-Request-Kontexte des Branches zugreifbar sein. Auch die sparsame 80-Song-Audioauswahl bleibt original lizenziertes Audiomaterial. Deshalb nur der projektbezogene, begrenzte Forschungscache; vor zusätzlicher öffentlicher Weiterverwendung sind Quellenlizenzen und Cache-Zugriffspolicy gesondert zu prüfen. Dieser Nachtrag ersetzt die frühere Aussage „es wird gar kein FMA-Audio gecacht“.
