@@ -1,6 +1,6 @@
 # PR #17: release qualification after numerical real-MP3 parity
 
-**As of 20 October 2026** · Branch `feat/essentia-cpp-worker-backend` ·
+**As of 21 October 2026** · Branch `feat/essentia-cpp-worker-backend` ·
 Draft [PR #17](https://github.com/chrober/bliss-mood-poc/pull/17).
 This checklist separates proven numerical equivalence from the much broader
 questions of **codec support, operating-system packaging, redistribution and
@@ -44,6 +44,13 @@ unchanged. **Do not rerun completed parity scans** just to update documents.
   bytes against `worker-dependencies.json` and cross-checks
   `NATIVE-PROVENANCE.json` including actual installed notices.
   No music, private databases, weights or files are written.
+- **GitHub native Windows CI now audits the actual staged
+  development kit**, after the C++/MinGW build and upstream MSYS2
+  provenance inventory and before upload. It runs the same read-only
+  auditor against the genuine staged EXE/DLL/notice directory and
+  uploads the audit JSON with **build diagnostics**, not as a new
+  licensed release artifact. This catches real package hash or notice
+  mismatch independently from synthetic unit fixtures.
 - **Public release/redistribution gate: BLOCKED pending manual legal
   review.** The current bundle deliberately has
   `release_approved=false` and
