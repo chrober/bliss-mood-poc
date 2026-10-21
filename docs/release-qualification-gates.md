@@ -7,6 +7,93 @@ questions of **codec support, operating-system packaging, redistribution and
 licensing**. Neither a successful numeric scan nor a CI fixture licenses a
 production Windows/macOS/Linux release.
 
+## Current authoritative Windows qualification checkpoint — 21 October 2026
+
+The real-audio gate, including **two separately downloaded, unmodified
+lossless songs**, is now **PASS**. This section supersedes older "next",
+"open" and "pre-inference rejection" descriptions further below, retained
+as diagnostic history. Numerical tolerance was **never relaxed (0.001)**.
+
+| Actual test | Audio coverage | Worst C++ vs Rust v5 score delta | Outcome |
+| --- | --- | ---: | --- |
+| MP3, 4 fixed Rust workers | 100 real MP3 songs, 14,500 scores | 1.2695789337158203e-5 | **PASS**, 0 patch mismatches |
+| MP3, adaptive enabled with 6 active workers | Same 100 MP3 songs; 4..8 policy | 1.2695789337158203e-5 | **PASS**, identical stored Rust-v5 scores to fixed 4; zero actual worker adjustments |
+| Controlled WAV24 and FLAC from shared real-song PCM | Same 837-patch signal in two containers | 6.3700000000332935e-6 both | **PASS**, bit-identical decoded PCM24; cross-format scores exactly equal |
+| **Original downloaded FLAC, 48 kHz / 24-bit / stereo** | **604.75 s, 608 patches** | **2.019999999991473e-6** | **PASS** |
+| **Original downloaded WAV, 44.1 kHz / 16-bit / stereo** | **356.28 s, 358 patches** | **1.3999999999292356e-6** | **PASS**, embedded MJPEG cover artwork ignored by first-audio-stream probe |
+
+The two independent lossless downloads each passed all three ONNX model
+heads (87 Genre, 56 Mood/Theme, 2 Voice classes), source SHA256 checks,
+C++/Rust patch counts, backend/model identity checks and strict numerical
+tolerance. The FLAC's 604.75 s duration explains the earlier historical
+default 420 s **preflight** rejection; its 51.5 MiB size was acceptable.
+The WAV was 59.9 MiB and includes non-audio cover artwork. These are
+two songs, not a universal cross-codec sample-rate/platform proof.
+Private local evidence:
+`D:\LMS\bliss-mood-poc\benchmark-bandcamp-lossless-20261020-220117\natural-lossless-parity-private.json`.
+The WAV/FLAC controlled-source and MP3 original references must be kept
+unchanged. **Do not rerun completed parity scans** just to update documents.
+
+**Development versus distribution decision:**
+
+- **Numerical Windows development gate: PASS**, for the exact tested
+  MP3/FLAC/WAV source/cohort, ONNX binaries and worker fingerprints.
+- **Windows native development-kit integrity: independently testable**
+  using `scripts/audit_windows_native_release.py` on the existing
+  `D:\LMS\essentia-cli-test` directory. This audits existing EXE/DLL
+  bytes against `worker-dependencies.json` and cross-checks
+  `NATIVE-PROVENANCE.json` including actual installed notices.
+  No music, private databases, weights or files are written.
+- **Public release/redistribution gate: BLOCKED pending manual legal
+  review.** The current bundle deliberately has
+  `release_approved=false` and
+  `license_inventory_complete=false`. Neither source publication,
+  the IPC separation, separate prerequisites nor a passing Windows
+  executable automatically cures Essentia AGPL, FFmpeg/native DLL or
+  MTG model rights. See
+  [license/distribution strategy](essentia-licensing-distribution-strategy.md).
+- **Scope and PR state:** #17 remains Draft, no merge, no modifications
+  to similarity PR #16 or `main`. Similarity research may reuse the
+  already verified Windows Rust-v5 CLI; it does not need new parity
+  benchmarks.
+
+### Read-only existing Windows native kit audit
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $kit = 'D:\LMS\essentia-cli-test'
+    $output = Join-Path $repo (
+        'audit-windows-essentia-release-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    )
+    Set-Location $repo
+    git switch feat/essentia-cpp-worker-backend
+    if ($LASTEXITCODE -ne 0) { throw 'PR17 branch switch failed' }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'PR17 update failed' }
+
+    python -m unittest discover -s tests -p 'test_audit_windows_native_release.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Native kit audit regression tests failed' }
+
+    python scripts/audit_windows_native_release.py --kit-root $kit --output-dir $output
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native bundle manifest integrity failed; audit evidence: $output"
+    }
+    Write-Host "Audit result saved locally: $output"
+    Write-Host 'Expected truthful distribution_release_status: BLOCKED'
+}
+~~~
+
+**Expected** `binary_integrity=PASS`,
+`distribution_release_status=BLOCKED`, package-count and missing
+notice lists. A failed hash, PE architecture or manifest consistency
+check fails the audit (nonzero exit) and is **not** simply a license
+review item. The audit never creates a distributable artifact nor
+claims that `BLOCKED` is a technically broken scanner.
+
+---
+
 ## Evidence and acceptance matrix
 
 | Gate | Current decision | Evidence or condition for advancing |
@@ -16,7 +103,7 @@ production Windows/macOS/Linux release.
 | Adaptive-policy increase/decrease and stabilization on real music | **NOT DEMONSTRATED** | Actual run held 6 workers throughout; deterministic Rust unit tests cover simulated high/low loads, but dynamic changes under real controlled load have not been measured |
 | Controlled real-song PCM24 WAV vs FLAC using same original signal | **PASS** | User's 20 October 2026 run: PCM24 SHA equal, 837 patches, both backends WAV vs FLAC score difference 0.0; C++ vs Rust v5 max 6.3700000000332935e-6 in each format (limit 1e-3). **Source was MP3-derived; not independent FLAC coverage.** |
 | Windows x64 native C++ worker synthetic WAV/FLAC/MP3 fixture | **PASS (CI fixture)** | Verified original worker/ONNX handoff in native Windows workflow; does not substitute for real music |
-| Real independent FLAC/WAV songs from the library | **OPEN** | A small, explicitly bounded and legally available sample with mixed rates/channels/bit depths, fresh Rust/C++ isolated sidecars, same ONNX SHA256 and max 1e-3 drift |
+| Two independent original lossless FLAC/WAV files | **PASS for the 2 tested downloads** | Real Bandcamp FLAC 48 kHz/24-bit and WAV 44.1 kHz/16-bit, verified original C++ vs Rust v5 (max 2.02e-6 and 1.40e-6), matching patch counts and fingerprints. Wider coverage remains open |
 | Linux x86_64 original Essentia native smoke | **Partially validated** | Existing Linux CI numeric fixture, but portable packages, loader/library ABI and target distro matrix not release-qualified |
 | macOS Intel / Apple Silicon, Pi 4 / piCorePlayer | **NOT QUALIFIED** | Native builds, loader/shared-library closure, ONNX runtime architecture, 1-worker memory, real-codec smoke |
 | Redistributable native DLLs / `.so` / `.dylib` | **NOT LICENSE CLEARED** | Actual package dependency closure, exact source/versions, notices, counterpart source/build scripts, reproducible manifest; see licensing strategy |
@@ -58,7 +145,7 @@ sampled from the music NAS; see the native-lossless cohort gate below.
 
 ---
 
-## First next gate: bit-exact decoded PCM across one real-song WAV24 and FLAC
+## Historical procedure: bit-exact decoded PCM across real-song WAV24 and FLAC (PASSED)
 
 The existing real audio example is a full-song WAV, originally decoded from
 one of the confirmed failing real MP3s during resampler root-cause analysis.
@@ -174,7 +261,7 @@ Only paste the concise console JSON, especially `status`, `pcm24_sha_equal`,
 music, raw PCM, full private class/track reports or third-party native
 DLL archives.
 
-## Second codec gate: two explicit independent lossless music downloads
+## Historical native-lossless preflight and retry instructions (PASSED after correction)
 
 **Initial 20 October 2026 result: PRE-INFERENCE FILTER, NOT PARITY FAILURE.**
 The user provided a locally downloaded **48 kHz / 24-bit stereo FLAC**
@@ -250,7 +337,7 @@ test harness with exactly the new explicit bounds and the same
 pinned executable/ONNX/C++ worker and saved real-WAV references. Do
 not repeat the successful controlled WAV24/FLAC test.
 
-## After the single controlled WAV/FLAC result
+## Historical next steps (superseded by completed native lossless test)
 
 If it passes, preserve the evidence and select *a bounded real naturally
 occurring FLAC/WAV sample* with different sample rates, durations and
