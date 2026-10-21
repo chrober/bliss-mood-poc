@@ -113,10 +113,17 @@ class FmaGenreBenchmarkTests(unittest.TestCase):
         self.assertAlmostEqual(report["baseline_random_precision_at_5"], 1/15)
         for name, metric in report["metric_results"].items():
             with self.subTest(name=name):
-                self.assertTrue(0 <= metric["precision_at_5"]["macro_mean"] <= 1)
-                self.assertTrue(0 <= metric["map_at_10"]["macro_mean"] <= 1)
-                self.assertTrue(0 <= metric["ndcg_at_10"]["macro_mean"] <= 1)
-                self.assertEqual(metric["precision_at_5"]["query_count"], 16)
+                n = metric["precision_at_5"]["query_count"]
+                if n == 0:
+                    # The historical absolute-cutoff Top-K may legitimately
+                    # have no eligible positive-overlap neighbors at all.
+                    self.assertIsNone(metric["precision_at_5"]["macro_mean"])
+                    self.assertEqual(metric["queries_insufficient_candidates"], 16)
+                else:
+                    self.assertTrue(0 <= metric["precision_at_5"]["macro_mean"] <= 1)
+                    self.assertTrue(0 <= metric["map_at_10"]["macro_mean"] <= 1)
+                    self.assertTrue(0 <= metric["ndcg_at_10"]["macro_mean"] <= 1)
+                    self.assertEqual(n, 16)
         serialized = json.dumps(report)
         self.assertNotIn("FMA/000101.mp3", serialized)
         self.assertNotIn('"101"', serialized)
