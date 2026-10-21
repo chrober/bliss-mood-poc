@@ -122,8 +122,8 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
     groups = defaultdict(list)
     for ix,song in enumerate(ids):
         groups[deam.annotation_cohort(song)].append(ix)
-    if set(groups) != set(GROUPS):
-        raise ValueError("DEAM paired resampling requires both annotation protocols")
+    if not groups or not set(groups).issubset(set(GROUPS)):
+        raise ValueError("DEAM paired resampling requires known annotation protocols")
     results = {name:{axis:[] for axis in AXES} for name in METHODS}
     diagnostics={name:{"queries_complete":0,"queries_abstained":0,
                        "candidate_scores_undefined":0} for name in METHODS}
