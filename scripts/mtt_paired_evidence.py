@@ -24,6 +24,8 @@ def quantile(values: list[float], fraction: float) -> float:
     pos = (len(ordered) - 1) * fraction
     low = int(pos)
     high = min(low + 1, len(ordered) - 1)
+    if low == high:
+        return ordered[low]
     return ordered[low] * (high - pos) + ordered[high] * (pos - low)
 
 
@@ -67,7 +69,8 @@ def paired_sensitivity(rows: list[dict], methods: list[str],
     # graph-cluster bootstrap or population CI. A single connected
     # artist component prevents clean group resampling.
     rng = random.Random(seed + 17)
-    deps = [[artists.index(a) for a in sorted(set(row["artists"]))]
+    artist_index = {name: index for index, name in enumerate(artists)}
+    deps = [[artist_index[a] for a in sorted(set(row["artists"]))]
             for row in rows]
     artist_weighted = [[] for _ in methods]
     for _ in range(replicates):
