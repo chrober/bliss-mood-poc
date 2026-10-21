@@ -69,6 +69,40 @@ Hörbewertung nicht geöffnet und soll nicht als Quelle menschlicher
 Labels verwendet werden. Vollständige PowerShell-Blöcke ausschließlich
 in der Form `& { ... }`.
 
+
+## Current engineering status — targeted read-only diagnosis is ready (21.10.2026)
+
+After the user explicitly requested to continue, PR #16 gained
+a compact per-pair read-only diagnostic mode in scripts/evaluate_similarity.py:
+--pair-details-only with --db, --labels and --include-experimental. It
+reuses the original seven metric implementations and cohort checks;
+it does **not** evaluate 3,000 random pairs, run audio/ONNX,
+rescan music, write SQLite or inspect selection-audit-private.json.
+Both semicolon- and comma-separated reviewed CSV files are accepted.
+Unit tests cover semicolon labels, preserved independent judgments,
+per-pair score/AUC consistency and database immutability.
+
+**Next user action:** run the new diagnostic on their existing LOCAL
+Rust-v5 sidecar and original listening-pairs-review-first8.csv. Write a
+NEW ignored local file similarity-first8-pair-details.json, keeping the
+already successful similarity-first8-labeled.json and the CSV intact.
+Verify model cohort keys, per-head judged counts and the seven AUCs
+match the existing aggregate report before conclusions. The aggregate
+report tells us only that the highest negative Mood cosine score is
+0.9769996802087874, and the lowest positive is 0.7140565571739185;
+it does NOT identify which listening pair is responsible. Never guess
+from filenames: obtain concrete per-pair scores before discussion.
+
+**Research follow-up after local result:** distinguish classifier/
+vector failure, metric mismatch and subjective differences in listening
+criteria. Keep all original labels, explicitly ask about label
+certainty if helpful, and consider independently selected positive
+Genre examples. No metric-selection or mixing-strategy conclusion yet.
+
+Private scores/track identities, CSV and JSON must not be committed.
+PR #16 Draft only, PR #13/#17 and main untouched. Any PowerShell
+instructions must use the full & { ... } format.
+
 ## Warum wir das machen
 
 Das Lyrion/Bliss-Projekt entwickelt eine **musikalisch sinnvolle
