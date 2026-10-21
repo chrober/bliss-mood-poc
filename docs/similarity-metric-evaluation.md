@@ -332,10 +332,40 @@ invalid root prevents lookup; no online audio inspection is performed.
 The script uses the already identified stable player ID (no Unicode
 display-name dependence), checks connection, verifies shuffle off,
 prints every pair/track ID in a **dry-run** and requires a separate
-explicit `LYRION_APPLY=true` to append the ordered IDs to an existing
-queue using one `playlistcontrol cmd:add track_id:...` call. It never
-starts playback or destroys the original queue. The user must not
-rerun Apply mode blindly because adding is not idempotent.
+explicit `LYRION_APPLY=true` for queue writes.
+
+**Real 21 October test and correction:** All 16 requested queue
+positions from the eight listening pairs were resolved to **15
+distinct numeric track IDs**. One song occurred as the right member
+of pair 4 and the left member of pair 5. The old single
+`playlistcontrol cmd:add track_id:id1,...` call answered
+`count:15`, matching the number of distinct IDs; its server-side
+query collapsed the repeated ID **within that request**. The script
+incorrectly interpreted `15 != 16` as a complete failure *after
+already modifying the queue*. At the user's preference, the already
+appended 15-song sequence is usable; do **not** rerun Apply mode.
+The original queue had 41 entries before that call, so a 56-song
+queue would be consistent if nothing else changed. The exact queue
+must be checked before assuming its present state.
+
+**Corrected behavior for future append runs:** One separate
+`playlistcontrol cmd:add track_id:<one numeric ID>` request per
+intended listening position. This preserves repeated songs between
+pairs and removes reliance on database SQL `IN` list multiplicity.
+The script verifies `count=1`, checks the queue increases by
+**exactly one** entry each time, and reads back `status`/
+`playlist_loop` to verify the exact ordered tail, not merely the
+CLI response count. The write is **not atomic** across all entries:
+if a network or validation error occurs partway through, do not
+blindly retry.
+
+Before any writes, a read-only queue-tail check detects both an
+already appended **full** repeated-ID sequence and the older
+**deduplicated** sequence, and refuses to append either again.
+It also checks likely incomplete prefixes. It never starts playback
+or destroys the existing queue. The user should use a **Dry Run**
+to inspect the current state; setting Apply=true is an intentional
+new write, not a way to reverify already added items.
 It takes `LYRION_SERVER_URL`, `LYRION_PLAYER_ID`,
 `LYRION_LISTENING_CSV` and `LYRION_MUSIC_ROOT` from the local PowerShell caller rather than
 committing private LAN/player/file information. Its JSON-RPC HTTP
@@ -347,7 +377,8 @@ can be copied from the conversation or
 The underlying repository script is itself also a complete
 `& { ... }` block. The Windows CI runs a purely **local mocked
 JSON-RPC** test for Unicode, double URL escaping, exact
-path-to-ID validation, wrong roots, dry-run and ordered append. Neither CI nor the script
+path-to-ID validation, wrong roots, duplicate-preserving per-ID writes,
+repeated/legacy queue-tail safeguards, dry-run and ordered append. Neither CI nor the script
 ever reads user music for similarity calculation. The only possible
 write is to a user's chosen Lyrion play queue after Apply=true.
 
