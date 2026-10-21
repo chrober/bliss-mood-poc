@@ -380,6 +380,23 @@ random controls. Its curated pairs are **not** an unbiased held-out
 benchmark or proof of a metric winner. See
 [exact Windows command and methodology](docs/similarity-metric-evaluation.md#21-october-2026--restart-on-numerically-checked-rust-v5-vectors-pr-17-not-required).
 
+## Reproducible PowerShell snippets and local Lyrion listening queue
+
+Project PowerShell examples must always be **complete single copy/paste
+blocks enclosed in `& { ... }`**, including fixes. The convention is
+documented in [docs/powershell-script-conventions.md](docs/powershell-script-conventions.md).
+
+For the PR #16 eight-pair listening pilot, run
+[`scripts/queue_similarity_pairs_lyrion.ps1`](scripts/queue_similarity_pairs_lyrion.ps1).
+It defaults to **dry run**, uses the exact local CSV keys and the
+previously identified stable Lyrion player ID, and explicitly decodes
+Lyrion JSON-RPC bytes as UTF-8. It only **appends** the 16 tracks in
+pairwise order after setting `$Apply = $true`; it does not replace the
+existing queue or start playback. Playback URLs that do not resolve
+exactly cause a preflight failure rather than fallback to an unsafe
+artist/title match. Never rerun the apply mode blindly: it would append
+duplicates.
+
 ## Local files and Git hygiene
 
 `.gitignore` excludes root-level `benchmark-*/` benchmark runs,
