@@ -121,3 +121,80 @@ neue Fusion-Actions-Gate und seine Paarkohorten-
 Metadaten auf PASS prüfen, anschließend
 den Forschungsbefund dokumentieren. Keine
 Kalibrierung anhand der explorativen Ergebnisse.
+
+## Empirischer Nachtrag: vier Rangfusionen jetzt vollständig ausgewertet
+
+**Erfolg:** [GitHub Actions Run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
+ist **vollständig PASS**. Die bislang ausständigen
+Fusionsergebnisse wurden ohne geänderte Kombinationen
+mit einer wiederholten **1019-Clip-Inferenz** berechnet,
+inklusive erneut PASS beim synthetischen 1280D-Patch-,
+L2-, SQLite-/Klassifikations- und Thread-Paritätsgate.
+
+**Prüfbarer [Aggregate-Artifact 12354537538](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)**:
+`results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json`
+(schema_version 2), inklusive vollständiger gepaarter
+Sensitivität. Der v1-A/B-Bericht blieb als separate Datei erhalten.
+
+### Identischer MTT-Mensch-Nenner
+
+293 Fragen mit eindeutiger Mehrheit, 53 menschliche
+Gleichstände. Undefinierte Vorhersage oder
+kombinierter Top-Paargleichstand bleibt auf dem
+gemeinsamen Nenner als **falsch**; nur dadurch ist
+die Zeilen-Gegenüberstellung fair. Alle
+Unterschiede nachfolgend sind rein explorativ.
+
+| Methode | Korrekt | Vorhergesagt | Abstention durch Gleichstand | Coverage | Genauigkeit 293er Nenner |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Direkte Audio-Embedding Cosine | 182 | 293 | 0 | 100,00 % | 62,116 % |
+| Genre Cosine | 191 | 293 | 0 | 100,00 % | 65,188 % |
+| Mood Cosine | 192 | 293 | 0 | 100,00 % | 65,529 % |
+| Mood Centered Cosine | 193 | 293 | 0 | 100,00 % | **65,870 %** |
+| Fix Audio+Genre, Midrank 50:50 | 163 | 234 | 59 | 79,86 % | 55,631 % |
+| Fix Audio+Mood, Midrank 50:50 | 170 | 241 | 52 | 82,25 % | 58,020 % |
+| Fix Genre+Mood, Midrank 50:50 | 167 | 230 | 63 | 78,50 % | 56,997 % |
+| Fix Audio+Genre+Mood, Midrank 1:1:1 | 192 | 283 | 10 | 96,59 % | 65,529 % |
+
+**Interpretation:** Die beiden gleichgewichteten Rang-
+Eingänge können widersprechen, sodass ein gemeinsamer
+Spitzenrang bei exakt drei Paaren öfter gleich ist.
+Das erhöht die Abstentionsrate der Zweierkombinationen
+auf **52–63 der 293** menschenentscheidbaren Fragen.
+Eine bedingt auf vorhergesagte Fragen berechnete
+hohe Quote darf deshalb **nicht** als Produktivvorteil
+berichtet werden. Die Dreierkombination reduziert
+die Gleichstände auf 10, verbessert den gesamten
+293er-Score aber nicht über den reinen Mood-Kopf:
+`192/293` statt `193/293` beim Mood Centered Cosine.
+
+**Paarvergleich Dreierfusion minus Mood Centered:**
+20 Fragen nur durch Dreierfusion korrekt,
+21 nur durch Mood Centered korrekt;
+Differenz **−0,341 Prozentpunkte**;
+naiver gepaarter 95-%-Bootstrap-
+Sensitivitätsbereich **−4,437 bis +3,754 pp**.
+Dies ist **kein statistischer Test auf unabhängige
+Generalisierung**; Frage- und Künstlerabhängigkeiten,
+post-hoc Methodenentwicklung und mögliche
+Trainingskatalog-Überlappung verbieten diese Aussage.
+
+**Fazit für diese exakt fixierte Ablation:**
+Keine der vier einfachen Rangfusionen schlägt
+Mood Centered Cosine auf dem gemeinsamen Nenner.
+Das ist **keine allgemeine Widerlegung** von
+Feature-/Embedding-Fusionen oder von
+auf Entwicklungskohorten kalibrierten
+globalen Fusionsmodellen. Die
+dreiergruppen-lokale Midrank-Methode hat zudem
+keinen unmittelbar produktionsfähigen
+Song-zu-Song-Score. Keine Gewichtoptimierung
+an den bereits untersuchten MTT-Fragen.
+
+**Noch offen:** separate unabhängige
+Song- und Übergangsreferenzen,
+Entwicklungs-/Testtrennung, global vergleichbare
+Scorekalibrierung, separate klang-/genre-/mood-
+spezifische Aufgaben sowie kontrastive Encoder.
+FMA offizieller TEST bleibt unberührt,
+PR #16 Draft, kein Mixer-/PR17-/main-Merge.
