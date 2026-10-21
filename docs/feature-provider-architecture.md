@@ -1,5 +1,7 @@
 # Model-independent features and future mixing strategies
 
+**Update 21.10.2026:** Die bestehenden separaten 87D/56D-Kopfvektoren sind nur **eine** mögliche Song-Repräsentation. Direkte **1280D-Discogs-EffNet-Embeddings** (vor den Klassifikationsköpfen) und **kalibrierte Kombinationen aus Embedding/Genre/Mood** sind gleichberechtigte, noch nicht implementiert/evaluierte Forschungsansätze. Der Encoder liefert den 1280D-Patch-Vektor intern, das aktuelle schema-v3-Feature-Sidecar persistiert ihn aber nicht als Song-Embedding. Minimaler Umsetzungsplan, Paritätsanforderungen, externe Beispiele und Abgrenzung zur hier diskutierten **Bliss-first/Mood-/Genre-first/Hybrid**-Kandidatenarchitektur: [Handover der drei Similarity-Repräsentationsansätze](similarity-three-representation-approaches-handover-2026-10-21.md).
+
 ## Current implementation (experimental)
 
 The Rust proof of concept [bliss-mood-poc](../README.md) implements an
