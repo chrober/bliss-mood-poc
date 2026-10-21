@@ -2,10 +2,12 @@
 
 **Status (2026-10-21):** Full archive membership verified with NO MP3
 download in [GitHub Actions run 39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423).
-A separate four-triplet sparse-audio, artist-disjoint developmental smoke
-has been implemented and started, but it is not a credible population
-benchmark and must not be interpreted as a metric selection or validated
-holdout result. Check the actual actions run state before claiming success.
+A four-triplet sparse-audio, artist-disjoint developmental smoke
+**PASSED** in [GitHub Actions run 39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662).
+The later artist-only holdout-feasibility audit **PASSED** in
+[run 39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265).
+These are not population-level similarity rankings or model-training
+independence claims; no production metric or validated holdout score exists.
 
 ## Official source and provenance
 
@@ -254,3 +256,56 @@ preserve the test-candidate identity hash in the research record.
 These triplets are only held out from our four-triplet analysis,
 not proven outside the original ONNX training corpus. No quality
 result for the 48 candidate holdout questions has yet been measured.
+
+
+## Follow-up: frozen 50/50 artist-hash holdout and smoke exposure controls
+
+[Metadata-only GitHub Actions run 39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265)
+**PASS**. Three predeclared artist-hash reserve thresholds
+were checked without calculating or inspecting any new model scores:
+
+| SHA first-byte cutoff | Development-only triples | Holdout-only triples | Mixed artist triples excluded |
+| --- | ---: | ---: | ---: |
+| 51 (~20%) | 162 | 4 | 180 |
+| 85 (~33%) | 86 | 13 | 247 |
+| 128 (50%) | **31** | **56** | **259** |
+
+The 50/50 design is now recorded as the **preferred, metadata-derived
+artist-hash holdout policy**: SHA-256 of the fixed salt and normalized
+artist string, first byte below 128 reserved to holdout. This
+percentage was chosen **from artist/annotation coverage only**,
+not from classification or similarity performance.
+
+**Prior smoke exposure:** The earlier four-triplet technical smoke
+sampled 12 distinct artists before this explicit partition was
+registered. Eight of the 56 holdout-only triplets share an artist
+with that smoke and are conservatively excluded. Therefore the
+**as-yet-unexposed holdout comprises only 48 unique triplets**.
+Both artist partitions and the 48 remaining triplets have reproducible
+aggregate hashes in the CI report; no music IDs or artist identities
+are published.
+
+This author-level independence is not absolute audio or label
+independence (same artists can be named differently; the Discogs
+encoder's historical training data are not fully known). Strictly
+excluding mixed triples removes **259/346** reference questions;
+therefore any future comparison restricted to these folds describes
+a particular subset of MagnaTagATune and must report label/
+consensus distribution, paired metric coverage and uncertainty.
+
+**No more development/holdout audio analysis has been executed**
+from this revised partition. The prior four-triplet run is an E2E
+smoke only, not a new performance estimate. Before extending
+the benchmark to all 31 development questions, enforce the frozen
+128-byte policy in its selection code; never evaluate the reserved
+48 questions during tuning. Report holdout values only once a
+metric or evaluation policy has been pre-registered and a complete
+independence/uncertainty plan documented.
+
+Implementation:
+[scripts/audit_magnatagatune_holdout.py](../scripts/audit_magnatagatune_holdout.py),
+[tests/test_audit_magnatagatune_holdout.py](../tests/test_audit_magnatagatune_holdout.py).
+Linux and Windows Python regression tests completed successfully in
+[run 39592264225](https://github.com/chrober/bliss-mood-poc/actions/runs/39592264225).
+The metadata-only follow-up ran in under one second and avoided all
+model, MP3 and Rust downloads.
