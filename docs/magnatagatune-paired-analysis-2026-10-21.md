@@ -127,3 +127,53 @@ Seek a genuinely independent, appropriately licensed, human
 similarity/transition dataset for held-out confirmation;
 eventually perform blinded Lyrion playlist listening.
 Do not reuse the MTT 346 questions as new held-out evidence.
+
+
+## Real paired evidence: verified PASS on full 346 MTT corpus
+
+**PASS**: [Actions 39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906),
+[aggregate-only JSON+Markdown artifact 12347665613](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906/artifacts/12347665613).
+Both model heads, all seven metrics, 293 common
+human-majority-scorable unordered triples, 21 paired method
+comparisons/head, 600 deterministic shared-question draws and
+600 exploratory artist-weight perturbations.
+
+**Paired differences in accuracy (A minus B), percentage points,
+always on exactly the same 293 human-scorable triplets with
+metric abstentions counting as incorrect:**
+
+| Head | A minus B | Observed delta | IID-triplet resampling interval | Artist-weight perturbation interval | A-only / B-only correct |
+| --- | --- | ---: | --- | --- | ---: |
+| Genre | Cosine – Centered Cosine | 0.0 pp | −2.1..2.4 pp | −1.2..1.2 pp | 5 / 5 |
+| Genre | Cosine – RMS | +1.7 pp | −2.0..5.1 pp | −0.3..4.1 pp | 17 / 12 |
+| Genre | Centered Cosine – Ranked Top-12 | +0.7 pp | −2.4..3.8 pp | −1.3..2.9 pp | 12 / 10 |
+| Genre | Cosine – old Top-K WJ | +5.1 pp | 2.0..8.9 pp | 3.2..7.0 pp | 21 / 6 |
+| Mood | Cosine – Centered Cosine | −0.3 pp | −2.7..2.4 pp | −2.0..1.4 pp | 8 / 9 |
+| Mood | Cosine – RMS | +10.9 pp | 6.1..15.7 pp | 8.4..13.7 pp | 44 / 12 |
+| Mood | Centered Cosine – Ranked Top-12 | +1.0 pp | −2.7..5.1 pp | −1.4..3.7 pp | 17 / 14 |
+| Mood | Cosine – old Top-K WJ | +21.2 pp | 15.0..27.0 pp | 18.0..24.8 pp | 76 / 14 |
+
+These are *post hoc, descriptive within-corpus sensitivity
+intervals*, not independent population CIs, multiplicity-controlled
+statistical tests or a generalizable best-method proof. The
+single artist-connected component precludes independent artist
+cluster bootstrap. Notably Cosine/Centered are extremely close,
+with 5/5 Genre and 8/9 Mood discordant correct questions.
+Conditional-only old Top-K accuracy is misleading because its
+coverage is reduced. The full 42 pair summaries, without
+clip/artist-level observations, are in the linked aggregate JSON.
+
+The run also saved a **separate pinned Linux Rust-v5 binary cache**
+after compiling the immutable PR #17 source, verifying its SHA256
+manifest and CLI invocation. It took **291.251 s** to analyze
+1,019 clips and merge two private worker SQLite sidecars
+(scoring itself 1.053 s). Variance compared to prior two-worker
+runs (145.505, 231.053, 244.677 s) is large; no direct
+inference speed claim from the CI runner variation.
+
+The next [run 39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
+is the initial **four-worker** same-input A/B and has already
+confirmed true Rust-v5 binary cache HIT (no Cargo build)
+and 1,019-clip research cache HIT (no original archive download).
+Verify its final status, numerical parity, inference walltime
+and peak resource measurements before choosing worker count.
