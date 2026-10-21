@@ -72,12 +72,10 @@ ausführlichen Drei-Ansätze-Handover aktualisieren.
 
 > **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
 >
-> **Verbindliches Einstiegsdokument für die nächste Chat-Session:**
-> [`docs/similarity-representation-comparison-handover-2026-10-21.md`](similarity-representation-comparison-handover-2026-10-21.md).
-> Es beschreibt Konzept, Formeln, vollständige technische Ausgangslage, externe
-> Best-Practice-Referenzen (Essentia, cosine.club), Ist-Forschung, offene
-> Evidenzlücken, Embedding-Exportvertrag, Datensicherheit, CI-Performance
-> und priorisierte neue Schritte im Detail.
+> **Eindeutige Lesereihenfolge für die nächste Chat-Session:**
+> 1. [**Maßgebliches Drei-Ansätze-Handover**](similarity-three-representation-approaches-handover-2026-10-21.md) — Entscheidungsebene, Ziele, Ist-Stand und konkrete E1-Implementierungsaufgabe.
+> 2. [**Technischer Anhang zu A/B/C**](similarity-representation-comparison-handover-2026-10-21.md) — Formeln, Persistenz-/Poolingvertrag, Messplan, Benchmarks und Qualitäts-Gates.
+> Beide Dokumente behandeln denselben Forschungswechsel; keines enthält eine bereits gemessene Überlegenheit von B oder C.
 >
 > | Neuer Similarity-Ansatz | Repräsentation | Implementierungsstand |
 > | --- | --- | --- |
