@@ -169,7 +169,7 @@ class FMAEmbeddingPairedFixture(unittest.TestCase):
                             replicates=120)
         file.write_text(json.dumps(original))
         file.unlink()
-        with self.assertRaisesRegex(ValueError,"exactly the 80 FMA cohort"):
+        with self.assertRaisesRegex(ValueError,"exactly the selected FMA cohort"):
             ab.evaluate(self.db,self.embeddings,self.chosen,self.songs,self.sample_sha,
                         replicates=120)
 
