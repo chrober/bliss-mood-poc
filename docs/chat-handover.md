@@ -1,5 +1,33 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **MTT SPARSE REAL AUDIO E2E PASS + HOLDOUT LIMIT, 21 OCT 2026:**
+> [ZIP membership 39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423)
+> **PASS** using only 8 MiB HTTP Range tail: all **1,019** referenced MP3s
+> found among 25,863 ZIP members, 0 ambiguous/missing. Three consecutive
+> ZIP parts total 2,972,769,864 bytes; needed compressed MP3 member sizes
+> sum to 116,910,845 bytes. **533 ordered records reduce to 346 unique
+> unordered triplets**, requiring aggregated clip-ID votes.
+> [Real Rust-v5 sparse-audio workflow 39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662)
+> **PASS**: 4 deliberately high-consensus artist-disjoint DEVELOPMENT triples,
+> 12 clips CRC checked, 12 bounded HTTP 206 requests transferring only
+> **1,385,735 bytes**, 14.48 seconds transfer+feature inference.
+> Both heads and seven metrics ran, result aggregate-only. Mood cosine
+> got 3/4 majority choices, **NOT generalization evidence**; most job
+> overhead was building Rust-v5 (~88 sec). See
+> [sparse audio benchmark doc](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+>
+> **CRITICAL SCIENTIFIC FINDING:** artist-group preflight
+> [39591601421](https://github.com/chrober/bliss-mood-poc/actions/runs/39591601421)
+> shows **ALL 214 artists + 346 unordered triples in ONE connected
+> artist co-occurrence component**. Strict component-disjoint 80/20
+> holdout impossible without dropping triples. Hash-based artist
+> split gave 162 development, only **4** held-out, 180 mixed excluded.
+> This is scientifically inadequate for metric selection. Do NOT
+> present four selected development triples as independent test data.
+> Future work: larger descriptive MTT evaluation with dependence/vote
+> uncertainty disclosed, plus separate human-similarity confirmation.
+> No production decision, no merge, no private music, PR #16 Draft.
+>
 > **MTG/MAGNATAGATUNE REAL METADATA PREFLIGHT PASS (21 OCT 2026):**
 > Both agreed metadata-only workflows now completed successfully,
 > with **no audio downloads**. MTG-Jamendo split-0 / official
