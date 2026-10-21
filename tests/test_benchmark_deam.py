@@ -134,6 +134,55 @@ class DeamBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting"):
             bench.load_annotations(self.annotation_zip)
 
+    def test_stratified_sampling_freezes_both_deam_cohorts(self):
+        ids = [str(i) for i in range(1, 101)]
+        ids += [str(i) for i in range(2001, 2016)]
+        labels = {ident: (5.0, 5.0) for ident in ids}
+        members = {ident: ident + ".mp3" for ident in ids}
+
+        sample = bench.select_ids(labels, members, 30, 20261021,
+                                  stratify_cohorts=True)
+        self.assertEqual(sample, bench.select_ids(
+            labels, members, 30, 20261021, stratify_cohorts=True))
+        self.assertEqual(len(sample), 30)
+        self.assertEqual(len(set(sample)), 30)
+        self.assertEqual(sum(bench.annotation_cohort(i) == "full_song_2015"
+                             for i in sample), 6)
+        self.assertEqual(sum(bench.annotation_cohort(i) == "earlier_excerpt"
+                             for i in sample), 24)
+        with self.assertRaisesRegex(ValueError, "at least 12"):
+            bench.select_ids(labels, members, 11, 1, stratify_cohorts=True)
+
+    def test_subcohort_reports_are_separate_and_aggregate_only(self):
+        with closing(sqlite3.connect(self.db)) as connection:
+            for head, (capability, count) in bench.ev.MODELS.items():
+                for i in range(2001, 2007):
+                    vec = [0.006 + k * 0.00001 for k in range(count)]
+                    vec[0] = .1 + (i - 2000) * .09
+                    vec[1] = .9 - (i - 2000) * .09
+                    connection.execute(
+                        "INSERT INTO feature_tracks VALUES(?,?,?,?,?)",
+                        (f"DEAM/{i}.mp3", head, capability, f"deam-{head}",
+                         struct.pack("<" + "f" * count, *vec)),
+                    )
+            connection.commit()
+        human = bench.load_annotations(self.annotation_zip)
+        human.update({str(i): (1.5 + (i - 2000) * .6, 2 + (i - 2000) * .5)
+                      for i in range(2001, 2007)})
+        ids = [str(i) for i in range(1, 7)] + [str(i) for i in range(2001, 2007)]
+        data = bench.evaluate(self.db, ids, human, 123,
+                              report_subcohorts=True)
+        self.assertEqual(data["dataset"]["annotation_cohort_counts"],
+                         {"earlier_excerpt": 6, "full_song_2015": 6})
+        self.assertEqual(data["dataset"]["train_overlap_check"], "not_performed")
+        self.assertEqual(len(data["dataset"]["sample_id_sha256"]), 64)
+        self.assertEqual(set(data["subcohorts"]),
+                         {"earlier_excerpt", "full_song_2015"})
+        for cohort in data["subcohorts"].values():
+            self.assertEqual(cohort["songs_evaluated"], 6)
+            self.assertIn("moodtheme", cohort["per_head"])
+        self.assertNotIn("DEAM/2001.mp3", json.dumps(data))
+
     def test_rank_ties_and_constant_reject(self):
         self.assertEqual(bench.average_ranks([10, 10, 15]), [1.5, 1.5, 3])
         self.assertEqual(bench.spearman([1, 2, 3], [3, 2, 1]), -1.)
