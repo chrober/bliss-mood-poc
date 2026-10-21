@@ -88,6 +88,7 @@ def load_fma_small(metadata_zip: Path) -> dict[str, dict]:
 def match_audio(audio_zip: Path, songs: dict) -> dict[str, str]:
     """Index canonical six-digit MP3 names; never extract entire 7.2-GiB ZIP."""
     members = {}
+    invalid_sizes = 0
     with zipfile.ZipFile(audio_zip) as archive:
         for info in archive.infolist():
             if info.is_dir():
@@ -101,8 +102,22 @@ def match_audio(audio_zip: Path, songs: dict) -> dict[str, str]:
             if ident in members:
                 raise ValueError("Ambiguous MP3 filename for FMA track")
             if info.file_size < 10000 or info.file_size > 30 * 1024 * 1024:
-                raise ValueError("Suspicious FMA audio member size")
+                # Public FMA audio contains anomalous entries; exclude
+                # them before deterministic sampling rather than failing
+                # on an MP3 never used by the experiment.
+                invalid_sizes += 1
+                continue
             members[ident] = info.filename
+    if invalid_sizes > 50:
+        raise ValueError(
+            f"Too many anomalous FMA MP3 archive members: {invalid_sizes}"
+        )
+    if len(members) < max(100, len(songs) - 50):
+        raise ValueError(
+            f"Too few valid FMA MP3 files: {len(members)} of {len(songs)}"
+        )
+    print(f"FMA ZIP: {len(members)} usable MP3s, "
+          f"{invalid_sizes} size anomalies excluded.", flush=True)
     return members
 
 
