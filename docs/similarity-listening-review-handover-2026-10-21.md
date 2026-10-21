@@ -7,6 +7,32 @@
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
 
+## FMA Genre benchmark corrected run CONFIRMED PASS
+
+[Workflow run 39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757)
+has **completed successfully**, with
+[aggregate report artifact 12338242831](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757/artifacts/12338242831).
+Canonical FMA-Small contained three unexpectedly sized MP3s. New
+quality gate excluded exactly those while retaining 7,997 playable
+candidate files. Fixed seed: **80 distinct artists**, 10 tracks
+per genre from the official **Validation** split, all processed with
+pinned corrected Rust-v5. Official FMA **TEST** split untouched.
+
+Genre retrieval Precision@5 across seven methods: RMS .3175,
+Cosine .3500, Centered Cosine .3525, Weighted Jaccard .3550,
+historical cutoff Top-K .3150, ranked Top-6 .3150,
+ranked Top-12 .3400; random baseline .113924.
+See docs/fma-genre-benchmark-plan.md for full mAP@10/nDCG@10,
+limits, actual GH timing, license/provenance caveats.
+**No metric winner** or unreported test-split optimization permitted.
+
+GitHub Actions on PR #16 now has separated push-only path-filtered
+Rust and Python CI; observed docs-only commits did NOT run these
+workflows. GH native pull_request paths would use cumulative PR
+diff and be ineffective at suppressing doc-only pushes here.
+Per-song benchmark loops are serial; no adaptive Rust workers.
+Separate safe batched-worker A/B is the next optional speed study.
+
 ## GitHub Actions CI/FMA status correction (21.10.2026)
 
 Real FMA-Small validation run
