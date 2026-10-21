@@ -140,7 +140,15 @@ jobs:
           PY
           echo "metadata_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Download official FMA-Small audio ZIP once, no full extraction or publication
+      - name: Restore bounded verified 80-song FMA cache
+        id: fma_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-screened80-selected-v1-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
+
+      - name: Download full publisher FMA-Small ZIP only on cache MISS
+        if: steps.fma_cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -168,6 +176,32 @@ jobs:
               print("Verified FMA archive", name, "members:", len(members))
           PY
 
+      - name: Build or restore verified private selected-song cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--bundle fma-private/fma-selected-cache/selected.zip
+                --manifest fma-private/fma-selected-cache/selection.json
+                --metadata-zip fma-private/fma_metadata.zip
+                --mtg-metadata-tsv fma-private/mtg-raw.meta.tsv
+                --screened --per-genre 10 --seed 20261021)
+          if [[ "${{ steps.fma_cache.outputs.cache-hit }}" == "true" ]]; then
+            python3 scripts/fma_selected_audio_cache.py verify "${args[@]}"
+          else
+            python3 scripts/fma_selected_audio_cache.py pack "${args[@]}" \
+              --source-audio-zip fma-private/fma_small.zip
+            rm -f fma-private/fma_small.zip
+          fi
+          echo "fma_selected_cache_hit=${{ steps.fma_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "fma_selected_cache_mib=$(du -sm fma-private/fma-selected-cache | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save only the bounded selected-song FMA archive, no full publisher ZIP
+        if: steps.fma_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-screened80-selected-v1-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
+
       - name: Analyze EXACT previous 80 catalog-filtered VALIDATION songs; export private 1280D same pass
         shell: bash
         run: |
@@ -176,7 +210,8 @@ jobs:
           /usr/bin/time -f 'fma_inference_elapsed_s=%e max_rss_kib=%M' \
             python3 scripts/benchmark_fma_genre.py \
             --metadata-zip fma-private/fma_metadata.zip \
-            --audio-zip fma-private/fma_small.zip \
+            --audio-zip fma-private/fma-selected-cache/selected.zip \
+            --selected-cache-manifest fma-private/fma-selected-cache/selection.json \
             --binary validated-rust-v5/target/release/bliss-mood \
             --models-dir models \
             --db fma-private/fma-filtered-validation-features.db \
@@ -216,7 +251,8 @@ jobs:
           /usr/bin/time -f 'fma_paired_evaluation_elapsed_s=%e peak_rss_kib=%M' \
             python3 scripts/evaluate_fma_embedding_ab.py \
               --metadata-zip fma-private/fma_metadata.zip \
-              --audio-zip fma-private/fma_small.zip \
+              --audio-zip fma-private/fma-selected-cache/selected.zip \
+              --selected-cache-manifest fma-private/fma-selected-cache/selection.json \
               --mtg-metadata-tsv fma-private/mtg-raw.meta.tsv \
               --db fma-private/fma-filtered-validation-features.db \
               --embedding-dir fma-private/song-embeddings \
