@@ -203,23 +203,65 @@ jobs:
           ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
           path: validated-rust-v5
           persist-credentials: false
+      # Trusted branch, pinned PR #17 source revision + locked Cargo.lock.
+      # The release binary is smaller to restore than the Cargo target cache.
+      - name: Restore prebuilt pinned Linux Rust-v5 executable
+        id: binary_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
+
+      - name: Ensure ffmpeg decoding prerequisite available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.binary_cache.outputs.cache-hit != 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.binary_cache.outputs.cache-hit != 'true'
         with:
           workspaces: |
             validated-rust-v5 -> target
-      - name: Build validated Rust-v5 CLI using locked Cargo dependencies
+
+      - name: Build Rust-v5 CLI from locked dependencies on binary-cache miss
+        if: steps.binary_cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
           echo "cargo_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
           cargo build --release --locked \
             --manifest-path validated-rust-v5/Cargo.toml \
             --target-dir validated-rust-v5/target
-          ./validated-rust-v5/target/release/bliss-mood analyze-features --help
+          ( cd validated-rust-v5/target/release && sha256sum bliss-mood > bliss-mood.sha256 )
           echo "cargo_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify pinned Rust-v5 binary against build cache integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s validated-rust-v5/target/release/bliss-mood
+          ( cd validated-rust-v5/target/release && sha256sum --check bliss-mood.sha256 )
+          test -x validated-rust-v5/target/release/bliss-mood
+          validated-rust-v5/target/release/bliss-mood analyze-features --help
+          echo "rust_binary_cache_hit=${{ steps.binary_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "rust_binary_bytes=$(stat -c%s validated-rust-v5/target/release/bliss-mood)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save verified pinned Rust-v5 executable for later trusted runs
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
 
       - name: Download pinned upstream Essentia encoder and both heads
         shell: bash
