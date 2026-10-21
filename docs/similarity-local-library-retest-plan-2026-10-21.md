@@ -98,3 +98,95 @@ retroactively.
 **Status:** Steps L0–L3 are documented but deliberately
 **not yet executed**. The local read-only preflight is
 the next independent activity if DEAM remains source-blocked.
+
+## M1 / L0 implementation: auditable feature readiness, not a library scan
+
+The first narrow implementation is now
+[`scripts/audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py)
+with synthetic
+[`tests/test_audit_local_feature_readiness.py`](../tests/test_audit_local_feature_readiness.py).
+It uses **only standard Python modules**, opens an existing schema-v3
+SQLite sidecar with `mode=ro` and `PRAGMA query_only=ON`, and
+does not invoke the Rust scanner, ONNX, LMS or an audio decoder.
+It emits aggregate JSON and **never reports private track keys, audio hashes,
+per-song vectors or individual listening labels**.
+
+On an existing eligible head cohort it deterministically selects at most
+100 same-song pairs (configurable 1–300), and checks:
+
+- Both dominant model cohorts use corrected
+  `experimental-essentia-audio-v5-f32-src-ratio-unvalidated` frontend
+  and the expected 87D / 56D classifier dimensions, nonconstant
+  finite scores, ordered unique class identifiers and correct
+  aggregation.
+- Each sampled song has compatible exact track keys, nonzero
+  patch counts, equal head audio SHA256, the same encoder name/SHA,
+  and valid model-source hashes in both classifier records.
+- If a **local private** `--embedding-dir` is supplied,
+  it checks the versioned 1280D export, song-key-derived file name,
+  song key/audio SHA, encoder SHA, patch count, pooling/fingerprint,
+  preprocessing and unit L2 norm. Missing and invalid sidecars
+  are counted **separately**. Without the directory, coverage is
+  **not assessed**, never falsely counted as zero.
+- Previous SQLite bytes remain unmodified; an optional output JSON
+  path is created only when new, refusing overwrite.
+
+**Scope:** This audits declared provenance and internal consistency,
+not independent C++ numerical parity or model correctness. A positive
+report does **not** complete phase 0 or authorize product use.
+The report records the full compatible-pair count **before sampling**,
+the number of malformed paired vectors excluded, and the counts on
+the selected bounded sample. An absent embedding directory is
+not evidence that no 1280D vectors exist elsewhere.
+
+### First local execution (Windows PowerShell, no queue or audio changes)
+
+After updating the local clone to the PR #16 branch, use the already
+available corrected Rust-v5 feature-sidecar DB. The path below reflects
+the previous research pilot; verify that it exists locally rather than
+assuming it is still current.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $Repo = 'D:\LMS\bliss-mood-poc'
+    $Db = Join-Path $Repo 'benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db'
+    $Audit = Join-Path $Repo 'scripts\audit_local_feature_readiness.py'
+
+    if (!(Test-Path -LiteralPath $Repo -PathType Container)) {
+        throw 'Set $Repo to the existing local repository clone.'
+    }
+    if (!(Test-Path -LiteralPath $Audit -PathType Leaf)) {
+        throw 'Audit script not found. Update your local PR #16 branch first.'
+    }
+    if (!(Test-Path -LiteralPath $Db -PathType Leaf)) {
+        throw 'Research sidecar not found. Set $Db to the previously analyzed local schema-v3 file.'
+    }
+
+    Push-Location -LiteralPath $Repo
+    try {
+        & python $Audit --db $Db --limit 100 --seed 20261021
+        if ($LASTEXITCODE -ne 0) {
+            throw "Read-only feature audit failed with exit code $LASTEXITCODE."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+```
+
+**Expected output:** `lyrion-local-feature-readiness-aggregate-v1`
+JSON printed to the local console, including numbers of compatible
+Genre/Mood song pairs, provenance mismatches, and
+`embedding_status=not_assessed_no_directory` unless a private
+embedding folder is deliberately supplied. No user song
+identifiers appear in that JSON, making it suitable for discussing
+the aggregate counts. **Do not upload the local SQLite database,
+raw music, individual embeddings or listening CSV.**
+
+**Next decision, not yet executed:** Use the measured
+head coverage and any known local embedding-sidecar location
+to decide whether bounded additional 1280D exports are necessary.
+Do not scan the whole library or propose listening pairs until
+this inventory is reviewed. This is **M1 only**, not the M2 listening pilot.
