@@ -15,7 +15,7 @@ import propose_similarity_listening_pairs as proposal
 
 
 def make_db(db, prep=proposal.V5_PREPROCESSING):
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn:
         conn.executescript("""
             PRAGMA user_version=3;
             CREATE TABLE feature_models(
@@ -55,6 +55,7 @@ def make_db(db, prep=proposal.V5_PREPROCESSING):
                     (name, head, capability, head + "-fingerprint",
                      struct.pack("<" + "f" * dimensions, *vec))
                 )
+        conn.commit()
 
 
 def read_pairs(path):
@@ -172,7 +173,7 @@ class PairProposalTests(unittest.TestCase):
                 self.root / "missing.db", dst, 14, 10, 1, 20, False
             )
         self.assertFalse(dst.exists())
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn:
             conn.execute("PRAGMA user_version=2")
         with self.assertRaisesRegex(ValueError, "schema v3"):
             proposal.create_review_files(self.db, dst, 14, 10, 1, 20, False)
