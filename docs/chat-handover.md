@@ -1,5 +1,34 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **UPDATED CURRENT STATUS 21 OCT 2026 — 240-song DEAM and FMA validation:**
+> Two 240-song DEAM GitHub Actions benchmarks passed: unfiltered
+> [39577605466](https://github.com/chrober/bliss-mood-poc/actions/runs/39577605466),
+> conservatively exact MTG-catalog-match-filtered
+> [39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118).
+> Full metadata-only DEAM/MTG screening passed
+> [39579084649](https://github.com/chrober/bliss-mood-poc/actions/runs/39579084649):
+> **75 possible metadata matches**, not proof of model-training usage.
+> Filtered Mood VA-proximity query Spearman: weighted Jaccard .2888,
+> cosine .2868, centered .2813, rms .2711, ranked top-6 .2721,
+> ranked top-12 .2745, historical cutoff top-K .1903
+> (216/240 comparable anchor queries). Different samples, no winner.
+>
+> FMA-Small metadata-only workflow passed
+> [39580107275](https://github.com/chrober/bliss-mood-poc/actions/runs/39580107275):
+> 8,000 tracks, 8 exactly balanced genres, artist-disjoint official
+> training/validation/test split counts 6,400/800/800.
+> New scripts/benchmark_fma_genre.py + regression tests implement
+> real Genre retrieval metrics and bounded artist-unique VALIDATION
+> evaluation; first live 80-song workflow
+> [39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733)
+> was started, check final run logs/artifact before reporting its result.
+> The official FMA test split is reserved. All research workflows use
+> corrected pinned Rust-v5 source from PR #17 in separate checkout,
+> without merging PR #17. See docs/deam-similarity-benchmark.md,
+> docs/fma-genre-benchmark-plan.md and the dated detailed handover.
+> No user music rescans, subjective relabels, selected production metric,
+> PR merge or main changes.
+>
 > **DEAM v5 END-TO-END PASS, 21 Oct 2026:** Official DEAM data
 > successfully downloaded; **1,802** audio/annotation matches; **12**
 > human-annotated DEAM songs analyzed with corrected Rust-v5,
