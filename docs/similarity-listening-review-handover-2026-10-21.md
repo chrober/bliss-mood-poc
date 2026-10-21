@@ -6,6 +6,30 @@
 **Aktiver PR:** [#16 – Evaluate Genre and Mood similarity metrics on real feature sidecars](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, nicht gemergt**.  
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
+## CONFIRMED CI MILESTONE — DEAM Rust-v5 E2E smoke PASSED
+
+GitHub Actions [run 39576010217](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217)
+**completed successfully** with pinned corrected Rust-v5 source from the
+separate PR #17 commit 2c3d44401436b3b41b6e067199016a1ed2335fbf
+(**no merge**) and all seven metrics on 12 DEAM tracks. The official
+archives mapped all 1,802 audio items to human annotations. No track audio,
+per-track scores or personal labels were uploaded; only the aggregate
+[report artifact 12333973414](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217/artifacts/12333973414).
+Synthetic Linux and Windows tests also passed.
+
+Mood head vs human **VA proximity** query Spearman on N=12:
+RMS .301; cosine .308; centered cosine .280; weighted Jaccard .252;
+historical cutoff Top-K .387 (only 6 valid queries); ranked Top-6
+.474; ranked Top-12 .345. Genre correlations to VA were also computed
+but **are not a Genre validation**. These are diagnostic smoke scores
+only: no best metric, no unbiased benchmark, no calibration.
+See docs/deam-similarity-benchmark.md for full table and caveats.
+
+**Next:** scale to larger DEAM cohort after confirming sample protocols
+and potential MTG-Jamendo overlap; implement independent FMA genre-label
+benchmark as separately gated follow-up. No manual eight-pair deep
+analysis needed. Keep PR #16 Draft, main and PR #13/#17 unchanged.
+
 ## CURRENT PRIORITY — automated external DEAM benchmark in PR #16 (21.10.2026)
 
 **User expressly decided to STOP focusing on subjective eight-pair analysis
