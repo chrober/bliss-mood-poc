@@ -19,6 +19,8 @@ jobs:
 
       - name: Evaluate similarity metrics on read-only synthetic feature fixture
         run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Generate deterministic unlabeled pilot listening pairs with strict Rust v5 fingerprint
+        run: python3 -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
 
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
@@ -33,3 +35,5 @@ jobs:
           python-version: '3.13'
       - name: Verify SQLite handles close before tempdir cleanup
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Verify SQLite, UTF-8 filenames and read-only hearing set generation
+        run: python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
