@@ -1,5 +1,21 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **CURRENT PRIORITY 21 OCT 2026 — automatic scientific DEAM benchmark, PR #16.**
+> The user explicitly shifted away from further manual eight-pair listening
+> studies. A reproducible DEAM Valence/Arousal benchmark now lives in
+> [docs/deam-similarity-benchmark.md](deam-similarity-benchmark.md) with
+> scripts/benchmark_deam.py, test_benchmark_deam.py and
+> .github/workflows/deam-benchmark.yml. Synthetically tested on Linux/Windows
+> in GitHub Actions. Official DEAM audio and annotations plus official models
+> will be fetched only by the runner; only aggregate research results can be
+> uploaded. First real workflow run failed because Cargo.lock is not yet
+> committed and --locked prevented build; updated workflow removed --locked.
+> Check DEAM GitHub Actions run 39575405139 (or latest) before claiming any
+> end-to-end result. DEAM's CC BY-NC license, possible MTG-Jamendo train set
+> overlaps and the status of Valence/Arousal **as a similarity proxy** must
+> remain explicit. No metric winner, user-library scan, public music
+> artifacts, mixing decision, main merge or PR #13/#17 changes.
+>
 > **CURRENT HANDOVER (21 October 2026): Similarity-Metriken auf Rust-v5-Daten, Draft-PR #16.**
 > Das folgende Scanner-/Worker-Handover vom 19. Oktober ist historisch,
 > nicht die aktuelle Aufgabenliste. Maßgeblich ist das
