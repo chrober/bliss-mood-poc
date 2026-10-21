@@ -165,6 +165,31 @@ class SparseMttBenchmarkTests(unittest.TestCase):
         self.assertEqual(proof["development_partition_sha256"],
                          holdout.digest_triplets(selected))
 
+    def test_sparse_http_range_retries_are_bounded_and_206_verified(self):
+        from types import SimpleNamespace
+
+        source = mtt.RangeFetcher([2048, 2048, 2048])
+        def fake_curl(argv, **kwargs):
+            self.assertEqual(argv[argv.index("--retry") + 1], "5")
+            self.assertEqual(argv[argv.index("--max-filesize") + 1], "10004")
+            self.assertEqual(argv[argv.index("--range") + 1], "12-15")
+            Path(argv[argv.index("--dump-header") + 1]).write_text(
+                "HTTP/1.1 206 Partial Content\\nContent-Range: bytes 12-15/2048\\n",
+                encoding="ascii")
+            Path(argv[argv.index("--output") + 1]).write_bytes(b"ABCD")
+            return SimpleNamespace(returncode=0, stdout="206", stderr="")
+        with patch.object(mtt.subprocess, "run", side_effect=fake_curl):
+            self.assertEqual(source._part_range(1, 12, 15), b"ABCD")
+        self.assertEqual(source.total_bytes, 4)
+        self.assertEqual(source.requests, 1)
+
+        def ignored_range(argv, **kwargs):
+            return SimpleNamespace(returncode=0, stdout="200", stderr="")
+        with patch.object(mtt.subprocess, "run", side_effect=ignored_range):
+            with self.assertRaisesRegex(RuntimeError, "HTTP range download failed"):
+                source._part_range(1, 12, 15)
+        self.assertEqual(source.total_bytes, 4)
+
     def test_scoring_is_aggregate_only_and_read_only(self):
         groups, cat = mtt.triplets_by_vote(self.comparisons, self.clips)
         chosen = mtt.dev_selection(groups, cat, count=4, seed=20261021)
