@@ -940,3 +940,34 @@ music paths/analysis outputs out of commits. Do **not** ignore
 `Cargo.lock`: this binary application's dependency lockfile should
 be separately versioned once. Git status will continue showing it as
 untracked until added/committed.
+
+
+## PR #16: Audio-Embedding-Repräsentationsvergleich, erste Umsetzung (21.10.2026)
+
+Maßgeblicher Forschungsplan:
+[similarity-three-representation-approaches-handover-2026-10-21.md](similarity-three-representation-approaches-handover-2026-10-21.md).
+Implementierungsvertrag:
+[similarity-representation-comparison-handover-2026-10-21.md](similarity-representation-comparison-handover-2026-10-21.md).
+
+Nach dem repräsentationszentrierten Handover wurde im PR-#16-Branch
+ein **optionaler** `--embedding-out`-Forschungs-Overlay für den
+**unveränderten und exakten** Rust-v5-Commit
+`2c3d44401436b3b41b6e067199016a1ed2335fbf`
+implementiert. Separates JSON-v1-Sidecar mit Encoder/Audio-Hash,
+1280D, f64-Rohpatchmittel, songweiser L2-Norm und
+Fingerprints. Schema-v3-Genre/Mood sowie Mixer bleiben unverändert.
+Erster Smoke: Rust-Unit-Tests und Release-Kompilierung bestanden,
+synthetischer Audio-Lauf zunächst an fehlendem `ffprobe`
+gescheitert; Workflow inzwischen korrigiert, finale Actions-
+Bestätigung prüfen.
+
+MTT-A/B-Recherche ist ebenfalls vorbereitet: über den kuratierten
+1019-Clip-Actions-Cache (bei Miss kein großer Archivdownload)
+privater Embedding-Export aus **demselben** Vier-Prozess-Inferenzlauf,
+danach fünf Methoden auf denselben 346 explorativen Fragen /
+293 eindeutigen menschlichen Mehrheiten. Keine neuen
+klanglichen Resultate behaupten, bevor der
+[MTT A/B Workflow](../.github/workflows/research-mtt-embedding-ab.yml)
+vollständig PASS mit aggregiertem Report ist.
+FMA-TEST unangetastet; die zwei Hybrid-Begriffe weiterhin trennen.
+PR #13, PR #17, `main` und produktiven Lyrion-Mixer nicht verändern.
