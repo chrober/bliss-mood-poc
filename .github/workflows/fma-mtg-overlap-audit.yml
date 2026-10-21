@@ -21,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Offline header fixture corrected; keep fail-fast gates before downloading
+      # the ~342-MiB official metadata ZIP.
       - name: Test synthetic FMA artist and title joins before network
         shell: bash
         run: |
