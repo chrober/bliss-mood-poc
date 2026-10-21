@@ -51,7 +51,7 @@ als Produktionsstandard bewiesen. Siehe
 
 **Konkret als Nächstes:** Den gepinnten, korrigierten
 Rust-v5-Encoder aus PR #17 (immutable Revision
-\`2c3d44401436b3b41b6e067199016a1ed2335fbf\`)
+`2c3d44401436b3b41b6e067199016a1ed2335fbf`)
 prüfen; minimalinvasiv versionierte 1280D-Ausgabe
 plus Patch-Pooling bereitstellen, gegen Essentia
 numerisch prüfen, auf identischen lizenzierten
@@ -63,7 +63,7 @@ Rust-v5-Binary-Cache sind bereits vorhanden;
 nur Versions-/Cache-Anpassungen nach Änderungen,
 keinen privaten Bibliotheks-Rescan und keinen
 FMA-TEST-Zugriff. Keine Produktionsänderung und
-kein Merge nach \`main\`; PR #16 Draft,
+kein Merge nach `main`; PR #16 Draft,
 PR #13 und PR #17 nicht verändern.
 Bei neuen Resultaten diesen Handover **und** den
 ausführlichen Drei-Ansätze-Handover aktualisieren.
