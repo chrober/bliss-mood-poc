@@ -42,9 +42,9 @@ def digest_triplets(triplets) -> str:
     return h.hexdigest()
 
 
-def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
+def evaluate_inputs(triplets: dict, catalog: dict) -> dict:
+    """Audit an already-loaded set of votes; useful for pre-inference gates."""
     started = time.monotonic()
-    triplets, catalog = triplets_by_vote(comparison_csv, clips_csv)
     parent = {}
     def find(artist):
         parent.setdefault(artist, artist)
@@ -168,10 +168,7 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             "component_triplet_count_p50": statistics.median(graph_sizes) if graph_sizes else None,
             "components_with_one_triplet": sum(n == 1 for n in graph_sizes),
         },
-        "source_hashes": {
-            "comparison_sha256": hashlib.sha256(comparison_csv.read_bytes()).hexdigest(),
-            "clip_info_sha256": hashlib.sha256(clips_csv.read_bytes()).hexdigest(),
-        },
+        "source_hashes": {},
         "runtime": {"wall_seconds": round(time.monotonic()-started, 3)},
         "limitations": [
             "Only published comparison artist strings, not audio fingerprints or classifier training labels.",
@@ -183,6 +180,16 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             "Any holdout questions sharing artists with the prior smoke are excluded from untouched independent testing.",
         ],
     }
+
+
+def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
+    triplets, catalog = triplets_by_vote(comparison_csv, clips_csv)
+    result = evaluate_inputs(triplets, catalog)
+    result["source_hashes"] = {
+        "comparison_sha256": hashlib.sha256(comparison_csv.read_bytes()).hexdigest(),
+        "clip_info_sha256": hashlib.sha256(clips_csv.read_bytes()).hexdigest(),
+    }
+    return result
 
 
 def main() -> None:
