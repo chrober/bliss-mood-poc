@@ -1,5 +1,67 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+## 21 October 2026: real Windows kit license audit, 17-package evidence backlog
+
+**Latest release/readiness checkpoint:** The user's already-downloaded
+Windows Essentia dev kit passed a real **read-only** integrity audit:
+
+| Observed field | Verified value |
+| --- | --- |
+| `binary_integrity` | **PASS** |
+| Native EXE/DLLs in closure | **100** |
+| Installed MSYS2 package owners with version metadata | **77** |
+| Valid existing installed/upstream notice-file references | **94** |
+| Missing already-referenced notice files | **0** |
+| Packages with **no installed** notice files | **17** |
+| `distribution_release_status` | **BLOCKED**, manual review required |
+
+Private Windows report:
+`D:\LMS\bliss-mood-poc\audit-windows-essentia-20261021-060841\release-readiness-audit-private.json`.
+Missing an *installed* notice is an evidence gap, not evidence that
+a package lacks a license. The complete list of affected package names
+and distribution scenarios A–D are now in the **authoritative**
+[licensing/distribution strategy](essentia-licensing-distribution-strategy.md).
+
+**Implemented next engineering gate:** 
+`scripts/triage_windows_native_license_gaps.py` runs against the
+existing already verified, unmodified test kit. It writes a private
+exact-version review register for every missing-notice package with
+MSYS2 package metadata (unverified licensing hints), owning DLLs
+and manifest-recorded DLL import chains. It never downloads source
+or invents SPDX grants. The six new Python regression tests PASS
+in both Rust CI jobs. The real Windows-native workflow also calls it
+on the actual staged kit and stores a JSON-only report as build
+diagnostics; native kit hashes/functional smoke remain under CI.
+
+**Security/distribution gate changed:** Native original Essentia
+C++ Windows testing stays enabled but the upload of a new public
+100-binary native DLL test ZIP is now **disabled** on this **public**
+repository pending explicit redistribution, corresponding-source,
+AGPL/FFmpeg, MTG model and notice review. Private-run upload is
+additionally guarded by the explicitly named review variable.
+Historical publicly accessible test artifacts are **not deleted**;
+their status and any earlier distribution obligations require a
+separate human decision. Previously downloaded local verified kits
+can continue supporting user's offline development and PR #16
+similarity investigations.
+
+**Selected distribution approach from existing strategy:**
+For eventual general releases prioritize **C** (provide properly
+licensed worker source/build instructions and use native system
+dependencies) or **D** (standalone Rust DSP with separately
+installed FFmpeg) before **A** (shipping full DLL closure).
+Scenario **B** still ships the original C++ worker executable and
+does not eliminate corresponding AGPL/combination questions.
+A separate model download does not grant a license to use the weights.
+Technical library reduction needs a fresh minimal-audio C++/FFmpeg
+build and fresh *targeted* smoke, never manual removal of old DLLs.
+
+Do not reopen the 100-MP3, controlled PCM or two independently
+downloaded FLAC/WAV numeric tests; all of them already PASS for
+the Windows test scope. `main` / PR #16 unchanged; #17 Draft.
+
+---
+
 ## 21 October 2026: all tested real MP3/FLAC/WAV Windows numeric gates PASS
 
 **Latest authoritative checkpoint superseding historical preflight blockers:**
