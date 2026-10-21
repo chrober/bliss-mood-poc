@@ -1,5 +1,45 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **FMA CATALOG-FILTERED GENRE VALIDATION FINISHED (21 OCT 2026):**
+> [Real filtered run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+> **PASS**, [aggregate artifact 12349595666](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307/artifacts/12349595666).
+> The preflight removed **42 possible exact FMA VALIDATION /
+> MTG-Jamendo artist+title catalog matches among 800**,
+> including 35/100 Hip-Hop. All 80 selected validation
+> MP3s then analyzed with distinct artists, 10 per
+> top-level genre, pinned corrected Rust-v5, official
+> publisher music, **no FMA TEST use**. Verified Rust-v5
+> binary cache HIT and no Cargo build; no FMA audio cached
+> or uploaded.
+>
+> Filtered FMA Genre **Precision@5**:
+> RMS **0.3000**, Cosine **0.3200**, Centered Cosine
+> **0.3225**, Weighted Jaccard **0.3000**, old cutoff
+> Top-K WJ **0.3025**, Ranked Top-6 **0.3125**, Ranked
+> Top-12 **0.3050**. Centered Cosine leads narrowly
+> on filtered P@5 and mAP@10 (**0.1781**), Ranked
+> Top-6 on filtered nDCG@10 (**0.3048** versus
+> Centered **0.3043**). Random P@5 expected **0.113924**;
+> all seven metrics had 80 query scores.
+> Previous unfiltered 80-song FMA validation numbers
+> are from a DIFFERENT cohort; comparing them is
+> descriptive, **NOT a paired estimate of overlap
+> effects, not proof of ONNX training disjointness**.
+> A corpus-level metadata coincidence does NOT
+> establish shared audio or training usage.
+>
+> Completed [FMA catalog research doc](fma-mtg-catalog-overlap-2026-10-21.md)
+> and [FMA plan](fma-genre-benchmark-plan.md) should
+> be read with [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
+> **Next:** preregister expanded validation and
+> paired-query Genre scoring, audit actual model
+> training split/encoder provenance, only then
+> unlock FMA TEST as a single independent check;
+> consider separate human transition judgments.
+> PR #16 Draft; no merge, no local/private music
+> scan or updates to PR #13/#17.
+>
+
 > **FMA–MTG CATALOG SCREEN COMPLETED / FILTERED VALIDATION RUNNING (21 OCT 2026):**
 > Metadata-only [GitHub Actions 39605675932](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932)
 > **PASS**, aggregate [artifact 12347897819](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932/artifacts/12347897819).
