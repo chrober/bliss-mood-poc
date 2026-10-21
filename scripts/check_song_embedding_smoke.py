@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import sqlite3
 
@@ -17,7 +18,30 @@ def read(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def check(directory: Path) -> dict:
+def discover_process_embedding_outputs(directory: Path, *, required: bool = False) -> list[Path]:
+    """Match only embedding outputs, not similarly prefixed classification reports.
+
+    The research parity gate expects four exactly numbered, independent workers.
+    A standalone one-song smoke has no such files and may omit the gate;
+    the multiworker workflow passes --require-process-workers to fail closed.
+    """
+    pattern = re.compile(r"process-worker-([1-9][0-9]*)\\.json")
+    indexed = {
+        int(match.group(1)): path
+        for path in directory.glob("process-worker-*.json")
+        if (match := pattern.fullmatch(path.name)) is not None
+    }
+    if not indexed and not required:
+        return []
+    expected = set(range(1, 5))
+    if set(indexed) != expected:
+        raise AssertionError(
+            f"Expected embedding outputs from workers 1..4; got {sorted(indexed)}"
+        )
+    return [indexed[index] for index in sorted(expected)]
+
+
+def check(directory: Path, *, require_process_workers: bool = False) -> dict:
     off = read(directory / "off.json")
     on = read(directory / "on.json")
     threaded = read(directory / "threads2.json")
@@ -81,10 +105,10 @@ def check(directory: Path) -> dict:
 
     # Four independently initialized ONNX worker processes on the SAME audio.
     # Different completion order cannot alter immutable song embeddings.
-    workers = sorted(directory.glob("process-worker-*.json"))
+    workers = discover_process_embedding_outputs(
+        directory, required=require_process_workers
+    )
     if workers:
-        if len(workers) != 4:
-            raise AssertionError("Expected all four independent process-level worker outputs")
         for worker in workers:
             output = read(worker)
             if output["vector_f32"] != actual:
@@ -135,9 +159,11 @@ def check(directory: Path) -> dict:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--directory", type=Path, required=True)
+    p.add_argument("--require-process-workers", action="store_true",
+                   help="Require four numbered embedding outputs from isolated workers")
     p.add_argument("--summary", type=Path, required=True)
     args = p.parse_args()
-    summary = check(args.directory)
+    summary = check(args.directory, require_process_workers=args.require_process_workers)
     args.summary.write_text(json.dumps(summary, indent=2) + "\n")
     print("PASS: independent pooled-patch oracle, exact heads, v3 DB and thread checks")
 
