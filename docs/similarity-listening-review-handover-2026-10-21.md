@@ -1,5 +1,69 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
+>
+> **Verbindliches Einstiegsdokument für die nächste Chat-Session:**
+> [`docs/similarity-representation-comparison-handover-2026-10-21.md`](similarity-representation-comparison-handover-2026-10-21.md).
+> Es beschreibt Konzept, Formeln, vollständige technische Ausgangslage, externe
+> Best-Practice-Referenzen (Essentia, cosine.club), Ist-Forschung, offene
+> Evidenzlücken, Embedding-Exportvertrag, Datensicherheit, CI-Performance
+> und priorisierte neue Schritte im Detail.
+>
+> | Neuer Similarity-Ansatz | Repräsentation | Implementierungsstand |
+> | --- | --- | --- |
+> | **A Klassifikations-Similarity** | 87D Genre und 56D Mood/Theme Sigmoid-Score-Vektoren; sieben bisher untersuchte Metriken pro Kopf | **Vorhanden**; FMA Validation, DEAM VA-Proxy und volle MTT-Tripel explorativ evaluiert; kein eindeutiger Sieger |
+> | **B Direkte Audio-Embedding-Similarity** | **1.280D Discogs-EffNet-Embedding vor dem Klassifikationskopf**; Song-Pooling, L2-Normierung und Cosine als erste Baseline | **Pro Patch schon intern berechnet**, aber **nicht als Song-Level-Vektor gespeichert oder evaluiert** |
+> | **C Späte Fusion** | Getrennte, kalibrierte/rangbasierte Kombination von Embedding-, Genre- und Mood-Nähe für ein definiertes Musikziel | **Hypothese**, noch nicht getestet oder produktiv gewählt |
+>
+> **Zwei Ebenen nicht verwechseln:** A/B/C sind Audio-*Repräsentationen*
+> und Similarity-/Rank-Policies. `Bliss-first`, `Mood-/Genre-first`
+> und `Hybrid` sind eigenständige *Lyrion-Kandidaten-/Mixstrategien*
+> ([Strategieentscheid](lyrion-bliss-mood-genre-integration.md)).
+> Embedding-/Head-Fusion (C) ist nicht dasselbe wie eine
+> `Hybrid`-Kandidatengenerierung in Lyrion.
+>
+> **Technisches Faktum:** `src/features.rs` besitzt je Patch
+> bereits einen Float32-1280D-Vektor aus
+> `discogs-effnet-bsdynamic-1.onnx`, der die Head-Scores erzeugt.
+> Der gegenwärtige schema-v3-Sidecar speichert nur die 87/56D
+> Head-Aggregate (`feature_tracks.scores_f32_le`), **keine 1280D-
+> Song-Embeddings**. Für B zuerst einen **optionalen, versionierten
+> Song-Embedding-Export** ergänzen: rohe Patches mitteln, erst
+> danach Song-Vektor für Cosine L2-normalisieren; Encoder-/Modell-
+> Hash, Pooling-Version, Patchcount, Floatformat, CRC/Nullnorm-
+> Grenzen und Rust-v5-Head-Parität prüfen. Kein zweiter Encoder-
+> Lauf für identische Patches nötig.
+>
+> **Externe Vorbilder:** Offizieller Essentia-Katalog beschreibt
+> separate *kontrastive* Artist/Label/Release/Track/Multi-Modelle;
+> diese sind **andere Gewichte/Ziele** und dürfen nicht stillschweigend
+> gegen unseren aktuellen Style-Klassifikations-Encoder ausgetauscht
+> werden. [cosine.club](https://cosine.club/about) nutzt bereits
+> **Discogs-EffNet-1280D + Cosine** für produktive Musikähnlichkeitssuche
+> (Beleg für Realisierbarkeit, **nicht** für bessere Lyrion-Qualität).
+>
+> **Priorität der nächsten Session:** (P0) Schema/Pooling/Regression für B
+> implementieren und gegen Essentia-/Python-Referenz prüfen; (P1) B auf
+> denselben vorhandenen, rechtmäßig erreichbaren FMA-/DEAM-/MTT-Tracks
+> mit A vergleichen, Kosten/CI/Abstentionen messen; (P2) C mit
+> wenigen eingefrorenen Gewicht-/Rank-Policies testen, **ohne**
+> unberührten FMA-TEST zu öffnen oder MTT wieder als Holdout
+> auszugeben. Erst danach separater Lyrion-Bliss-first/Feature-first/
+> Hybrid- und Hörtest. GitHub Actions mit Cache, Path-Triggern,
+> passenden Workern und Stage-Zeiten betreiben.
+>
+> **Forschungsgates:** 346 MTT-Tripel schon komplett exploriert
+> (53 menschliche Mehrheits-Ties, 293 auswertbar; **kein MTT-Holdout**).
+> FMA official TEST weiterhin gesperrt; FMA Validation 42/800 mögliche
+> Artist-/Title-Katalogtreffer gegen MTG, **keine bewiesenen Trainings-
+> Duplikate**; DEAM VA kein direktes 56-Tag-Ground-Truth.
+> B/C sind **noch nicht** evaluiert; keine behauptete Embedding-
+> Überlegenheit, keine fixen Fusionsgewichte und **kein**
+> Produktionsmetrikwinner. Kein Scan privater Musik, keine Audio-
+> Weitergabe, `main`/PR #13/#17 unberührt, Draft PR #16.
+>
+
+
 > **FMA CATALOG-FILTERED GENRE VALIDATION FINISHED (21 OCT 2026):**
 > [Real filtered run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
 > **PASS**, [aggregate artifact 12349595666](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307/artifacts/12349595666).
