@@ -93,6 +93,27 @@ All current results are exploratory; there
 is **no production winner** or valid
 post-hoc weight-fitting holdout.
 
+## M1 local feature readiness: implementation delivered; local measurement pending
+
+The project can now run a **bounded, read-only** phase-2
+local feature-inventory report using
+[`scripts/audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py).
+Synthetic source-metadata, 87D/56D, private 1280D sidecar,
+malformed-vector, SHA mismatch, strict no-overwrite and
+SQLite byte-preservation regressions passed on
+[Linux and Windows in CI 39660242090](https://github.com/chrober/bliss-mood-poc/actions/runs/39660242090).
+The command and complete `& { ... }` PowerShell example are in the
+[local listening preflight plan](similarity-local-library-retest-plan-2026-10-21.md#first-local-execution-windows-powershell-no-queue-or-audio-changes).
+
+**No user's actual local database was accessed yet.**
+The next actionable user step is to run that report on the
+previously analyzed 100-song feature DB and return **only the
+non-identifying aggregate JSON**. Without `--embedding-dir`,
+1280D coverage is reported as **not assessed**,
+not presumed missing. Interpret its data as experimental
+internal consistency only; phase 0 remains open,
+and no new library-wide scan or playlist action is authorized.
+
 ## Next small actions
 
 1. **N1:** Validate DEAM publisher/mirror
