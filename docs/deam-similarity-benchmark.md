@@ -373,75 +373,59 @@ The separate [FMA research plan](fma-genre-benchmark-plan.md)
 preserves test split independence.
 
 
-## 21.10.2026: 1280D-vs-Mood/Genre auf derselben DEAM-240-Kohorte – Blocker sauber isoliert
+## Paired 1280D versus Mood/Genre research update — source outage isolated (2026-10-21)
 
-Die neue, nur in PR #16 aktive
+The PR #16-only
 [`research-deam-embedding-ab.yml`](../.github/workflows/research-deam-embedding-ab.yml)
-und [`evaluate_deam_embedding_ab.py`](../scripts/evaluate_deam_embedding_ab.py)
-berechnen mit dem temporären Rust-v5-Research-Overlay
-dieselben 240 katalogbereinigten DEAM-Clips erneut:
-197 ältere Ausschnitte und 43 volle 2015-Songs.
-Alle 240 Songs erhalten direkt aus demselben
-Encoder-Durchlauf 1280D-L2-Song-Embeddings, 87D-Genre-
-und 56D-Mood/Theme-Vektoren; die bestehenden sieben
-Metriken bleiben im alten DEAM-Aggregat unverändert.
+and [`evaluate_deam_embedding_ab.py`](../scripts/evaluate_deam_embedding_ab.py)
+re-analyze the same **240 catalog-screened DEAM clips**
+(197 older excerpts, 43 full-song recordings from 2015)
+using a pinned, temporary Rust-v5 embedding-export overlay.
+The same encoder pass produces a pooled, songwise-L2-normalized
+1280D vector, 87D Genre, and 56D Mood/Theme; the existing
+seven head-based metrics remain unchanged.
 
-Der vorregistrierte Stichproben-Fingerprint
+The preregistered sample SHA256
 `db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0`
-ist die frühere geprüfte Katalogfilter-Kohorte aus
-[DEAM 240 filtered 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118).
-Die bereits beobachtete Mood-Cosine-VA-Spearman-Referenz
-`0.286784551387186` wurde im gescheiterten
-[A/B-Run 39634196144](https://github.com/chrober/bliss-mood-poc/actions/runs/39634196144)
-**exakt erneut reproduziert**. Der anschließende
-Vergleich brach damals wegen **eines unterschiedlichen
-Hash-Serialisierungsformats** ab: Der etablierte DEAM-v1-
-Probenfingerprint verwendet den literalisierten
-Zwei-Zeichen-Separator `\\n`, der neue Evaluator
-irrtümlich einen echten Zeilenumbruch. Der Evaluator
-ist korrigiert, **synthetischer Regressionstest
-und [Linux-/Windows-CI 39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
-PASS**. Es wurde keine neue Stichprobe gezogen,
-keine Musik verändert, keine Mood-Referenz angepasst.
+is the proven, screened cohort from
+[filtered DEAM run 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118).
+The old Mood-Cosine VA Spearman reference
+`0.286784551387186` was reproduced **exactly** in
+[run 39634196144](https://github.com/chrober/bliss-mood-poc/actions/runs/39634196144).
+That run failed *after inference* because the new paired
+evaluator initially encoded the sample IDs using actual line
+breaks, while the original DEAM-v1 fingerprint serialized
+the two-character literal `\\n` separator. The evaluator
+now reproduces the frozen original serialization.
+Synthetic regression and
+[Linux/Windows CI 39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
+passed. No sample, recording, or human VA labels were changed.
 
-Der nachfolgende
-[Run 39638292554](https://github.com/chrober/bliss-mood-poc/actions/runs/39638292554)
-scheiterte **vor der Inferenz durch externe
-DEAM-Quellserver-Nichterreichbarkeit**:
-`curl (28)`, vier Verbindungs-Timeouts nach
-je ca. 30 s bei `cvml.unige.ch:443`.
-Um teure Wiederholungen zu vermeiden, hat die
-Forschungsworkflow-Datei jetzt eine vorgeschaltete
-TCP-443-Fast-Fail-Prüfung (keine Musikdaten,
-kein Modelldownload); deren
-[Run 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
-bestätigte denselben externen Ausfall **innerhalb
-weniger Sekunden und ohne Build/Audio-Download**.
+The subsequent
+[run 39638292554](https://github.com/chrober/bliss-mood-poc/actions/runs/39638292554)
+failed **before inference due to an external source outage**:
+`curl (28)` after four 30-second HTTPS connection attempts
+to `cvml.unige.ch:443`. A fast-fail TCP port preflight now
+runs before costly Rust compilation and ONNX downloads;
+[run 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
+confirmed the source remained unreachable, without downloading
+music or rebuilding Rust.
 
-**Status: gepaarter neuer DEAM-A/B-Ergebnisbericht
-noch NICHT erfolgreich erzeugt.** Es dürfen noch
-keine EffNet-vs-Mood-Spearman-Differenzen aus DEAM
-als empirische Resultate angeführt werden.
+**Status:** No fully completed new **DEAM 1280D-vs-Mood/Genre paired
+result** exists yet. Do not invent or report an embedding-minus-head
+VA Spearman difference from these failed workflows.
 
-Eine öffentliche DEAM-Fundstelle auf
-[Zenodo, DOI 10.5281/zenodo.11400122](https://zenodo.org/records/11400122)
-ist bekannt, aber weder die SHA256-Gleichheit
-aller benötigten Publisher-ZIPs noch die
-Lizenz-/Distributionsprovenienz wurden bestätigt.
-Sie wird **nicht** still als austauschbare
-Quelle eingesetzt; vor einer Fallback-Nutzung
-müssten SHA256 und Archivlayout gegen die
-bereits registrierten Originalarchive geprüft
-werden. Kein DEAM-Musikarchiv und keine privaten
-Embedding-Sidecars werden als GitHub-Artefakt
-hochgeladen.
+A potentially relevant
+[Zenodo record (DOI 10.5281/zenodo.11400122)](https://zenodo.org/records/11400122)
+was found, but neither the publisher ZIP SHA256 identity,
+archive layout, nor licence/distribution provenance is verified.
+Do not silently substitute such a file for the registered
+official archives or upload DEAM audio, song-level labels
+or private embeddings as CI artifacts.
 
-Nächster DEAM-Schritt: zuerst Verfügbarkeit des
-Originalservers wiederherstellen oder
-einen Provenienz-verifizierten Quellmirror
-in einer **separaten kleinen Preflight-Prüfung**
-validieren. Danach nur den vorhandenen
-240-Song-A/B-Workflow erneut ausführen.
-FMA-TEST bleibt unberührt; keine
-unabhängige Model-Training-Disjointness
-und noch kein Produktivverfahren behaupten.
+**Next:** Run a small **source-only** availability or
+archive-provenance preflight; only after an exact,
+licence-compatible source is verified should the existing
+240-song paired workflow be rerun. Official FMA TEST
+remains untouched. Artist/title catalogue overlap screening
+does not prove training independence or production quality.
