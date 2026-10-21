@@ -6,6 +6,51 @@
 **Aktiver PR:** [#16 – Evaluate Genre and Mood similarity metrics on real feature sidecars](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, nicht gemergt**.  
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
+## CURRENT PRIORITY — automated external DEAM benchmark in PR #16 (21.10.2026)
+
+**User expressly decided to STOP focusing on subjective eight-pair analysis
+and use externally sourced scientific evidence.** The first eight listening
+judgments and both local JSONs have been interpreted and archived as
+exploratory only; they are not the next action.
+
+The user approved a GitHub Actions-based pipeline: **DEAM first, FMA later**.
+Changes on the existing PR #16 research branch:
+- scripts/benchmark_deam.py: official static song-level 1..9 Valence/Arousal
+  annotations, numbered MP3s, deterministic selection, existing Rust-v5
+  analyze-features and schema-v3 SQLite sidecar, all seven methods per head,
+  macro-average query Spearman by Valence/Arousal/both; aggregate-only JSON.
+- tests/test_benchmark_deam.py: offline synthetic archive and SQLite tests,
+  incorporated into .github/workflows/ci.yml on Linux and Windows.
+- .github/workflows/deam-benchmark.yml: first limited real 12-song DEAM
+  research smoke on GitHub-hosted ubuntu-24.04, plus workflow_dispatch
+  for later larger runs; downloads official reference ONNX+metadata and
+  licensed DEAM audio/annotation archives. Uploads aggregate report only.
+- docs/deam-similarity-benchmark.md: full implementation, provenance,
+  license and bias caveats.
+
+**Important:** The workflow was first started at commit 476f03d but failed
+before download/build because Cargo.lock is not tracked on this branch and
+--locked refused to generate it. This was corrected at commit 65810b9:
+ordinary cargo build --release in ephemeral runner; tracked Cargo.lock is
+a future reproducibility improvement. Check new DEAM workflow run
+39575405139 and subsequent runs for exact final status; do NOT claim a
+passed real-audio benchmark without completed download, analysis and
+aggregate artifact. Ordinary Rust and synthetic Python CI have passed so far.
+
+External research pitfalls: DEAM contains Jamendo music, so overlap with
+MTG-Jamendo training may invalidate an "independent" claim. Song-level
+Valence/Arousal distance is a PROXY for similarity, not human genre pairwise
+ground truth. Genre-vs.-VA is a negative/control axis, not proof of Genre
+quality. DEAM's manual specifies CC BY-NC and citations. Never commit raw
+audio, annotation ZIPs, music IDs, sidecars or per-track vectors. No production
+metric selection, no main merge, PR #13 and PR #17 untouched, no user music
+rescan, no local Rust builds.
+
+**Next:** Monitor the real DEAM smoke workflow outcome, resolve actual
+download/archive/model/backend issues based on logs, inspect aggregate
+results, then design a larger stratified benchmark and separate FMA Genre
+workflow. Keep PR #16 Draft.
+
 ## ZUERST LESEN: Erster Hörtest ist ausgewertet – Entscheidung über weiteren Verlauf offen
 
 **STATUS 21.10.2026: FIRST8 REVIEW RECEIVED AND ANALYZED.** Der Benutzer hat
@@ -304,4 +349,4 @@ bestehende Bewertungen und Reports nicht überschreiben.
   **vollständig als `& { ... }`**. Keine unaufgeforderten
   Repo-Änderungen während der Hörbewertungsphase.
 
-**Letzter Status (21.10.2026):** Acht Paare bewertet und erfolgreich ausgewertet; keine musikalisch beste Metrik ausgewählt. Die nächste Session diskutiert mit dem Benutzer die Pilotgrenzen und vereinbart erst dann weitere Hör- oder Auswertungsschritte.
+**Aktueller Status (21.10.2026):** Der Benutzer hat die externe, GitHub-Actions-basierte Validierung beschlossen. DEAM-Pipeline implementiert; realer Smoke-Test-Status im oben genannten GitHub-Run verifizieren. FMA erst danach; acht Hörpaare bleiben historische Pilotdaten.
