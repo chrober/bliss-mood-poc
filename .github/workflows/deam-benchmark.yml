@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: 'Number of DEAM recordings to analyze (6..1802)'
+        description: 'DEAM songs (12..1802; default 240), cohort-stratified'
         required: true
-        default: '12'
+        default: '240'
         type: string
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      DEAM_LIMIT: ${{ inputs.limit || '12' }}
+      DEAM_LIMIT: ${{ inputs.limit || '240' }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout pinned numerically verified Rust-v5 analyzer (separate tree)
@@ -38,6 +38,9 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
 
       - name: Verify only a bounded sample is requested
         shell: bash
@@ -45,8 +48,8 @@ jobs:
           python3 - <<'PY'
           import os
           limit = int(os.environ["DEAM_LIMIT"])
-          if not 6 <= limit <= 1802:
-              raise SystemExit("DEAM_LIMIT must be between 6 and 1802")
+          if not 12 <= limit <= 1802:
+              raise SystemExit("DEAM_LIMIT must be between 12 and 1802")
           print("Requested DEAM songs:", limit)
           PY
 
@@ -96,14 +99,30 @@ jobs:
             "$base/DEAM_audio.zip" -o benchmark-private/audio.zip
           test "$(stat -c%s benchmark-private/annotations.zip)" -gt 100000
           test "$(stat -c%s benchmark-private/audio.zip)" -gt 100000000
+          # Private metadata inventory for later MTG-Jamendo overlap matching.
+          # Only CSV header names are printed; never artist names/track rows.
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 --silent --show-error \
+            "$base/metadata.zip" -o benchmark-private/metadata.zip
           python3 - <<'PY'
           import zipfile
-          for name in ("benchmark-private/annotations.zip", "benchmark-private/audio.zip"):
+          import csv, io
+          for name in ("benchmark-private/annotations.zip",
+                       "benchmark-private/audio.zip",
+                       "benchmark-private/metadata.zip"):
               with zipfile.ZipFile(name) as archive:
                   count = len(archive.infolist())
-                  if count < 8:
-                      raise SystemExit("DEAM archive unexpectedly small")
-                  print("Verified ZIP structure, members:", count)
+                  if count < 1:
+                      raise SystemExit("DEAM archive unexpectedly empty")
+                  print("Verified ZIP structure:", name, "members:", count)
+                  if name.endswith("metadata.zip"):
+                      for entry in archive.namelist():
+                          if not entry.lower().endswith(".csv"):
+                              continue
+                          with archive.open(entry) as source:
+                              line = source.readline(8192).decode("utf-8-sig").strip()
+                          print("Metadata CSV:", entry, "header:", line[:350])
+          
           PY
 
       - name: Evaluate seven similarity metrics on Rust-v5 sidecar
@@ -119,12 +138,20 @@ jobs:
             --db benchmark-private/deam-features.db \
             --report results/deam-summary.json \
             --limit "$DEAM_LIMIT" \
-            --seed 20261021
+            --seed 20261021 \
+            --stratify-cohorts
           python3 - <<'PY'
           import json
           with open("results/deam-summary.json", encoding="utf-8") as f:
               report = json.load(f)
           print("DEAM tracks:", report["dataset"]["songs_evaluated"])
+          print("Collection cohorts:", report["dataset"]["annotation_cohort_counts"])
+          print("Train overlap check:", report["dataset"]["train_overlap_check"])
+          for name, group in report.get("subcohorts", {}).items():
+              print("Within-collection:", name, "songs:", group["songs_evaluated"])
+              print("  Mood cosine VA Spearman:",
+                    group["per_head"]["moodtheme"]["cosine"]["axes"]["valence_arousal"]
+                    ["mean_query_spearman"])
           for head, metrics in report["per_head"].items():
               print("Head:", head)
               for name, result in metrics.items():
