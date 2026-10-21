@@ -132,6 +132,44 @@ Die Runtime-Abhängigkeiten müssen pro OS/Architektur prüfbar und im Cache-Pro
 
 **Für die sofortigen Similarity-Untersuchungen** sind keine weiteren Plattformpakete nötig. Diese können auf lokal korrekt installierten Windows-Analysewerkzeugen fortgesetzt werden. Lizenz-Compliance und künftig öffentliche Veröffentlichungen sind ein eigener Workstream.
 
+### Stand 21.10.2026: Numerische Parität ≠ Distributionsfreigabe
+
+Die technische Windows-Parität ist jetzt auch mit **zwei unabhängig
+heruntergeladenen, unveränderten Lossless-Dateien** belegt
+(FLAC 48 kHz/24 Bit und WAV 44,1 kHz/16 Bit; Maximalfehler gegen
+Original-Essentia C++ **2,02e-6** bzw. **1,40e-6** bei unveränderter
+Toleranz **0,001**). Dazu kommen 100 reale MP3-Songs (14.500
+Klassifikationswerte), ein bitidentischer Vergleich zwischen
+vier und sechs Rust-v5-Workern und ein kontrollierter PCM24-WAV/FLAC-Test.
+Details: [Release-Qualification](release-qualification-gates.md).
+Es besteht **kein technischer Grund, diese Audiodateien erneut
+zu analysieren**, nur um eine Distributionslizenzfrage zu beantworten.
+
+Neu ist ein **nur lesender Auditor** für das vorhandene
+Windows-Entwicklerkit:
+`scripts/audit_windows_native_release.py --kit-root D:\LMS\essentia-cli-test`.
+Er prüft anhand des vorhandenen `worker-dependencies.json` die
+Integrität der nativen PE-x64-EXE-/DLL-Closure (Dateigrößen/SHA256)
+und gleicht die echte Dateiliste mit `NATIVE-PROVENANCE.json`,
+MSYS2-Paketversionen und tatsächlich vorhandenen Hinweisdateien ab.
+Fehlende Notices werden namentlich aufgelistet; manipulierte bzw.
+inkonsistente Dateien lassen den Audit fehlschlagen. **Das Skript
+verändert weder das Kit noch installiert es Komponenten.** Vor allem
+meldet es selbst bei intakten Dateien weiterhin
+`distribution_release_status=BLOCKED`; ein erfüllter Hashcheck
+ist keine juristische Prüfung. Siehe auch die ausführbare
+PowerShell-Anleitung in [Release-Qualification](release-qualification-gates.md).
+
+Der nächste echte Release-Schritt ist eine **manuell geprüfte,
+versionsgenaue** Zuordnung von Source/Build-Skripten,
+Weitergabebedingungen, Lizenztexten und Modellen zu allen
+auszuliefernden Komponenten. Die Lizenzfragen zum eng gekoppelten
+EFW1-IPC-Werk und zur Nutzung einzelner MTG-ONNX-Modelle bleiben
+ausdrücklich ungeklärt. Insbesondere darf weder
+`license_inventory_complete` noch `release_approved`
+auf `true` gesetzt werden, nur weil numerische Tests oder die
+technische Paketprüfung bestehen.
+
 ## 8. Konkrete Prüf-/Freigabe-Checkliste
 
 - [ ] **Code-Herkunft:** Rust-DSP (`preprocess.rs`, `audio_decode.rs`) und eigener Worker: unabhängige Implementierung vs. kopierte/übersetzte fremde Quellcodeanteile klären.
