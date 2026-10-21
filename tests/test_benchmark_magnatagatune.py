@@ -121,8 +121,11 @@ class SparseMttBenchmarkTests(unittest.TestCase):
                 position = sum(self.sizes[:part-1]) + start
                 payload = bytearray(self.archive_bytes[position:position+end-start+1])
                 # Damage compressed bytes of some fetch ranges.
-                if len(payload) > 65:
-                    payload[65] ^= 1
+                if len(payload) > 45:
+                    name_len, extra_len = struct.unpack_from("<HH", payload, 26)
+                    first_compressed = 30 + name_len + extra_len
+                    if first_compressed + 2 < len(payload):
+                        payload[first_compressed + 2] ^= 1
                 return bytes(payload)
         getter = DamagedFetcher(self.sizes)
         with self.assertRaises((ValueError, zlib.error)):
