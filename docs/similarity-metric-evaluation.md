@@ -2,8 +2,19 @@
 
 **Research only. No selected production metric or calibrated similarity probability.**
 
-**NEUER ENTSCHEIDUNGSRAHMEN (21.10.2026):** Dieses Dokument bewertet die sieben Metriken ausschließlich auf den bereits extrahierten 87D-Genre-/56D-Mood-Klassifikationswerten (**Ansatz A**). Noch nicht bewertet sind **1280D Discogs-EffNet-Audio-Embeddings (Ansatz B)** und eine **calibrierte Fusion aus Embedding + Genre + Mood (Ansatz C)**. Forschungs- und Übergabeplan: [Drei Repräsentationsansätze](similarity-three-representation-approaches-handover-2026-10-21.md). Weder Song-Level-Embedding-Pooling noch Embedding-Cosine oder Feature-Fusion ist bereits empirisch in PR #16 validiert. Dies ist eine andere Entscheidungsebene als Bliss-first/Feature-first/Hybrid-Kandidatengewinnung.
-
+**Research framing (2026-10-21):** This document evaluates
+the seven existing metrics on the already extracted 87D Genre
+and 56D Mood/Theme classification vectors (**approach A**).
+Direct 1280D Discogs-EffNet song embeddings (**approach B**)
+and a calibrated embedding/Genre/Mood fusion (**approach C**)
+are separate representation comparisons, documented in the
+[central roadmap](similarity-lyrion-roadmap.md) and
+[three-representation handover](similarity-three-representation-approaches-handover-2026-10-21.md).
+**Historical-status correction:** Subsequent research added and
+evaluated a versioned 1280D song-level export on MTT/FMA and
+exploratory fixed rank fusion. These findings do **not** select a
+production method. Representation A/B/C is distinct from
+Bliss-first/feature-first/hybrid candidate generation.
 
 
 The benchmark compares 87-dimensional Genre and 56-dimensional Mood/Theme
