@@ -1,140 +1,96 @@
-# Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
+# Handover: Local Genre/Mood listening review and research similarity evidence
 
-## NEUES FORSCHUNGSZIEL: Drei Song-Repräsentationen fair vergleichen
+**Updated:** October 21, 2026, English-only documentation.
+**Current overall plan:** [Similarity-to-Lyrion roadmap](similarity-lyrion-roadmap.md).
+**Representation-level detail:**
+[A/B/C song-representation handover](similarity-three-representation-approaches-handover-2026-10-21.md).
+Only `feat/similarity-metric-evaluation`, Draft PR #16;
+no changes to `main`, PR #13/#17 or the production mixer.
 
-**Aktueller Einstieg für die nächste Chat-Session:**
-[Ausführliches Handover zu A/B/C](similarity-three-representation-approaches-handover-2026-10-21.md).
-Die älteren Hörtest-, DEAM-, FMA- und MTT-Notizen in diesem
-Dokument bleiben als **historische Evidenz** erhalten. Der
-erste Acht-Paar-Hörtest ist NICHT Grundlage einer neuen
-endgültigen Modellentscheidung.
+## Purpose and correct current status
 
-Wir untersuchen jetzt zwei Fragen getrennt:
-**Welchen Feature-Raum nutzen wir?** und
-**mit welcher Metrik vergleichen wir darin?**
-Drei neue/eigene Repräsentationsalternativen:
+We want human listening evidence to decide how similar
+two songs really sound, and separately whether one is
+a good **immediate playlist successor**.
+The mathematical representation question
+(classifier heads A / direct 1280D embedding B /
+carefully calibrated combination C) is independent
+of the product architecture question
+(Bliss-first / feature-first / hybrid candidate pools).
 
-| Pfad | Technische Idee | Heute bereits empirisch geprüft? |
+The initial local hearing pilot of **eight pairs
+has already been received and analyzed**; do not
+ask the user to repeat or newly fill the first
+eight rows. It was not adequate for production
+metric selection. The subsequent external MTT
+and FMA A/B experiments have now completed;
+these older chronological notes must not be
+interpreted as saying embeddings have never
+been extracted or measured.
+
+**Experimental extraction exists, but phase 0
+is not fully verified and not production-ready.**
+The user's local schema-v3 Genre/Mood sidecar
+does not automatically contain song-level 1280D
+embeddings. The next local step is a bounded
+read-only inventory (phase 2), then an approximately
+12-contrast listening-protocol pilot and a distinct
+new evaluation block; no automatic full-library
+rescan or queue append.
+
+## Methods and evidence hierarchy
+
+| Approach | Representation | Current evidence |
 | --- | --- | --- |
-| **A — Genre/Mood-Klassifikationsvektoren** | 87D Genre und 56D Mood/Theme separat (jeweils aggregierte Sigmoid-Aktivierungen), Cosine/Centered Cosine/Weighted Jaccard und historische weitere vier Metriken | **Ja**: FMA-Small (Genre), DEAM (VA-Proxy für Mood), MagnaTagATune (allgemeine menschliche Triplet-Similarity) |
-| **B — Direktes EffNet-Embedding** | **1280D pro Patch vor den Klassifikationsköpfen**, versioniertes Song-Pooling und L2/Cosine. Beispielsweise verwendet [cosine.club](https://cosine.club/about) Discogs-EffNet-Embeddings und Cosine in einer realen Musikähnlichkeitssuche | **Nein**, Encoder intern vorhanden, bisherige Sidecars aber ohne persistiertes 1280D-Song-Embedding |
-| **C — Fusion von Audio, Genre und Mood** | A+B separat berechnen, vergleichbar skalieren, vorab definierte Kombinationen/kleiner Gewichtssuchraum, auf Development-Daten kalibrieren | **Nein**, erst nach echtem B/A-Vergleich testen |
+| A | 87D Genre and 56D Mood classifier head values; cosine, centered cosine, weighted Jaccard, RMS and historical Top-K variants | Explored in MTT, FMA and DEAM reference tasks |
+| B | Raw 1280D Discogs-EffNet patches aggregated by song, normalized with L2, cosine | Optional research export implemented; same-song MTT and FMA A/B passed |
+| C | Fusion of embeddings and head evidence | Four untrained local midrank MTT ablations evaluated; globally calibrated song-score fusion still unproven |
 
-**NICHT VERWECHSELN** mit den drei Lyrion-
-*Kandidatengewinnungsstrategien*
-**Bliss-first / Mood-/Genre-first / Hybrid**.
-Diese betreffen die *Auswahl und Zulassung* von Songs
-und bleiben gesondert offen; auch mit Bliss-first
-kann C als Re-Ranking-Score verwendet werden.
+**Human target ≠ model label ≠ playlist quality.**
+MTT's 293 unique-majority questions do not
+leave a new independent holdout; FMA VALIDATION
+evaluates coarse Genre retrieval; DEAM human VA
+is a Mood/emotion proxy and the new paired
+DEAM 1280D comparison is source-blocked.
+No evidence establishes an optimal production
+metric or Fusion-C weighting. The official
+FMA TEST was not inspected.
 
-**Testdesign:** gleiche echten Audio-Clips, dieselbe
-geprüfte numerische Rust-v5-Encoder-Version,
-gleiche Patch-Preprocessing-Pipeline und
-identische menschliche Fragen / Genre- / Mood-Labels
-für A, B und C. Genre- und Mood-Erfolg getrennt
-bewerten; allgemeinen MTT-Similarity-Erfolg nicht
-als Genre-/Mood-Korrektheit interpretieren. MTT
-346 Tripel / 1019 Clips sind **vollständig
-explorativ** analysiert, daher **kein unabhängiger
-MTT-Holdout**. Im 80-Song-FMA-VALIDATION-
-Wiederholungslauf wurden 42 von 800 mögliche
-exakte MTG-Katalog-Matches aus dem Pool
-ausgeschlossen; die neue 80er-Auswahl ist
-**nicht mit der alten gepaart**. FMA-TEST
-bleibt unangetastet. Alle Metriken benötigen
-Paired-Analyse, Coverage/Abstentionsangaben
-und klare, nicht überzogene Unsicherheitsangaben.
+### Previously verified external research
 
-**Erster technischer Arbeitsauftrag:**
-Im gepinnten PR-#17-Rust-v5-Code
-(Commit `2c3d44401436b3b41b6e067199016a1ed2335fbf`)
-den 1280D-Encoder-Output, Patches und das
-aktuelle schema-v3-Feature-Speicherformat
-überprüfen. Song-Mittelwert-Embeddings
-als **separaten, signierten, versioniert
-fingerprintierten Featuretyp** minimalinvasiv
-für Forschungszwecke exponieren; zunächst
-Essentia-C++/ONNX-Patch-Parität und
-unveränderte 87D-/56D-Köpfe messen,
-danach MTT-Cache für Vergleich A/B nutzen.
-Erst mit verifizierter Evidenz C evaluieren.
-Keine lokalen Windows-Rust-Builds, nur GitHub
-Actions; vier feste CI-Worker und Audio-/Binary-
-Cache zur Laufzeitbegrenzung wiederverwenden.
-Kein Eingriff in private Musikbibliothek,
-Lyrion-Produktion, PR #13 oder #17;
-kein Merge nach `main` ohne Freigabe.
+- MTT direct 1280D cosine **182/293**,
+  Mood centered cosine **193/293**;
+  [A/B run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
+  and [synthetic patch/thread/SQLite regression 39618323154](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154)
+  PASS. Four untrained fixed-rank fusions were
+  evaluated in [run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040);
+  no fusion exceeded 193/293 on the common denominator.
+- FMA same 80 screened VALIDATION tracks:
+  embedding Genre P@5 **0.2800**,
+  Genre cosine **0.3200**, Genre centered
+  **0.3225**; [run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
+  PASS.
+- DEAM prior filtered 240-song
+  Mood cosine VA Spearman **0.28678455**;
+  the new paired A/B code/fingerprint
+  was corrected and tested, but official
+  source host `cvml.unige.ch:443`
+  did not accept connections.
+  **No new 1280D DEAM score exists.**
+- The selected FMA audio cache reused
+  80 original recordings (76.51 MiB)
+  across warm workflows instead of
+  the full 7.2-GiB download; no
+  licensed music was uploaded as
+  a result artifact.
 
-**In den nächsten Chat übernehmen:** Den
-aktualisierten [Chat-Handover](chat-handover.md),
-dieses Dokument,
-[Similarity-Metrik-Doku](similarity-metric-evaluation.md),
-[Cross-Dataset-Evidenz](similarity-cross-dataset-evidence-2026-10-21.md)
-und den neuen ausführlichen Drei-Ansätze-Handover
-lesen. Danach E1 direkt umsetzen.
-
-
-> **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
->
-> **Eindeutige Lesereihenfolge für die nächste Chat-Session:**
-> 1. [**Maßgebliches Drei-Ansätze-Handover**](similarity-three-representation-approaches-handover-2026-10-21.md) — Entscheidungsebene, Ziele, Ist-Stand und konkrete E1-Implementierungsaufgabe.
-> 2. [**Technischer Anhang zu A/B/C**](similarity-representation-comparison-handover-2026-10-21.md) — Formeln, Persistenz-/Poolingvertrag, Messplan, Benchmarks und Qualitäts-Gates.
-> Beide Dokumente behandeln denselben Forschungswechsel; keines enthält eine bereits gemessene Überlegenheit von B oder C.
->
-> | Neuer Similarity-Ansatz | Repräsentation | Implementierungsstand |
-> | --- | --- | --- |
-> | **A Klassifikations-Similarity** | 87D Genre und 56D Mood/Theme Sigmoid-Score-Vektoren; sieben bisher untersuchte Metriken pro Kopf | **Vorhanden**; FMA Validation, DEAM VA-Proxy und volle MTT-Tripel explorativ evaluiert; kein eindeutiger Sieger |
-> | **B Direkte Audio-Embedding-Similarity** | **1.280D Discogs-EffNet-Embedding vor dem Klassifikationskopf**; Song-Pooling, L2-Normierung und Cosine als erste Baseline | **Pro Patch schon intern berechnet**, aber **nicht als Song-Level-Vektor gespeichert oder evaluiert** |
-> | **C Späte Fusion** | Getrennte, kalibrierte/rangbasierte Kombination von Embedding-, Genre- und Mood-Nähe für ein definiertes Musikziel | **Hypothese**, noch nicht getestet oder produktiv gewählt |
->
-> **Zwei Ebenen nicht verwechseln:** A/B/C sind Audio-*Repräsentationen*
-> und Similarity-/Rank-Policies. `Bliss-first`, `Mood-/Genre-first`
-> und `Hybrid` sind eigenständige *Lyrion-Kandidaten-/Mixstrategien*
-> ([Strategieentscheid](lyrion-bliss-mood-genre-integration.md)).
-> Embedding-/Head-Fusion (C) ist nicht dasselbe wie eine
-> `Hybrid`-Kandidatengenerierung in Lyrion.
->
-> **Technisches Faktum:** `src/features.rs` besitzt je Patch
-> bereits einen Float32-1280D-Vektor aus
-> `discogs-effnet-bsdynamic-1.onnx`, der die Head-Scores erzeugt.
-> Der gegenwärtige schema-v3-Sidecar speichert nur die 87/56D
-> Head-Aggregate (`feature_tracks.scores_f32_le`), **keine 1280D-
-> Song-Embeddings**. Für B zuerst einen **optionalen, versionierten
-> Song-Embedding-Export** ergänzen: rohe Patches mitteln, erst
-> danach Song-Vektor für Cosine L2-normalisieren; Encoder-/Modell-
-> Hash, Pooling-Version, Patchcount, Floatformat, CRC/Nullnorm-
-> Grenzen und Rust-v5-Head-Parität prüfen. Kein zweiter Encoder-
-> Lauf für identische Patches nötig.
->
-> **Externe Vorbilder:** Offizieller Essentia-Katalog beschreibt
-> separate *kontrastive* Artist/Label/Release/Track/Multi-Modelle;
-> diese sind **andere Gewichte/Ziele** und dürfen nicht stillschweigend
-> gegen unseren aktuellen Style-Klassifikations-Encoder ausgetauscht
-> werden. [cosine.club](https://cosine.club/about) nutzt bereits
-> **Discogs-EffNet-1280D + Cosine** für produktive Musikähnlichkeitssuche
-> (Beleg für Realisierbarkeit, **nicht** für bessere Lyrion-Qualität).
->
-> **Priorität der nächsten Session:** (P0) Schema/Pooling/Regression für B
-> implementieren und gegen Essentia-/Python-Referenz prüfen; (P1) B auf
-> denselben vorhandenen, rechtmäßig erreichbaren FMA-/DEAM-/MTT-Tracks
-> mit A vergleichen, Kosten/CI/Abstentionen messen; (P2) C mit
-> wenigen eingefrorenen Gewicht-/Rank-Policies testen, **ohne**
-> unberührten FMA-TEST zu öffnen oder MTT wieder als Holdout
-> auszugeben. Erst danach separater Lyrion-Bliss-first/Feature-first/
-> Hybrid- und Hörtest. GitHub Actions mit Cache, Path-Triggern,
-> passenden Workern und Stage-Zeiten betreiben.
->
-> **Forschungsgates:** 346 MTT-Tripel schon komplett exploriert
-> (53 menschliche Mehrheits-Ties, 293 auswertbar; **kein MTT-Holdout**).
-> FMA official TEST weiterhin gesperrt; FMA Validation 42/800 mögliche
-> Artist-/Title-Katalogtreffer gegen MTG, **keine bewiesenen Trainings-
-> Duplikate**; DEAM VA kein direktes 56-Tag-Ground-Truth.
-> B/C sind **noch nicht** evaluiert; keine behauptete Embedding-
-> Überlegenheit, keine fixen Fusionsgewichte und **kein**
-> Produktionsmetrikwinner. Kein Scan privater Musik, keine Audio-
-> Weitergabe, `main`/PR #13/#17 unberührt, Draft PR #16.
->
-
+The following originally English sections
+record earlier published CI experiments.
+Their historical "Next" statements describe
+what was planned at that time; the
+current [central roadmap](similarity-lyrion-roadmap.md)
+and [chat handover](chat-handover.md) override
+outdated interim priorities.
 
 > **FMA CATALOG-FILTERED GENRE VALIDATION FINISHED (21 OCT 2026):**
 > [Real filtered run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
@@ -777,69 +733,74 @@ this does **not** merge/edit PR #17 or main. Check DEAM workflow run
 39576010217 for build, real evaluation and final artifact status. Do not
 claim success of real end-to-end scientific benchmark until this completes.
 
-## ZUERST LESEN: Erster Hörtest ist ausgewertet – Entscheidung über weiteren Verlauf offen
+## First eight local human judgments — verified exploratory pilot
 
-**STATUS 21.10.2026: FIRST8 REVIEW RECEIVED AND ANALYZED.** Der Benutzer hat
-die ersten **acht Songpaare** unabhängig nach Genre und Mood bewertet und
-die erfolgreiche lokale read-only Auswertung
-`similarity-first8-labeled.json` geliefert. **Nicht mehr auf die erste
-CSV warten.** Die persönliche Hörbewertungs-CSV, JSON-Auswertung und
-Musikdateien verbleiben lokal; **keine der privaten Dateien im Repo speichern**.
+**Already analyzed locally** with a read-only
+`similarity-first8-labeled.json` report.
+Original listening CSV, feature DB, audio and
+per-pair scores remain **only on the user's
+machine** and must not be committed.
 
-**Gesicherte Pilotbefunde:**
-- Bewertungs-CSV lokal mit **Semikolon** getrennt. `Import-Csv` ohne
-  `-Delimiter ';'` las die Labels leer; auch der Python-Evaluator erwartet
-  Kommas. Die CSV wurde daher **als zusätzliche komma-separierte Kopie**
-  exportiert, ohne die ursprünglichen Hörurteile zu verändern. Der
-  Evaluator wurde anschließend erfolgreich ausgeführt.
-- **Acht beurteilte Paare pro Head, keine fehlenden kompatiblen Vektoren.**
-- **Genre: 0 positive, 8 negative Bewertungen.** ROC-AUC für alle sieben
-  Metriken `null`/`n/a`: ohne positive Genre-Paare lässt sich ihre
-  Trennleistung nicht prüfen.
-- **Mood/Theme: 4 positive, 4 negative Bewertungen.** ROC-AUC:
-  `rms 0.5000`, `cosine 0.5625`, `centered_cosine 0.5625`,
-  `weighted_jaccard 0.5000`, historisches cutoff-basiertes
-  `topk_weighted_jaccard 0.3750`, `topk6_ranked_jaccard 0.3125`,
-  `topk12_ranked_jaccard 0.5000`.
-- Beim historischen cutoff-basierten Top-K haben **alle vier positiv
-  bewerteten Mood-Paare Score 0**; drei von vier negativen ebenfalls
-  Score 0, das vierte 0.7603. Das ist mit dem zuvor identifizierten
-  absoluten Cutoff-Problem vereinbar. Im gesamten ungekennzeichneten
-  Zufallssample: 1.835 Nullwerte unter 2.979 definierten Mood-Paaren
-  sowie 21 undefinierte Scores.
-- 3.000 Zufallspaare je Head **sind keine 3.000 menschlichen Bewertungen**.
-  Bei vier positiven und vier negativen Mood-Paaren beruht die AUC auf
-  nur 16 positiven-vs.-negativen Scorevergleichen, einschließlich
-  halber Punkte bei Gleichständen. `0.5625` = 9/16.
-- Die Paar-Auswahl war **metrikenabhängig**, das Pilotresultat ist
-  selektionsverzerrt und ausdrücklich **kein** Nachweis einer
-  allgemeingültig besten Metrik, keiner Musikqualität und keiner
-  produktionsreifen Integration.
-- Der Benutzer berichtet **Unsicherheit bei mehreren Hörurteilen**.
-  Diese Labels bleiben unverändert und gelten als vorläufige
-  subjektive Beobachtungen. Nicht „falsche“ Labels aus Modell-Scores
-  oder Künstlernamen ableiten und nicht automatisch nachbewerten.
-  Eine Sicherheitsskala wurde noch **nicht erhoben**.
+The reviewed CSV was originally semicolon-delimited;
+`Import-Csv` without `-Delimiter ';'` and the
+old comma-only evaluator misread labels.
+A separate comma-formatted copy was used
+without changing any judgments, and the
+read-only evaluation succeeded. Later
+per-pair diagnostics accept both delimiters.
 
-**Nächster Schritt (gemeinsam mit dem Benutzer entscheiden):**
-Pilot diagnostizieren statt einen Sieger auszurufen. Bei Bedarf
-(1) Bewertungskriterien für Stil vs. Stimmung/Energie präzisieren,
-(2) pro Urteil freiwillig Sicherheit/Anmerkung ergänzen, ohne die
-Original-CSV zu überschreiben, (3) mehrere bewusst ähnliche
-Genre-Positivbeispiele samt schwierigen Gegenbeispielen beurteilen,
-(4) die restlichen 16 vorgeschlagenen Paare oder einen separaten
-blind/held-out ausgewählten Satz anhören. Für das Identifizieren
-einzelner Score-Diskrepanzen reichen die aggregierten JSON-Werte nicht:
-nur nach Absprache eine **read-only paarweise Diagnose** auf
-vorhandenen Feature-Vektoren vornehmen. **Keine weiteren Experimente,
-Queue-/Codeänderungen oder neue Metrikentscheidung eigenmächtig starten.**
+- **Eight judged pairs per head**, no missing
+  compatible head vectors.
+- **Genre:** zero positive and eight negative
+  human judgments. Genre ROC-AUC is `null`
+  for all seven methods because no positive
+  class exists.
+- **Mood/Theme:** four positive and four
+  negative. ROC-AUC by method:
+  RMS **0.5000**, Cosine **0.5625**,
+  Centered Cosine **0.5625**,
+  Weighted Jaccard **0.5000**,
+  historical absolute-cutoff Top-K
+  **0.3750**, Ranked Top-6 **0.3125**,
+  Ranked Top-12 **0.5000**.
+- In the historical cutoff-based Top-K,
+  all four positive Mood pairs scored zero,
+  three negatives scored zero, and one
+  negative scored 0.7603. In the wider
+  *unlabeled* random sample, **1,835 of
+  2,979 defined** Mood-pair scores were
+  zero, plus 21 undefined scores.
+- The 3,000 random pairs per head were
+  **not** 3,000 human ratings. Four Mood
+  positives against four Mood negatives
+  produce only 16 positive-negative
+  score comparisons; `0.5625 = 9/16`
+  after the tie policy.
+- Pair selection was **metric-driven**,
+  hence pilot AUC is selection biased.
+  The user expressed uncertainty over
+  some listening labels; preserve them
+  verbatim, do not derive replacements
+  from ONNX scores or filenames. Confidence
+  was not collected in this original pilot.
 
-PR #16 bleibt Draft, PR #13 und #17 bleiben getrennt und ungemergt,
-`main` unverändert. `selection-audit-private.json` wurde für die
-Hörbewertung nicht geöffnet und soll nicht als Quelle menschlicher
-Labels verwendet werden. Vollständige PowerShell-Blöcke ausschließlich
-in der Form `& { ... }`.
+Next controlled human evidence should
+include independently human-rated
+positive Genre controls, clear negatives,
+challenge pairs where representations
+disagree, and separate criteria for
+Genre, Mood/energy, audible similarity
+and next-song suitability. Use a small
+~12-contrast instrument test, then a
+new, previously unseen 24–40-pair block;
+do **not** retrofit old labels or
+call the pilot a production validation.
 
+The original selection audit
+`selection-audit-private.json`
+must not be used as human ground truth.
+PR #16 remains Draft; do not alter
+the mixer or private playlist queue.
 
 ## Current engineering status — targeted read-only diagnosis is ready (21.10.2026)
 
@@ -874,295 +835,168 @@ Private scores/track identities, CSV and JSON must not be committed.
 PR #16 Draft only, PR #13/#17 and main untouched. Any PowerShell
 instructions must use the full & { ... } format.
 
-## Warum wir das machen
+## Original local listening setup and lessons learned (English historical digest)
 
-Das Lyrion/Bliss-Projekt entwickelt eine **musikalisch sinnvolle
-Similarity-Rangfolge** aus experimentellen ONNX Genre- und Mood/Theme
-Feature-Vektoren, getrennt für beide Heads. Zu untersuchende Verfahren:
+The first pair-selection script used
+[`propose_similarity_listening_pairs.py`](../scripts/propose_similarity_listening_pairs.py)
+on an existing **100-song** corrected
+Rust-v5 head-feature sidecar and sampled
+3,000 unlabelled pairs per head.
+Seven separate functions were compared:
+RMS, cosine, centered cosine, weighted Jaccard,
+historical cutoff Top-K with threshold 0.10,
+ranked Top-6 and ranked Top-12 Jaccard.
+The selection procedure selected 24 listening
+pairs across eight heuristic strata and
+produced a private selection-audit file.
+The first eight came from that candidate list.
 
-1. RMS-basierte Ähnlichkeit (Baseline).
-2. Cosine.
-3. Centered Cosine.
-4. Weighted Jaccard.
-5. Historisches sparsames Top-K mit festem Cutoff 0,10.
-6. Top-6 ranked Jaccard ohne absoluten Cutoff.
-7. Top-12 ranked Jaccard ohne absoluten Cutoff.
+### Unlabelled numeric distribution diagnostic
 
-Noch **kein musikalisch validierter Gewinner**, keine kalibrierten
-Wahrscheinlichkeiten, keine Produktionsfreigabe. Die spätere
-Lyrion-Integration und die Strategie **Bliss-first / Mood-first /
-Hybrid** sind eigene Entscheidungen und noch nicht abschließend
-geklärt; ähnliche numerische Scores beweisen keinen guten Mix.
+This table describes only numerical
+properties of the **same 100-song sample**,
+not measured human perceived quality.
 
-Der Umweg über Original-Essentia-C++ endete mit erfolgreicher **numerischer
-Parität** auf dem 100-MP3-Korpus und weiteren WAV-/FLAC-Kontrollen.
-Rust v5 ist die korrigierte Referenz für diese Analyse: 14.500
-Klassenwerte auf 100 echten MP3s, größte Abweichung gegenüber Essentia
-C++ ca. `1.27e-5`, keine Mel-Patch-Abweichungen über der Toleranz
-`0.001`. Feste vier und adaptive sechs Rust-Worker ergaben bitgleiche
-Feature-Ergebnisse. Das **beweist keine musikalische Qualität**.
-
-PR #17 ([experimenteller Essentia-C++-Worker](https://github.com/chrober/bliss-mood-poc/pull/17))
-ist **separat, Draft und ungemergt**. PR #16 verwendet die bereits
-berechnete Rust-v5-SQLite-Sidecar: **kein Merge von PR #17, kein
-neuer Rust/C++-Build, keine neue Musik-Analyse notwendig**.
-PR #13 ([experimenteller Lyrion Guidance-SPI-v2-Provider](https://github.com/chrober/bliss-mood-poc/pull/13))
-bleibt ebenfalls separat und Draft. `main` ist nicht Ziel dieses
-Handover-Schritts.
-
-## Eingefrorene Testdaten und lokale Dateien
-
-Alle folgenden Dateien liegen **ausschließlich lokal auf dem Windows-PC
-des Benutzers** und dürfen weder auf GitHub noch in CI-Artefakte
-hochgeladen werden:
-
-| Verwendung | Windows-Pfad relativ zu `D:\LMS\bliss-mood-poc` |
-| --- | --- |
-| Verifizierte Rust-v5-Features | `benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db` |
-| Pilot-Verzeichnis | `benchmark-similarity-v5-pilot-20261021-074316` |
-| 24 ursprünglich vorgeschlagene Paare (unverändert lassen) | `benchmark-similarity-v5-pilot-20261021-074316\listening-pairs.csv` |
-| **Aktuell zu bewertende 8 Paare** | **`benchmark-similarity-v5-pilot-20261021-074316\listening-pairs-review-first8.csv`** |
-| Versiegelte private Auswahlgründe (vor Hörtest nicht öffnen) | `benchmark-similarity-v5-pilot-20261021-074316\selection-audit-private.json` |
-| Bestehende rein numerische Vergleichsausgabe | `benchmark-similarity-v5-pilot-20261021-074316\unlabeled-metric-diagnostics.json` |
-
-Die CSV besitzt die Spalten `left,right,genre_label,mood_label`.
-`left/right` sind **exakte relative `TracksV2.File`-Schlüssel**;
-bitte nicht umschreiben oder anhand von Künstler/Titel raten.
-Bewertungsregeln pro Dimension: `1` = musikalisch ähnlich,
-`0` = unähnlich, leer = bewusst nicht bewertet. Pro
-behaltener Zeile muss **mindestens eine** der beiden Dimensionen
-ausgefüllt sein. Paare mit komplett fehlender Beurteilung entfernen,
-nicht erfinden. Getrennte Genreurteile und Mood-/Energie-Urteile;
-ein Genre-Positiv darf Mood-Negativ sein und umgekehrt.
-
-Zur Orientierung der bisherige unlabeled Befund (gleiche 100 Songs,
-3.000 zufällig gezogene Paarvergleiche pro Head, keine echten Labels):
-
-| Metrik | Genre-Median | Mood-Median | Genre Null-Scores | Mood Null-Scores |
+| Metric | Genre median | Mood median | Genre zero scores | Mood zero scores |
 | --- | ---: | ---: | ---: | ---: |
-| RMS | 0.8651 | 0.9241 | 0 % | 0 % |
-| Cosine | 0.5344 | 0.6564 | 0 % | 0 % |
-| Centered Cosine | 0.4481 | 0.4148 | 0 % | 0 % |
-| Weighted Jaccard | 0.3115 | 0.4105 | 0 % | 0 % |
-| Altes Top-K mit Cutoff | 0.1638 | 0.0000 | 17.2 % | 61.6 % der 2.979 **definierten** Mood-Paare |
-| Top-6 ranked | 0.1729 | 0.1826 | 7.7 % | 7.8 % |
-| Top-12 ranked | 0.2196 | 0.2149 | 0.1 % | 0.1 % |
+| RMS | 0.8651 | 0.9241 | 0% | 0% |
+| Cosine | 0.5344 | 0.6564 | 0% | 0% |
+| Centered cosine | 0.4481 | 0.4148 | 0% | 0% |
+| Weighted Jaccard | 0.3115 | 0.4105 | 0% | 0% |
+| Historical cutoff Top-K | 0.1638 | 0.0000 | 17.2% | 61.6% of 2,979 defined Mood scores |
+| Ranked Top-6 | 0.1729 | 0.1826 | 7.7% | 7.8% |
+| Ranked Top-12 | 0.2196 | 0.2149 | 0.1% | 0.1% |
 
-8/100 Songs mit maximaler Mood-Aktivierung unter 0,10; Mood-Median
-aktiver Klassen >= 0,10 nur 2 (Genre 5). Altes Mood-Top-K lieferte
-außerdem 21 undefinierte Werte von 3.000. Diese Verteilungen sind
-**technische Eigenschaften**, keine musikalische Evaluation.
+Eight of 100 songs had their maximum Mood
+activation below 0.10. Median count of
+Mood labels exceeding 0.10 was two,
+versus five for Genre. The original
+Mood cutoff-Top-K had 21 undefined
+outcomes from 3,000 sampled pair
+comparisons. These show the limitations
+of a fixed threshold, not a human
+similarity ground truth.
 
-Die 24 Pilot-Paare wurden aus allen 4.950 Paaren der 100 Songs nach
-acht modellgesteuerten Gruppen ausgewählt: high_both (4),
-mood_high_genre_low (4), genre_metric_disagreement (3),
-mood_metric_disagreement (3), low_both (3),
-low_mood_activation (3), random_control (3),
-genre_high_mood_low (1). Die ersten acht sind eine unveränderte
-Arbeitskopie. **Aktive Auswahl verzerrt eine ROC-AUC**; selbst mit
-echten Labels wäre das nur eine explorative Diagnose, keine
-unabhängige Validierung und keine automatische Metrikentscheidung.
+The 24 pairs had the following
+metric-driven selection strata:
+`high_both` 4,
+`mood_high_genre_low` 4,
+`genre_metric_disagreement` 3,
+`mood_metric_disagreement` 3,
+`low_both` 3,
+`low_mood_activation` 3,
+`random_control` 3 and
+`genre_high_mood_low` 1.
+This selection creates known bias
+that prevents generalizing the
+eight-pair pilot AUC to the full library.
 
-## Lyrion-Play-Queue: aktueller realer Stand und Korrektur
+### Exact Lyrion song/queue mapping
 
-Der Benutzer hat zur Wiedergabe der acht Paare den Lyrion-Player
-**„Küche“** verwendet. Der Code verwendet eine stabile Player-ID,
-weil die vom Server gelieferte Unicode-Schreibweise früher als
-`KÃ¼che` fehlcodiert ankam. Lyrion-Datei-URLs werden direkt aus den
-**absoluten Pi-Pfaden** (Musikroot im Pi-Dateisystem `/mnt/music`)
-abgeleitet; CSV-Schlüssel sind nur relativ. Der Umweg über alle
-77.387 Lyrion-Titel war viel zu langsam; das aktuelle Skript nutzt
-gezielte `songinfo`-Abfragen und verifiziert die exakten URLs.
+The original listening queue experiment
+used relative `TracksV2.File` keys,
+while Lyrion `songinfo` requires
+**full valid source URLs**. The initial
+catalogue-wide scan was excessively slow
+(77,387 library items); the corrected
+[`queue_similarity_pairs_lyrion.ps1`](../scripts/queue_similarity_pairs_lyrion.ps1)
+uses exact, targeted `songinfo`
+lookups and a stable player ID
+instead of display-name matching
+(which is fragile for Unicode).
+The source root on the Pi and private
+player identifiers must stay local.
 
-Die erste Bulk-Queue-Anfügung hatte **16 beabsichtigte Positionen,
-aber nur 15 unterschiedliche Track-IDs**, da ein Song bei Paar 4
-rechts und Paar 5 links erneut vorkam. Ein
-`playlistcontrol cmd:add track_id:ID1,ID2,...`-Sammelaufruf
-fügte tatsächlich nur 15 Einträge hinzu, meldete `count:15`
-**nachdem** die Queue bereits verändert wurde. Alte Queue vorher:
-41 Tracks; 56 danach ist plausibel, aber ohne zusätzliche
-Abfrage nicht als aktueller Zustand zu behaupten. Der Benutzer
-hatte entschieden, den bereits geladenen Hörtest dennoch zu nutzen.
+The listening sequence required
+**16 queue positions, but only 15
+distinct song IDs** because one
+song recurred at a pair boundary.
+The old bulk `playlistcontrol cmd:add`
+deduplicated the repeated item:
+it appended 15, not 16 tracks,
+despite mutating the queue first.
+The corrected script appends IDs
+individually, checks each increment,
+validates all 16 ordered positions
+and detects the already existing
+15-track legacy sequence before
+writing. There is **no authorization
+to enqueue a new list automatically**
+from this handover.
 
-**Benutzerseitige Codekorrektur ist bereits auf PR #16!**
-Aktuelles Skript:
-[`scripts/queue_similarity_pairs_lyrion.ps1`](../scripts/queue_similarity_pairs_lyrion.ps1).
-Es hängt bei neuen, ausdrücklich gewollten Läufen **jede der 16
-Positionen einzeln an**, kontrolliert jedes `count=1` und das
-Wachsen der Queue um genau eins, prüft anschließend via
-`status ... playlist_loop` den geordneten Queue-Tail und
-verweigert vor dem Schreiben erneutes Anhängen sowohl der
-16-Positionen-Sequenz als auch der alten deduplizierten
-15-ID-Folge. Unvollständige Präfixe werden ebenfalls erkannt.
-Die Mehrschritt-Schreiboperation ist **nicht atomar**; nach
-Fehlern Queue zuerst untersuchen, niemals blind wiederholen.
-Details unter
-[`docs/similarity-metric-evaluation.md`](similarity-metric-evaluation.md)
-und Mock-Tests `tests/test_queue_similarity_pairs_lyrion.py`.
-**Die neue Chat-Session darf die Queue jetzt nicht ändern.**
+### Private inputs and CSV safeguards
 
-## Relevant im Repository
+The user already has the previous
+feature-sidecar DB, original proposed
+pair list, first-eight review CSV,
+unlabeled diagnostics, and private
+selection audit stored locally.
+Do not commit these files or infer
+their current existence solely
+from this historical record.
+`left` and `right` in the review CSV
+are exact original `TracksV2.File`
+keys; do not rewrite them by artist
+or title. `genre_label` and
+`mood_label` encode separate human
+judgments: `1` positive, `0`
+negative, blank intentionally
+not rated. Each retained row must
+have at least one label. Preserve
+any semicolon original and use an
+explicit delimiter or the parser's
+automatic comma/semicolon support.
 
-- `scripts/evaluate_similarity.py`: getrennte Genre-/Mood-Auswertung
-  mit read-only schema-v3-SQLite, echten 0/1-Labels, Positiv-/Negativ-
-  Verteilungen und tie-aware ROC-AUC.
-- `scripts/propose_similarity_listening_pairs.py`: einmalig
-  verwendete reproduzierbare Auswahl; aktuell **nicht erneut ausführen**.
-- `tests/test_evaluate_similarity.py`,
-  `tests/test_propose_similarity_listening_pairs.py`,
-  `tests/test_queue_similarity_pairs_lyrion.py`: Regressionstests.
-- `docs/similarity-metric-evaluation.md`: ausführliche Methodik,
-  Modell- und Lyrion-Details.
-- `docs/powershell-script-conventions.md`: **verpflichtende**
-  Ausgabeform für alle PowerShell-Skripte:
-  vollständiges, kopierbares **`& { ... }`**, auch bei Korrekturen.
-  Keine isolierten Ersatz-Schnipsel!
-- `docs/chat-handover.md`: historischer Einstieg zu Scanner-,
-  Worker- und Produktarchitektur; **für den aktuellen PR-#16-Fokus
-  ist dieses Dokument maßgeblich**.
+If the user explicitly requests
+further local diagnostics,
+[`evaluate_similarity.py`](../scripts/evaluate_similarity.py)
+can run its read-only `--pair-details-only`
+mode using a compatible SQLite sidecar,
+the reviewed CSV and the
+`--include-experimental` flag.
+It never writes existing feature DBs
+or rescores the entire library.
+Do not infer per-pair errors from
+the aggregate ROC-AUC alone.
 
-## Historisches Vorgehen vor Eingang der ersten CSV (Pilot inzwischen abgeschlossen)
+### Scientific and branch boundaries
 
-1. **Erst die vom Benutzer gelieferten Daten lesen.** Prüfen:
-   Dateiformat; tatsächlich beurteilte Zeilen pro Head, Positiv/Negativ
-   je Head, leere Felder, Auslassungen und Duplikate; kein
-   automatisches Auffüllen. Änderungen an CSV nur mit
-   Benutzerfreigabe; Originalkopie erhalten.
-2. Falls der Benutzer nur die ausgefüllte CSV hat: read-only
-   `scripts/evaluate_similarity.py` auf der **Rust-v5-Sidecar**
-   mit `--include-experimental --labels <bewertete-CSV>` ausführen
-   (oder einen sicheren lokalen PowerShell-Aufruf bereitstellen).
-   **Kein neuer Musik-Scan/ONNX/C++-Build**. In der JSON-Ausgabe:
-   `labeled.genre` und `labeled.moodtheme` mit
-   `pairs_judged_for_head`, `pairs_missing_compatible_vectors`,
-   `metrics.<name>.positives/negatives` und `roc_auc`.
-   Für ROC-AUC braucht jeder Head **mindestens ein positives und
-   ein negatives** Urteil; sonst `null`/`n/a`.
-3. Wenn der Benutzer bereits die Tabellen oder das
-   `similarity-first8-labeled.json` liefert, **diese erst
-   interpretieren**, statt die Auswertung unnötig zu wiederholen.
-   Score-Rangfolgen nur als Pilot-Diagnose lesen, Unsicherheit bei
-   acht Paaren ausdrücklich benennen. Kein Schluss `AUC=1` =>
-   beste Produktionsmetrik.
-4. Die nächsten Schritte **danach** mit dem Benutzer abstimmen:
-   Bewertungs-Kriterien prüfen, bei Bedarf restliche 16 Paare
-   anhören; anschließend unabhängige/held-out Studie mit
-   sauberer Genre/Mood-Trennung und später Lyrion-Mixvergleich.
-   Entscheidung zu Bliss-first vs. Mood-first vs. Hybrid
-   bis zu kontrolliertem Hörvergleich offen lassen.
+Earlier Rust-v5/C++ reference measurements
+on a 100-MP3 corpus and additional
+WAV/FLAC controls were encouraging;
+they did **not** establish subjective
+music quality or complete
+production platform validation.
+The broad phase-0 extraction parity
+and distribution gates remain open
+in the [current roadmap](similarity-lyrion-roadmap.md).
 
-Falls erst nach Erhalt der CSV ein lokal auszuführendes Kommando
-nötig ist, ausschließlich ein **vollständiges PowerShell-`& { ... }`**
-mit überprüften Pfaden/Parametern liefern. Der Evaluator benötigt
-`--db`, `--include-experimental`, `--labels` und optional
-`--limit 300 --pairs 3000 --seed 20261021 --examples 5`.
-Die Ausgabe in einer **neuen** lokalen JSON-Datei ablegen,
-bestehende Bewertungen und Reports nicht überschreiben.
+Always keep `main`, PR #13,
+PR #17 and the production mixer
+unchanged. GitHub Actions performs
+builds rather than an unrequested
+local Windows Rust build. Never
+upload private audio, local filenames,
+full listening CSVs, labels or
+individual score vectors to CI.
+For PowerShell tasks, provide
+a complete standalone `& { ... }`
+script as required by
+[PowerShell conventions](powershell-script-conventions.md).
 
-## Branch-/CI-/Datenschutzregeln
+### Later scientific results and references
 
-- **Keine Merges in `main`**, keine Änderungen an PR #13/#17 ohne
-  gesonderten Auftrag. PR #16 ist Draft; erst vor neuen Arbeiten
-  PR-Head und aktuelle Checks kontrollieren. Letzter geprüfter
-  Head vor diesem Handover hatte erfolgreiche Rust-Checks;
-  Aussagen über spätere CI immer neu prüfen.
-- Keine Veröffentlichung privater Audio-Dateien, Lyrion-Katalog-
-  dumps, ausgefüllter Hörtest-CSV oder privater SQLite-Sidecars.
-- **Keine lokalen Rust-Builds** auf dem Windows-Laptop; wenn später
-  erforderlich, GitHub-Actions-Builds nutzen. Im aktuellen
-  Arbeitsschritt ist **gar kein Build nötig**.
-- Gesprächs- und PowerShell-Ausgaben **Deutsch**; Scripts immer
-  **vollständig als `& { ... }`**. Keine unaufgeforderten
-  Repo-Änderungen während der Hörbewertungsphase.
-
-**Aktueller Status (21.10.2026):** Der Benutzer hat die externe, GitHub-Actions-basierte Validierung beschlossen. DEAM-Pipeline implementiert; realer Smoke-Test-Status im oben genannten GitHub-Run verifizieren. FMA erst danach; acht Hörpaare bleiben historische Pilotdaten.
-
-
-## Nachtrag zum repräsentationsbasierten A/B-Forschungsstand (21.10.2026)
-
-Die hier dokumentierten Song-Paare, Hörbewertungen und CSV-Prozesse
-bleiben eigenständig. Neu auf PR #16 ist eine technisch optionale
-**direkte 1280D-Embedding-Baseline** mit versionierter Sidecar-
-Provenienz (siehe
-[Repräsentations-Handover](similarity-three-representation-approaches-handover-2026-10-21.md)).
-Der MTT-Workflow für gepaarte 1280D-vs-Genre-/Mood-Analysen
-wurde angelegt; **erfolgreiche Resultate sind noch zu verifizieren**.
-MTT komplett exploriert, kein neuer Holdout. Die bisherigen
-Lyrion-Hörbewertungen dürfen nicht rückwirkend als unabhängiges
-Testset für neue Fusion-Gewichte verwendet werden.
-
-## Verifiziert: erster vollständiger Embedding-A/B auf identischer MTT-Cohort (21.10.2026)
-
-**Achtung – ersetzt die oben noch als ausständig bezeichnete
-A/B-Messung.** [Run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
-ist **PASS**; 1019 Cache-Clips CRC-validiert, exakt 346
-explorative Menschenfragen, davon 293 mehrheitsentscheidbar.
-Auf denselben Aufnahmen lieferte **direkte 1280D-Cosine
-182/293 = 62,12 %**, Genre-Cosine **191/293 = 65,19 %**,
-Mood-Cosine **192/293 = 65,53 %** und
-Mood-Centered-Cosine **193/293 = 65,87 %**.
-Alle vier hatten wie das Embedding **100 % Abdeckung**.
-Das Embedding lag gegenüber Mood-Centered-Cosine um
-**−3,754 Prozentpunkte** zurück (nur Embedding korrekt 27,
-nur Mood-Centered korrekt 38). Naives gepaartes
-95-%-Tripel-Resampling für den Unterschied:
-**−9,215 bis +1,365 Prozentpunkte**; wegen
-Abhängigkeiten **kein unabhängiges Populations-CI**.
-Auch Künstlergewichts-Sensitivitäten sind kein valides
-Konfidenzintervall. Die Kausalinterpretation und
-Generalisierbarkeit bleiben offen.
-
-Der vorherige unabhängige synthetische Rust-Smoke
-[Run 39616222834](https://github.com/chrober/bliss-mood-poc/actions/runs/39616222834)
-bestand Rust-Unit-Tests und Release-Kompilierung,
-brach aber beim externen Modell-Download wegen
-`essentia.upf.edu`-Netzwerk-Timeout ab. Deshalb
-wurde ein **synthetisches off/on/Pooling/Threads-Paritätsgate
-vor den 1019er-Lauf** des neuen A/B-Workflows
-hinzugefügt; dessen nachfolgenden Run erst auf
-PASS prüfen, bevor dieses Gate als bestätigt gilt.
-
-Vollständiger Studienbericht mit Methoden,
-Paar-Discordanzen, statistischer Unsicherheit,
-CI-Runs, Fingerprints, Limitierungen und nächstem
-Evidenz-Gate:
-[Audio-Embedding vs. Kopf-Baselines: MTT-A/B-Resultate](similarity-audio-embedding-ab-results-2026-10-21.md).
-**Keine Fusion-Kalibrierung, keine Produktionsentscheidung,
-kein erneuter MTT-Holdout, kein FMA-TEST, kein Merge.**
-
-## Verifiziert: vollständiger explorativer A/B/C-Durchgang (21.10.2026)
-
-Die vorab implementierten **vier untrainierten Equal-Midrank-Fusionen**
-wurden zusammen mit den fünf bisherigen A/B-Methoden
-im [Actions Run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
-vollständig erfolgreich auf **exakt denselben 1019
-MagnaTagATune-Clips und 293 mehrheitsentscheidbaren
-Tripelfragen** ausgewertet. Synthetisches 1280D
-Original-Patchpooling-/Head-Off-On-/SQLite-/Thread-
-Paritätsgate erneut **PASS**.
-
-Die Fusions-Genauigkeit auf dem gemeinsamen 293er-Nenner
-(Abstentions als falsch): Audio+Genre **163/293 = 55,63 %**
-(Coverage 234/293), Audio+Mood **170/293 = 58,02 %**
-(241/293), Genre+Mood **167/293 = 57,00 %**
-(230/293), Audio+Genre+Mood **192/293 = 65,53 %**
-(283/293). Der bisherige Mood-Centered-Baselinewert
-bleibt **193/293 = 65,87 %** mit 100 % Abdeckung.
-Keine der vier einfachen, *tripellokalen* Rangfusionen
-verbessert diese Referenz. Die vielen Paargleichstände
-der Zweierkombinationen erklären den niedrigen
-Gesamtnenner-Erfolg; Quote auf nur vorhergesagten
-Fällen darf nicht isoliert verglichen werden.
-
-**Keine Kalibrierung/Optimierung aus diesen
-Ergebnissen.** Diese post-hoc MTT-Fusionsexperimente
-sind weder eine globale Song-Cosine-Kalibrierung
-noch eine unabhängige Validierung oder ein
-Lyrion-Übergangstest. Vollständige Rechenschritte,
-Gleichstands-/Coverageanalyse, Paardifferenzen,
-Caveats und Folgeexperimente:
-[Fixed-Rank Fusion Research Results](similarity-fixed-rank-fusion-research-2026-10-21.md).
-Das reproduzierbare, nur aggregierte
-[GitHub-Artefakt](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)
-enthält die Ergebnisberichte v1, v2 und
-das synthetische Paritätsprotokoll.
+The direct 1280D-vs-head comparison on
+the same 1,019 MTT clips, fixed fusion
+ablations, screened 80-song FMA
+VALIDATION retrieval and DEAM
+source-blocked paired study are
+separately documented in:
+[MTT A/B](similarity-audio-embedding-ab-results-2026-10-21.md),
+[fixed rank fusion](similarity-fixed-rank-fusion-research-2026-10-21.md),
+[FMA paired](similarity-fma-embedding-ab-2026-10-21.md),
+[DEAM](deam-similarity-benchmark.md),
+and [research roadmap](similarity-lyrion-roadmap.md).
+No MTT holdout remains; FMA official
+TEST was not inspected. No
+production method has been selected.
