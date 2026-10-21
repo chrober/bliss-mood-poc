@@ -29,6 +29,13 @@ jobs:
       DEAM_LIMIT: ${{ inputs.limit || '12' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout pinned numerically verified Rust-v5 analyzer (separate tree)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -48,11 +55,12 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          cargo build --release
-          # A tracked Cargo.lock is not yet present on this research branch.
-          # The build uses Cargo's resolved lock in this ephemeral runner;
-          # pinning/committing a lock remains follow-up work.
-          ./target/release/bliss-mood analyze-features --help
+          # Build the pinned original v5 implementation from its own
+          # branch commit. No files are merged into PR #16.
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ./validated-rust-v5/target/release/bliss-mood analyze-features --help
 
       - name: Download Essentia model files (do not redistribute)
         shell: bash
@@ -106,7 +114,7 @@ jobs:
           python3 scripts/benchmark_deam.py \
             --annotations-zip benchmark-private/annotations.zip \
             --audio-zip benchmark-private/audio.zip \
-            --binary target/release/bliss-mood \
+            --binary validated-rust-v5/target/release/bliss-mood \
             --models-dir models \
             --db benchmark-private/deam-features.db \
             --report results/deam-summary.json \
