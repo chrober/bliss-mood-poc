@@ -62,6 +62,39 @@ the current per-file workflow. A small controlled A/B of fixed two
 workers and a sidecar-safe batch scheduler is a separate task;
 no unverified performance improvements claimed.
 
+## COMPLETED: two official audio-free preflights (21.10.2026)
+
+**MTG-Jamendo**: [GitHub Actions 39586686845](https://github.com/chrober/bliss-mood-poc/actions/runs/39586686845)
+PASSED using pinned upstream split-0 TSVs and Essentia JSON model metadata:
+Genre (87 tags): train 32572, validation 11043, test 11479;
+Mood/Theme (56 tags): train 9949, validation 3802, test 4231.
+No artist-ID or track-ID overlaps **within the official splits**.
+This does NOT establish the exact published ONNX model training
+provenance or Discogs encoder data independence.
+
+**MagnaTagATune**:
+[GitHub Actions 39587323227](https://github.com/chrober/bliss-mood-poc/actions/runs/39587323227)
+PASSED. Actual 533 human outlier triplets / 7650 votes
+require only **1019 unique audio clip paths**;
+87 tied-majority questions, 228 unique >=70% consensus and
+160 unanimous, 903 distinct apparent track groups. Of 31382
+clip metadata rows, 5519 lack MP3 paths. No audio accessed.
+Real format-specific parser and synthetic dialect tests
+included in separate Linux/Windows CI, last
+[39587511195](https://github.com/chrober/bliss-mood-poc/actions/runs/39587511195) PASS.
+
+Research results, schema/rights limitations and GH runtime policy
+documented in
+[external evidence preflight results](external-evidence-preflight-results-2026-10-21.md).
+First trial odd-one-out audio evaluation should use only
+the needed 1019 clips, but must first verify split ZIP archive
+member mapping, download rights/size and holdout grouping
+by original artist/album/song. Then compare all seven
+metrics with vote ties and abstentions. Do not claim best
+production metric, independent ONNX training test, or
+commercial redistribution rights. No main merge or local
+Rust build. Existing PR #16 Draft, #13/#17 untouched.
+
 ## CURRENT PRIORITY — externally validated DEAM and FMA evidence (21.10.2026)
 
 User explicitly requested to continue fully on GitHub Actions, without
