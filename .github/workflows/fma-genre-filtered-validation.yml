@@ -1,0 +1,224 @@
+name: FMA-Small catalog-screened Genre VALIDATION (research)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/fma-genre-filtered-validation.yml'
+  workflow_dispatch:
+    inputs:
+      per_genre:
+        description: 'Distinct-artist validation tracks per genre, 2..100'
+        required: true
+        default: '10'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fma-genre-catalog-filtered-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fma-genre-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      FMA_PER_GENRE: ${{ inputs.per_genre || '10' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned corrected Rust-v5 scanner in a separate directory
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - name: Verify bounded validation-only study
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          per_genre = int(os.environ["FMA_PER_GENRE"])
+          if not 2 <= per_genre <= 100:
+              raise SystemExit("FMA_PER_GENRE must be 2..100")
+          print("FMA validation only; tracks per genre:", per_genre)
+          PY
+          # Synthetic metadata schema and retrieval/Top-K abstention gates:
+          # avoid a 7.2-GiB download if the evaluation semantics regress.
+          python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+          python3 -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
+          echo "Runner CPUs: $(nproc)"
+          echo "Workflow runs one audio analysis subprocess at a time (--threads 1)."
+          echo "Multi-track/adaptive workers require a separately tested batch scheduler."
+
+      - name: Restore pinned Rust-v5 executable from prior MTT research run
+        id: binary_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
+
+      - name: Install FFmpeg when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+
+      - name: Build pinned corrected Rust-v5 only if binary cache is missing
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "cargo_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ( cd validated-rust-v5/target/release && sha256sum bliss-mood > bliss-mood.sha256 )
+          echo "cargo_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify pinned Rust-v5 release binary and CLI functionality
+        shell: bash
+        run: |
+          set -euo pipefail
+          ( cd validated-rust-v5/target/release && sha256sum --check bliss-mood.sha256 )
+          test -x validated-rust-v5/target/release/bliss-mood
+          validated-rust-v5/target/release/bliss-mood analyze-features --help
+          echo "rust_binary_cache_hit=${{ steps.binary_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save immutable Rust-v5 binary after missing-cache build
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
+
+      - name: Fetch original Essentia encoder and Genre classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 30 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
+          sha256sum models/*
+
+      - name: Download METADATA only and prove validation catalog exclusion
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private results
+          echo "metadata_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2700 --silent --show-error \
+            https://os.unil.cloud.switch.ch/fma/fma_metadata.zip \
+            -o fma-private/fma_metadata.zip
+          test "$(stat -c%s fma-private/fma_metadata.zip)" -gt 100000000
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 900 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o fma-private/mtg-raw.meta.tsv
+          test "$(stat -c%s fma-private/mtg-raw.meta.tsv)" -gt 10000
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from audit_fma_mtg_overlap import inspect
+          result=inspect(Path("fma-private/fma_metadata.zip"), Path("fma-private/mtg-raw.meta.tsv"))
+          assert result["by_split"]["validation"]["possible_exact_artist_title_catalog_matches"] == 42
+          assert result["by_split"]["training"]["possible_exact_artist_title_catalog_matches"] == 121
+          assert result["coverage"]["test_metadata_rows_not_inspected"] == 800
+          print("FMA-Jamendo metadata screening PASS: 42 possible validation catalog overlaps; FMA TEST untouched.")
+          PY
+          echo "metadata_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download only FMA-Small audio ZIP, original publisher, no full extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private results
+          python3 - <<'PY'
+          import shutil
+          free = shutil.disk_usage(".").free
+          print("Runner free disk before FMA data download (GiB):", round(free/1024**3, 2))
+          if free < 9 * 1024**3:
+              raise SystemExit("Insufficient scratch space for 7.2 GiB FMA-Small ZIP")
+          PY
+          base=https://os.unil.cloud.switch.ch/fma
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 5400 --silent --show-error \
+            "$base/fma_small.zip" -o fma-private/fma_small.zip
+          test "$(stat -c%s fma-private/fma_small.zip)" -gt 7000000000
+          python3 - <<'PY'
+          import zipfile
+          for name in ("fma-private/fma_metadata.zip", "fma-private/fma_small.zip"):
+              with zipfile.ZipFile(name) as archive:
+                  members = archive.infolist()
+              print("Verified FMA archive", name, "members:", len(members))
+          PY
+
+      - name: Analyze catalog-filtered VALIDATION ONLY and calculate seven Genre metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/benchmark_fma_genre.py \
+            --metadata-zip fma-private/fma_metadata.zip \
+            --audio-zip fma-private/fma_small.zip \
+            --binary validated-rust-v5/target/release/bliss-mood \
+            --models-dir models \
+            --db fma-private/fma-filtered-validation-features.db \
+            --report results/fma-validation-catalog-filtered-summary.json \
+            --per-genre "$FMA_PER_GENRE" \
+            --exclude-mtg-catalog-matches \
+            --mtg-metadata-tsv fma-private/mtg-raw.meta.tsv \
+            --split validation \
+            --seed 20261021
+          python3 - <<'PY'
+          import json
+          with open("results/fma-validation-catalog-filtered-summary.json", encoding="utf8") as file:
+              report = json.load(file)
+          assert report["dataset"]["official_split"] == "validation"
+          assert report["catalog_overlap_exclusion"]["possible_catalog_matches_excluded"] == 42
+          assert report["catalog_overlap_exclusion"]["validation_eligible_after_exclusion"] == 758
+          assert report["catalog_overlap_exclusion"]["status"].startswith("partial_exact")
+          print("FMA distinct validation artists:", report["dataset"]["distinct_artists"])
+          print("Random P@5:", report["baseline_random_precision_at_5"])
+          for name, details in report["metric_results"].items():
+              print(f"{name}: P@5={details['precision_at_5']['macro_mean']} "
+                    f"mAP@10={details['map_at_10']['macro_mean']} "
+                    f"nDCG@10={details['ndcg_at_10']['macro_mean']} "
+                    f"queries={details['precision_at_5']['query_count']}")
+          PY
+
+      - name: Upload only aggregate FMA validation metrics (no audio/labels/vectors)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fma-genre-validation-catalog-filtered-aggregate
+          path: results/fma-validation-catalog-filtered-summary.json
+          if-no-files-found: error
+          retention-days: 14
