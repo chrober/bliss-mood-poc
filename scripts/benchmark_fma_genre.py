@@ -385,6 +385,8 @@ def main() -> None:
     p.add_argument("--exclude-mtg-catalog-matches", action="store_true")
     p.add_argument("--embedding-dir", type=Path,
                    help="Research only: export versioned private 1280D vectors from the same encoder pass")
+    p.add_argument("--selected-cache-manifest", type=Path,
+                   help="Only use a previously verified, source-pinned selected-song FMA ZIP")
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
         p.error("Benchmark output exists; no overwrite permitted")
@@ -405,7 +407,22 @@ def main() -> None:
         p.error("Private embedding directory already exists")
     songs = load_fma_small(args.metadata_zip,
                           include_artist_title=args.exclude_mtg_catalog_matches)
-    available = match_audio(args.audio_zip, songs)
+    cached = None
+    if args.selected_cache_manifest is not None:
+        if args.split != "validation":
+            p.error("FMA selected-audio cache is VALIDATION-only")
+        # Imported lazily: cache packer itself reuses this benchmark's selector.
+        import fma_selected_audio_cache as fc
+        cached = fc.verify(
+            args.audio_zip, args.selected_cache_manifest,
+            metadata=args.metadata_zip, mtg=args.mtg_metadata_tsv,
+            screened=args.exclude_mtg_catalog_matches,
+            per_genre=args.per_genre, seed=args.seed
+        )
+        chosen = cached["chosen"]
+        available = {ident: cached["entries"][ident]["filename"] for ident in chosen}
+    else:
+        available = match_audio(args.audio_zip, songs)
     overlap = None
     if args.exclude_mtg_catalog_matches:
         excluded, overlap = screen_mtg_catalog_matches(
@@ -413,8 +430,11 @@ def main() -> None:
         )
         available = {ident: member for ident,member in available.items()
                      if ident not in excluded}
-    chosen = balanced_sample(songs, available, args.split,
-                             args.per_genre, args.seed)
+        if cached is not None and len(available) != len(chosen):
+            raise ValueError("Cached FMA selected audio includes MTG catalog overlaps")
+    if cached is None:
+        chosen = balanced_sample(songs, available, args.split,
+                                 args.per_genre, args.seed)
     print(f"Matching FMA audio members: {len(available)}; "
           f"analyzing {len(chosen)} distinct-artist tracks, "
           f"{args.per_genre} per genre, split={args.split}.", flush=True)
@@ -422,7 +442,12 @@ def main() -> None:
                   available, chosen, args.db, embedding_dir=args.embedding_dir)
     report = evaluate(args.db, chosen, songs, args.seed, args.split)
     report["dataset"]["metadata_zip_sha256"] = sha256_file(args.metadata_zip)
-    report["dataset"]["audio_zip_sha256"] = sha256_file(args.audio_zip)
+    report["dataset"]["audio_zip_sha256"] = (
+        cached["publisher_audio_zip_sha256"] if cached else sha256_file(args.audio_zip)
+    )
+    if cached is not None:
+        report["dataset"]["selected_cache_bundle_sha256"] = cached["bundle_zip_sha256"]
+        report["dataset"]["selected_cache_schema"] = cached["schema"]
     report["catalog_overlap_exclusion"] = overlap or {
         "status": "NOT_PERFORMED_possible_MTG_catalog_overlap_not_removed"
     }
