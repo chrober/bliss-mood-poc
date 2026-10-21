@@ -154,8 +154,10 @@ def analyze_parallel(binary: Path, models_dir: Path, db: Path,
             slot = count % workers
             if active[slot] is not None:
                 active[slot].result()
-            active[slot] = pool.submit(analyze_one, binary, models_dir,
-                                       sidecars[slot], key, audio, embedding_dir)
+            worker_args = (binary, models_dir, sidecars[slot], key, audio)
+            active[slot] = (pool.submit(analyze_one, *worker_args)
+                            if embedding_dir is None else
+                            pool.submit(analyze_one, *worker_args, embedding_dir))
             count += 1
             if count % 50 == 0:
                 print(f"MTT dispatched {count} clips to {workers} isolated workers",
