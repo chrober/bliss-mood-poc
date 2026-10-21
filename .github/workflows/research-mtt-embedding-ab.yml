@@ -224,6 +224,35 @@ jobs:
           sha256sum models/*
           echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Numerical parity gate - synthetic audio, identical heads and independent raw pooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-smoke
+          python3 - <<'PY'
+          import math, struct, wave
+          with wave.open("research-smoke/smoke.wav", "wb") as out:
+              out.setnchannels(1)
+              out.setsampwidth(2)
+              out.setframerate(16000)
+              for i in range(6 * 16000):
+                  t = i / 16000
+                  sample = .25 * math.sin(2 * math.pi * 440 * t) + .12 * math.sin(2 * math.pi * 900 * t)
+                  out.writeframesraw(struct.pack("<h", int(sample * 32767)))
+          PY
+          exe=validated-rust-v5/target/release/bliss-mood
+          common=(analyze-features research-smoke/smoke.wav --models-dir models --models moodtheme,genre --json)
+          "$exe" "${common[@]}" --threads 1 --db research-smoke/off.db --track-key smoke.wav > research-smoke/off.json
+          "$exe" "${common[@]}" --threads 1 --db research-smoke/on.db --track-key smoke.wav \
+            --embedding-out research-smoke/embedding.json > research-smoke/on.json
+          "$exe" "${common[@]}" --threads 2 \
+            --embedding-out research-smoke/embedding-threads2.json > research-smoke/threads2.json
+          "$exe" embedding-dump research-smoke/smoke.wav --models-dir models --threads 1 \
+            --max-patches 64 > research-smoke/patch-dump.json
+          python3 scripts/check_song_embedding_smoke.py --directory research-smoke \
+            --summary research-smoke/smoke-check-summary.json
+          cat research-smoke/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
+
       - name: Analyze 1019 clips with selected isolated bliss-mood workers
         shell: bash
         run: |
@@ -291,5 +320,6 @@ jobs:
             results/mtt-all-exploratory-aggregate.json
             results/mtt-seven-metric-scorecard.md
             results/mtt-audio-vs-heads-ab-exploratory.json
+            research-smoke/smoke-check-summary.json
           if-no-files-found: error
           retention-days: 14
