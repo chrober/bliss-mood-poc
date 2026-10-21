@@ -132,3 +132,43 @@ Gesamtarchiv, Sample-Fingerprint,
 gekippte Archiv- und MP3-Hashes,
 geänderte Metadaten und No-Overwrite.
 Gates laufen unter Linux und Windows.
+
+## Empirische Verifikation: kalter Pack und warmer Restore
+
+**Kalter Lauf PASS:**
+[GitHub Run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381).
+Offizieller 7,2-GiB-Audio-Download **246,39 s**,
+danach deterministische Auswahl aus 7.197
+größenvaliden FMA-Entwicklungs-Audios (3
+Größenanomalien verworfen).
+Der gespeicherte, checksumgeprüfte
+`selected.zip` umfasst **76,51 MiB**
+Audio für exakt die eingefrorenen
+80 Songs; kein Originalarchiv im Cache.
+Vollständiger vorheriger Genre- und neuer
+1280D-A/B-Benchmark ebenfalls **PASS**,
+d.h. Originalkohorte und P@5 etc.
+unverändert.
+
+**Warmer Restore PASS:**
+[alter katalogbereinigter Genre-Workflow
+39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262).
+Im Runner explizit
+`Cache hit for: fma-small-screened80-selected-v1-f923...`;
+der originale
+`Download original FMA-Small 7.2 GiB ONLY on cache miss`
+wurde mit Status **skipped** protokolliert.
+ZIP und alle 80 MP3-SHA256 nach dem
+Restore geprüft; wieder **76,51 MiB**.
+Die alte Genre-Metrikberechnung
+blieb vollständig erfolgreich.
+Diese reproduzierbare Verbesserung
+eliminiert den großen **Publisher-
+Download** bei Cache-Hit; sie ist
+**keine** gemessene Gesamtlaufzeit
+eines identischen warmen/kalten
+Benchmark-Workflows (unterschiedliche
+Benchmark-Historie und Rust-Binary-
+Cachezustände). Bei Cache-Eviction
+fällt der Workflow korrekt auf den
+vollständigen Publisher-Download zurück.
