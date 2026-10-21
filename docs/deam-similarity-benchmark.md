@@ -324,3 +324,50 @@ from the originally available 58; with N=240 this gives an expected
 Next: assess the filtered aggregate results and independent
 [planned FMA genre benchmark](fma-genre-benchmark-plan.md).
 No metric winner, PR merge or local Rust build is justified.
+
+
+## Confirmed 240-track DEAM evaluation after catalog-overlap exclusion
+
+**PASS**, [GitHub Actions 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118),
+[aggregate-only report 12335578980](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118/artifacts/12335578980).
+
+At runtime 1,802 DEAM audio IDs were matched to annotations.
+The conservative artist/title screen detected and excluded **75 possible
+MTG-Jamendo catalog overlaps**, leaving **1,727** eligible candidates
+(1,801 with usable DEAM metadata). With the frozen seed and the
+cohort-aware selection, the new 240-song sample contains **197** earlier
+DEAM excerpts and **43** 2015 full-song recordings.
+
+Macro mean query Spearman against human joint Valence/Arousal proximity:
+
+| Metric | Mood head, first unfiltered 240 | Mood head, filtered 240 |
+| --- | ---: | ---: |
+| RMS | 0.2277 | 0.2711 |
+| Cosine | 0.2421 | 0.2868 |
+| Centered Cosine | 0.2471 | 0.2813 |
+| Weighted Jaccard | 0.2507 | 0.2888 |
+| Historical Top-K cutoff | 0.1558 (218 valid queries) | 0.1903 (216 valid queries) |
+| Ranked Top-6 | 0.2250 | 0.2721 |
+| Ranked Top-12 | 0.2351 | 0.2745 |
+
+Filtered 240 cohort-specific Mood-Cosine VA correlations:
+- Earlier excerpt cohort, **197** songs: **0.33999**.
+- Full-song 2015 cohort, **43** songs: **0.18760**.
+
+**Critical interpretation:** The two 240-song samples are not paired.
+Catalog exclusion changed the eligible ID pool and the deterministic
+sampling sequence; changes in correlation must NOT be attributed to
+removing matches without same-track controlled re-evaluation.
+The filtered cohort also changes the 2015 candidate composition.
+The exact artist/title audit is intentionally partial and cannot prove
+audio independence or exclusion from the exact classifier training split.
+The model heads and Genre-vs.-VA controls should not be conflated with
+musical Genre ground truth. No metric choice has been made.
+
+The next practical evidence line is an explicitly separated FMA-Small
+Genre Retrieval validation. Its metadata-only Actions audit has
+already confirmed **8,000 tracks**, eight exactly balanced major genres
+(1,000 each), **6,400 training / 800 validation / 800 test** and
+**zero artist-ID overlaps between those three official splits**.
+The separate [FMA research plan](fma-genre-benchmark-plan.md)
+preserves test split independence.
