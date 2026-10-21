@@ -1,5 +1,20 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **UPDATED MTT HOLDOUT METADATA AUDIT, 21 OCT 2026:**
+> [GitHub Action 39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265)
+> successfully checked artist-hash sensitivity without any new audio
+> inference or human metric inspection: cutoff 51/256 gives 162 dev /
+> 4 candidate holdout / 180 excluded mixed; cutoff 85 gives 86/13/247;
+> cutoff 128 gives **31 dev / 56 potential holdout / 259 excluded**.
+> Under cutoff 128, 8 of 56 potential holdout triplets share artists
+> with the prior four-question smoke; the remaining **48** were not
+> exposed in that run. This DOES NOT eliminate the one-giant-artist
+> component or establish population/generalization reliability.
+> Freeze one artist split and exclusions BEFORE scoring the 48
+> candidate test questions, and never optimize using their labels
+> or model performance. See
+> [sparse-audio methodology](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+>
 > **MTT SPARSE REAL AUDIO E2E PASS + HOLDOUT LIMIT, 21 OCT 2026:**
 > [ZIP membership 39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423)
 > **PASS** using only 8 MiB HTTP Range tail: all **1,019** referenced MP3s
