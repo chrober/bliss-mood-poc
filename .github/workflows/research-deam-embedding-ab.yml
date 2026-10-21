@@ -63,6 +63,8 @@ jobs:
               raise SystemExit("DEAM_LIMIT must be between 12 and 1802")
           print("Requested DEAM songs:", limit)
           PY
+          echo "deam_sample_policy=frozen-screened-240-seed-20261021" >> "$GITHUB_STEP_SUMMARY"
+          echo "runner_cpu_count=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Ensure FFmpeg, test pooling, and compile pinned Rust-v5 research overlay
         shell: bash
