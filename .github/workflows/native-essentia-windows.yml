@@ -505,6 +505,22 @@ jobs:
             }
             Write-Host ("Audited $($report.native_binary_count) real native binaries; $($report.package_count) versioned native packages; release status BLOCKED for manual legal review")
           }
+      - name: Capture actual 17-package native license evidence backlog (no inferred license grant)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python scripts/triage_windows_native_license_gaps.py `
+              --kit-root 'build/windows-native/bliss-mood-essentia-win64-dev' `
+              --output-dir 'build/windows-native/license-evidence-backlog'
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Could not build exact-version missing-native-license evidence register'
+            }
+            $result = Get-Content 'build/windows-native/license-evidence-backlog/native-license-evidence-backlog.json' -Raw | ConvertFrom-Json
+            if ($result.binary_integrity -ne 'PASS' -or $result.distribution_release_status -ne 'BLOCKED') {
+              throw 'Must preserve technical integrity checks and distribution BLOCKED status'
+            }
+          }
       - name: Verify exact downloadable kit using isolated Windows PATH and PR 16 evaluator
         shell: pwsh
         run: |
@@ -527,7 +543,12 @@ jobs:
             & $nativePython @testArgs
             if ($LASTEXITCODE -ne 0) { throw 'Actual downloadable Windows kit PR16 handoff failed' }
           }
-      - name: Upload verified original Essentia C++ Windows x64 CLI development kit
+      # PUBLIC GitHub Actions artifacts are distributable binaries; this
+      # package is explicitly NOT release approved. Keep building/testing,
+      # but do not issue fresh public native DLL archives until a documented
+      # license review and corresponding-source/NOTICE gate is complete.
+      - name: Upload original Essentia C++ Windows x64 kit (internal only after review)
+        if: ${{ github.event.repository.private && vars.NATIVE_BINARY_REDISTRIBUTION_REVIEWED == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: bliss-mood-essentia-windows-x64-dev
@@ -558,5 +579,6 @@ jobs:
             build/windows-native/essentia-import-nm-before.txt
             build/windows-native/essentia-dll-nm.txt
             build/windows-native/release-audit/release-readiness-audit-private.json
+            build/windows-native/license-evidence-backlog/native-license-evidence-backlog.json
           if-no-files-found: warn
           retention-days: 14
