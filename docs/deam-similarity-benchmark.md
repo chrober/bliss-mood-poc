@@ -371,3 +371,77 @@ already confirmed **8,000 tracks**, eight exactly balanced major genres
 **zero artist-ID overlaps between those three official splits**.
 The separate [FMA research plan](fma-genre-benchmark-plan.md)
 preserves test split independence.
+
+
+## 21.10.2026: 1280D-vs-Mood/Genre auf derselben DEAM-240-Kohorte – Blocker sauber isoliert
+
+Die neue, nur in PR #16 aktive
+[`research-deam-embedding-ab.yml`](../.github/workflows/research-deam-embedding-ab.yml)
+und [`evaluate_deam_embedding_ab.py`](../scripts/evaluate_deam_embedding_ab.py)
+berechnen mit dem temporären Rust-v5-Research-Overlay
+dieselben 240 katalogbereinigten DEAM-Clips erneut:
+197 ältere Ausschnitte und 43 volle 2015-Songs.
+Alle 240 Songs erhalten direkt aus demselben
+Encoder-Durchlauf 1280D-L2-Song-Embeddings, 87D-Genre-
+und 56D-Mood/Theme-Vektoren; die bestehenden sieben
+Metriken bleiben im alten DEAM-Aggregat unverändert.
+
+Der vorregistrierte Stichproben-Fingerprint
+`db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0`
+ist die frühere geprüfte Katalogfilter-Kohorte aus
+[DEAM 240 filtered 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118).
+Die bereits beobachtete Mood-Cosine-VA-Spearman-Referenz
+`0.286784551387186` wurde im gescheiterten
+[A/B-Run 39634196144](https://github.com/chrober/bliss-mood-poc/actions/runs/39634196144)
+**exakt erneut reproduziert**. Der anschließende
+Vergleich brach damals wegen **eines unterschiedlichen
+Hash-Serialisierungsformats** ab: Der etablierte DEAM-v1-
+Probenfingerprint verwendet den literalisierten
+Zwei-Zeichen-Separator `\\n`, der neue Evaluator
+irrtümlich einen echten Zeilenumbruch. Der Evaluator
+ist korrigiert, **synthetischer Regressionstest
+und [Linux-/Windows-CI 39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)
+PASS**. Es wurde keine neue Stichprobe gezogen,
+keine Musik verändert, keine Mood-Referenz angepasst.
+
+Der nachfolgende
+[Run 39638292554](https://github.com/chrober/bliss-mood-poc/actions/runs/39638292554)
+scheiterte **vor der Inferenz durch externe
+DEAM-Quellserver-Nichterreichbarkeit**:
+`curl (28)`, vier Verbindungs-Timeouts nach
+je ca. 30 s bei `cvml.unige.ch:443`.
+Um teure Wiederholungen zu vermeiden, hat die
+Forschungsworkflow-Datei jetzt eine vorgeschaltete
+TCP-443-Fast-Fail-Prüfung (keine Musikdaten,
+kein Modelldownload); deren
+[Run 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
+bestätigte denselben externen Ausfall **innerhalb
+weniger Sekunden und ohne Build/Audio-Download**.
+
+**Status: gepaarter neuer DEAM-A/B-Ergebnisbericht
+noch NICHT erfolgreich erzeugt.** Es dürfen noch
+keine EffNet-vs-Mood-Spearman-Differenzen aus DEAM
+als empirische Resultate angeführt werden.
+
+Eine öffentliche DEAM-Fundstelle auf
+[Zenodo, DOI 10.5281/zenodo.11400122](https://zenodo.org/records/11400122)
+ist bekannt, aber weder die SHA256-Gleichheit
+aller benötigten Publisher-ZIPs noch die
+Lizenz-/Distributionsprovenienz wurden bestätigt.
+Sie wird **nicht** still als austauschbare
+Quelle eingesetzt; vor einer Fallback-Nutzung
+müssten SHA256 und Archivlayout gegen die
+bereits registrierten Originalarchive geprüft
+werden. Kein DEAM-Musikarchiv und keine privaten
+Embedding-Sidecars werden als GitHub-Artefakt
+hochgeladen.
+
+Nächster DEAM-Schritt: zuerst Verfügbarkeit des
+Originalservers wiederherstellen oder
+einen Provenienz-verifizierten Quellmirror
+in einer **separaten kleinen Preflight-Prüfung**
+validieren. Danach nur den vorhandenen
+240-Song-A/B-Workflow erneut ausführen.
+FMA-TEST bleibt unberührt; keine
+unabhängige Model-Training-Disjointness
+und noch kein Produktivverfahren behaupten.
