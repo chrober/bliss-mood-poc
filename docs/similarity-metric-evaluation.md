@@ -293,6 +293,60 @@ coverage and real playlist listening remain essential.
 
 ---
 
+## Lyrion listening pilot: exact TracksV2.File → LMS song URL mapping
+
+The eight-pair test CSV is at
+`benchmark-similarity-v5-pilot-20261021-074316/listening-pairs-review-first8.csv`
+on the user workstation. `TracksV2.File` in that CSV is **relative
+to the music library root** (such as
+`Various Artists/Album, 2023/01 - Track.mp3`).
+Lyrion's `songinfo url:...` filter expects the **complete URL as
+returned by Lyrion itself**, usually starting with `file:///`.
+Using the CSV key as the songinfo URL failed on the first real entry;
+the **queue was correctly not modified**.
+
+The corrected [one-block PowerShell queue script](../scripts/queue_similarity_pairs_lyrion.ps1)
+looks up Lyrion `titles <offset> <batch> tags:u` with pagination,
+reads each `titles_loop` item's **actual numeric track ID and file
+URL**, and compares the **full relative path, including every
+directory component** against URL-decoded local-file path suffixes.
+It tests raw, singly and doubly URL-unescaped representations because
+Lyrion's historical CLI may return double-escaped URLs. A basename
+lookup is *only an optimization*; no basename/artist/album-only match
+is accepted. The identity matching is case-sensitive. If duplicate
+song roots contain the same relative path, an ambiguous match fails
+closed **before** making any playlist change. Missing matches also
+fail closed. The catalog page count must remain consistent, no library
+rescan may be active and at most 250,000 entries are considered.
+
+The script uses the already identified stable player ID (no Unicode
+display-name dependence), checks connection, verifies shuffle off,
+prints every pair/track ID in a **dry-run** and requires a separate
+explicit `LYRION_APPLY=true` to append the ordered IDs to an existing
+queue using one `playlistcontrol cmd:add track_id:...` call. It never
+starts playback or destroys the original queue. The user must not
+rerun Apply mode blindly because adding is not idempotent.
+It takes `LYRION_SERVER_URL`, `LYRION_PLAYER_ID`,
+`LYRION_LISTENING_CSV` from the local PowerShell caller rather than
+committing private LAN/player/file information. Its JSON-RPC HTTP
+transport explicitly decodes UTF-8 response bytes.
+
+The exact **fully self-contained PowerShell `& { ... }` invocation**
+can be copied from the conversation or
+[the PowerShell scripting convention](powershell-script-conventions.md).
+The underlying repository script is itself also a complete
+`& { ... }` block. The Windows CI runs a purely **local mocked
+JSON-RPC** test for Unicode, double escaping, unique suffixes,
+ambiguity, dry-run and ordered append. Neither CI nor the script
+ever reads user music for similarity calculation. The only possible
+write is to a user's chosen Lyrion play queue after Apply=true.
+
+Reference: [Lyrion CLI database commands](https://lyrion.org/reference/cli/database/),
+[CLI URL escaping](https://lyrion.org/reference/cli/using-the-cli/),
+[playlistcontrol](https://lyrion.org/reference/cli/playlist/).
+
+---
+
 ## Evaluate manually judged pairs
 
 Create a CSV in the same ignored directory. Each row uses exact feature DB
