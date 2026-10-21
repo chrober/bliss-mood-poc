@@ -50,6 +50,16 @@ jobs:
           /usr/bin/time -f 'cargo_build_elapsed_s=%e max_rss_kib=%M' \
             cargo build --locked --release --manifest-path validated-rust-v5/Cargo.toml
           validated-rust-v5/target/release/bliss-mood analyze-features --help | grep -q -- '--embedding-out'
+      - name: Ensure both ffmpeg and ffprobe are installed on the hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: Generate deterministic public-domain-style synthetic PCM test audio
         run: |
           python3 - <<'PY'
