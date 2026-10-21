@@ -1,5 +1,79 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+## NEUES FORSCHUNGSZIEL: Drei Song-Repräsentationen fair vergleichen
+
+**Aktueller Einstieg für die nächste Chat-Session:**
+[Ausführliches Handover zu A/B/C](similarity-three-representation-approaches-handover-2026-10-21.md).
+Die älteren Hörtest-, DEAM-, FMA- und MTT-Notizen in diesem
+Dokument bleiben als **historische Evidenz** erhalten. Der
+erste Acht-Paar-Hörtest ist NICHT Grundlage einer neuen
+endgültigen Modellentscheidung.
+
+Wir untersuchen jetzt zwei Fragen getrennt:
+**Welchen Feature-Raum nutzen wir?** und
+**mit welcher Metrik vergleichen wir darin?**
+Drei neue/eigene Repräsentationsalternativen:
+
+| Pfad | Technische Idee | Heute bereits empirisch geprüft? |
+| --- | --- | --- |
+| **A — Genre/Mood-Klassifikationsvektoren** | 87D Genre und 56D Mood/Theme separat (jeweils aggregierte Sigmoid-Aktivierungen), Cosine/Centered Cosine/Weighted Jaccard und historische weitere vier Metriken | **Ja**: FMA-Small (Genre), DEAM (VA-Proxy für Mood), MagnaTagATune (allgemeine menschliche Triplet-Similarity) |
+| **B — Direktes EffNet-Embedding** | **1280D pro Patch vor den Klassifikationsköpfen**, versioniertes Song-Pooling und L2/Cosine. Beispielsweise verwendet [cosine.club](https://cosine.club/about) Discogs-EffNet-Embeddings und Cosine in einer realen Musikähnlichkeitssuche | **Nein**, Encoder intern vorhanden, bisherige Sidecars aber ohne persistiertes 1280D-Song-Embedding |
+| **C — Fusion von Audio, Genre und Mood** | A+B separat berechnen, vergleichbar skalieren, vorab definierte Kombinationen/kleiner Gewichtssuchraum, auf Development-Daten kalibrieren | **Nein**, erst nach echtem B/A-Vergleich testen |
+
+**NICHT VERWECHSELN** mit den drei Lyrion-
+*Kandidatengewinnungsstrategien*
+**Bliss-first / Mood-/Genre-first / Hybrid**.
+Diese betreffen die *Auswahl und Zulassung* von Songs
+und bleiben gesondert offen; auch mit Bliss-first
+kann C als Re-Ranking-Score verwendet werden.
+
+**Testdesign:** gleiche echten Audio-Clips, dieselbe
+geprüfte numerische Rust-v5-Encoder-Version,
+gleiche Patch-Preprocessing-Pipeline und
+identische menschliche Fragen / Genre- / Mood-Labels
+für A, B und C. Genre- und Mood-Erfolg getrennt
+bewerten; allgemeinen MTT-Similarity-Erfolg nicht
+als Genre-/Mood-Korrektheit interpretieren. MTT
+346 Tripel / 1019 Clips sind **vollständig
+explorativ** analysiert, daher **kein unabhängiger
+MTT-Holdout**. Im 80-Song-FMA-VALIDATION-
+Wiederholungslauf wurden 42 von 800 mögliche
+exakte MTG-Katalog-Matches aus dem Pool
+ausgeschlossen; die neue 80er-Auswahl ist
+**nicht mit der alten gepaart**. FMA-TEST
+bleibt unangetastet. Alle Metriken benötigen
+Paired-Analyse, Coverage/Abstentionsangaben
+und klare, nicht überzogene Unsicherheitsangaben.
+
+**Erster technischer Arbeitsauftrag:**
+Im gepinnten PR-#17-Rust-v5-Code
+(Commit \`2c3d44401436b3b41b6e067199016a1ed2335fbf\`)
+den 1280D-Encoder-Output, Patches und das
+aktuelle schema-v3-Feature-Speicherformat
+überprüfen. Song-Mittelwert-Embeddings
+als **separaten, signierten, versioniert
+fingerprintierten Featuretyp** minimalinvasiv
+für Forschungszwecke exponieren; zunächst
+Essentia-C++/ONNX-Patch-Parität und
+unveränderte 87D-/56D-Köpfe messen,
+danach MTT-Cache für Vergleich A/B nutzen.
+Erst mit verifizierter Evidenz C evaluieren.
+Keine lokalen Windows-Rust-Builds, nur GitHub
+Actions; vier feste CI-Worker und Audio-/Binary-
+Cache zur Laufzeitbegrenzung wiederverwenden.
+Kein Eingriff in private Musikbibliothek,
+Lyrion-Produktion, PR #13 oder #17;
+kein Merge nach \`main\` ohne Freigabe.
+
+**In den nächsten Chat übernehmen:** Den
+aktualisierten [Chat-Handover](chat-handover.md),
+dieses Dokument,
+[Similarity-Metrik-Doku](similarity-metric-evaluation.md),
+[Cross-Dataset-Evidenz](similarity-cross-dataset-evidence-2026-10-21.md)
+und den neuen ausführlichen Drei-Ansätze-Handover
+lesen. Danach E1 direkt umsetzen.
+
+
 > **NEUER HAUPT-HANDOVER — 21.10.2026: DREI REPRÄSENTATIONSANSÄTZE FÜR SONG-SIMILARITY**
 >
 > **Verbindliches Einstiegsdokument für die nächste Chat-Session:**
