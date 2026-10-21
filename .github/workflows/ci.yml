@@ -37,6 +37,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
       - name: Verify SQLite, UTF-8 filenames and read-only hearing set generation
         run: python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
+      - name: Validate Lyrion song URL mapping and safe append against mock JSON-RPC server
+        run: python -m unittest discover -s tests -p 'test_queue_similarity_pairs_lyrion.py'
       - name: Validate full-block PowerShell Lyrion queue script syntax (do NOT execute against user server)
         shell: pwsh
         run: |
