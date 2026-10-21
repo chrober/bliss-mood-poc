@@ -20,13 +20,13 @@ from pathlib import Path
 import statistics
 import time
 
-from benchmark_magnatagatune import triplets_by_vote
+from benchmark_magnatagatune import triplets_by_vote, dev_selection
 
 SEED = 20261021
 SALT = "MTT-artist-holdout-v1|20261021|"
 
 
-def artist_bucket(artist: str, cutoff: int = 51) -> str:
+def artist_bucket(artist: str, cutoff: int = 128) -> str:
     if not artist:
         return "unknown"
     if not 0 <= cutoff <= 256:
@@ -112,6 +112,21 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             "status": "metadata_feasibility_only_NOT_tested_on_model_scores",
         }
 
+    # Prior four-triplet audio smoke used the complete published pool.
+    # It was expressly exploratory, but its artists must never be called
+    # unexposed independent holdout after formal partition selection.
+    smoke = dev_selection(triplets, catalog, count=4, seed=SEED)
+    smoke_artists = {
+        catalog[clip]["artist"] for group in smoke for clip in group
+    }
+    exposed_holdout = [
+        triple for triple in partition["holdout"]
+        if set(artists_by_triple[triple]) & smoke_artists
+    ]
+    untouched_holdout = [
+        triple for triple in partition["holdout"]
+        if not set(artists_by_triple[triple]) & smoke_artists
+    ]
     graph_sizes = sorted((len(t) for t in component_triples.values()), reverse=True)
     artists_development = {a for a in parent if artist_bucket(a) == "development"}
     artists_holdout = {a for a in parent if artist_bucket(a) == "holdout"}
@@ -128,7 +143,7 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
         "status": "metadata_partition_frozen_NO_audio_scoring",
         "unique_unordered_triplets": len(triplets),
         "original_comparison_rows": sum(t["permutations"] for t in triplets.values()),
-        "artist_hash_policy": "sha256('MTT-artist-holdout-v1|20261021|'+normalized_artist)_byte0_less_than_51_is_holdout",
+        "artist_hash_policy": "sha256('MTT-artist-holdout-v1|20261021|'+normalized_artist)_byte0_less_than_128_is_holdout",
         "artist_hash_seed": SEED,
         "artist_partition_counts": {"development": len(artists_development),
                                     "holdout": len(artists_holdout)},
@@ -138,6 +153,12 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             for group in ("development", "holdout", "mixed_excluded", "missing_artist")
         },
         "candidate_artist_holdout_designs": candidate_splits,
+        "prior_four_triplet_smoke_exposure": {
+            "distinct_artists_previously_analyzed": len(smoke_artists),
+            "holdout_triplets_touching_smoke_artists": len(exposed_holdout),
+            "holdout_triplets_never_touched_by_smoke_artists": len(untouched_holdout),
+            "untouched_holdout_question_id_sha256": digest_triplets(untouched_holdout),
+        },
         "artist_component_graph": {
             "components": len(component_artists),
             "artists_in_largest_component": max(
@@ -159,6 +180,7 @@ def evaluate(comparison_csv: Path, clips_csv: Path) -> dict:
             "No split was chosen by inspecting any model similarity scores.",
             "Triplet hashes contain no explicit clip IDs or individual vote metadata.",
             "The prior 4-triplet smoke did not enforce this newly frozen split and remains functionality-only.",
+            "Any holdout questions sharing artists with the prior smoke are excluded from untouched independent testing.",
         ],
     }
 
@@ -181,6 +203,7 @@ def main() -> None:
                                            output["artist_disjoint_questions"].items()},
         "candidate_designs": {cutoff: stats["questions"]
                               for cutoff, stats in output["candidate_artist_holdout_designs"].items()},
+        "prior_smoke_exposure": output["prior_four_triplet_smoke_exposure"],
         "artist_component_graph": output["artist_component_graph"],
         "seconds": output["runtime"]["wall_seconds"],
         "status": output["status"]
