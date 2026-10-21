@@ -25,7 +25,7 @@ def discover_process_embedding_outputs(directory: Path, *, required: bool = Fals
     A standalone one-song smoke has no such files and may omit the gate;
     the multiworker workflow passes --require-process-workers to fail closed.
     """
-    pattern = re.compile(r"process-worker-([1-9][0-9]*)\\.json")
+    pattern = re.compile(r"process-worker-([1-9][0-9]*)[.]json")
     indexed = {
         int(match.group(1)): path
         for path in directory.glob("process-worker-*.json")
