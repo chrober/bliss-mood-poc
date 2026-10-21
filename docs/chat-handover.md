@@ -1146,3 +1146,57 @@ wurde nach Aufnahme des `--require-process-workers`-Flags
 automatisch ausgelöst; zum Zeitpunkt dieses Eintrags war sein
 vollständiges echtes Parallel-Inferenz-Gate noch **queued**.
 Den Run vor Abschluss eines Vierprozess-Determinismusnachweises prüfen.
+
+## FMA-Small katalogbereinigte VALIDATION: eigener Embedding-A/B-Transfer (21.10.2026)
+
+**NEU:** Das nächste kontrollierte Forschungsgate für
+Repräsentation A gegen B ist implementiert:
+[`scripts/evaluate_fma_embedding_ab.py`](../scripts/evaluate_fma_embedding_ab.py),
+optional `--embedding-dir` im bestehenden
+[`scripts/benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py),
+[`research-fma-embedding-ab.yml`](../.github/workflows/research-fma-embedding-ab.yml),
+synthetische Linux-/Windows-
+[`tests/test_evaluate_fma_embedding_ab.py`](../tests/test_evaluate_fma_embedding_ab.py).
+
+Die vorherige **exakte** katalogbereinigte
+80-Song-VALIDATION-Kohorte wurde aus
+[FMA-Run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+als SHA256 `f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509`
+übernommen. Ferner sind die drei
+Quellen-SHAs (FMA-Metadaten/Audiopaket, MTG-Katalog)
+und die früheren Genre-Cosine-Maße
+(P@5 0,3200; mAP@10 0,1748759921; nDCG@10
+0,2985332322) **als Regressions-Gate fixiert**.
+Die neu berechneten direkten 1280D- und
+87D/56D-Sidecars stammen im neuen Modus aus
+**demselben Encoder-Durchlauf** und werden nach
+Audio-SHA, Patchzahl und Modell-/Pooling-Fingerprint
+paarweise überprüft.
+
+Jeder der 80 Künstler-distinkten Query-Tracks
+vergleicht sich mit exakt denselben 79 Kandidaten;
+9 pro Query haben die gleiche FMA-Obergenreklasse.
+Verglichen werden Embedding-Cosine, Genre-Cosine
+und Centered-Cosine sowie Mood-Cosine/Centered
+als **Cross-Task-Kontrolle**. P@5, mAP@10,
+nDCG@10, gemeinsame Abdeckung, Abstentions
+als 0, stratifizierte gepaarte
+Query-Sensitivitätsintervalle. Abhängige Kandidaten,
+nur acht Genres und mögliche nicht erkannte
+Trainingskatalogüberschneidungen bedeuten:
+**kein unabhängiger Holdout/Populations-CI**.
+Offizieller FMA-TEST bleibt strikt unberührt.
+Audio und Embedding-Sidecars bleiben runner-privat,
+Artefakte sind nur aggregierte Reports.
+
+Ausführlicher Studienvertrag:
+[Similarity FMA Embedding A/B](similarity-fma-embedding-ab-2026-10-21.md).
+Erster Workflow:
+[Research FMA 80 Validation A/B](https://github.com/chrober/bliss-mood-poc/actions/workflows/research-fma-embedding-ab.yml).
+Solange nicht vollständig `PASS`: **keine neuen
+numerischen Ähnlichkeitsresultate behaupten**.
+Original FMA-Workflow, Original-Rust-v5-Pin und
+PR #13/#17 sowie Mixer unverändert, PR #16 Draft.
+Nach FMA ist DEAM Development als nächster
+gepaarter Mood-Proxy vorgesehen. Noch keine
+Fusion auf FMA VALIDATION optimieren.
