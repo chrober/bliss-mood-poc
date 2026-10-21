@@ -35,7 +35,7 @@ class HoldoutTests(unittest.TestCase):
                     "clip3_numvotes","clip1_mp3_path","clip2_mp3_path","clip3_mp3_path"])
         for start in range(1,18,3):
             ids=list(range(start,start+3))
-            w.writerow([*ids,5,3,1,*(f"mp3/{i}.mp3" for i in ids)])
+            w.writerow([*ids,8,1,1,*(f"mp3/{i}.mp3" for i in ids)])
         self.comparisons.write_text(c.getvalue(),encoding="utf-8")
 
     def test_policy_determinism_and_counts(self):
