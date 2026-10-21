@@ -120,3 +120,59 @@ uncertainty by independent clip/artist group. The original 533
 permutations are not 533 independent observations.
 
 No changes to production Lyrion mixer, branch main, PR #13 or PR #17.
+
+
+## Verified 4-triplet genuine audio Rust-v5 development smoke
+
+**PASS**: [GitHub Actions 39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662),
+[aggregate-only artifact 12341406678](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662/artifacts/12341406678).
+
+The first invocation was blocked **before Rust** by a shell manifest
+newline bug under `set -e` (file-read status), fixed without changing
+any audio analysis or label data. The corrected run succeeded through
+all stages:
+- metadata source and 8 MiB ZIP-central-directory Range preflight;
+- pinned corrected Rust-v5 build from immutable PR #17 source checkout,
+  with its committed Cargo.lock (without merging PR #17);
+- upstream Discogs-EffNet ONNX encoder plus Genre and Mood/Theme
+  classifier metadata and binaries;
+- **four deterministic, high-consensus, artist-disjoint development
+  triple questions**, **twelve distinct MP3 clips**;
+- twelve CRC-checked ZIP-member MP3s retrieved from actual compressed
+  remote byte ranges, decoded/analyzed one by one with fixed
+  `--threads 1`, stored in a fresh private schema-v3 sidecar;
+- **both** validated v5 feature heads and **all seven** existing
+  similarity metrics scored against aggregated clip-ID-wise
+  human odd-one-out votes; only aggregate report uploaded.
+
+Measured in this exact GitHub runner:
+- **12 remote HTTP Range requests**, **1,385,735 bytes**
+  transferred for the twelve ZIP member ranges;
+- Audio range download + feature inference: **14.477 seconds**
+  (~1.21 seconds per clip overall);
+- End-to-end audio+score segment: **14.496 seconds**;
+  scoring only **0.019 seconds**;
+- `/usr/bin/time` for Python smoke process **14.95 s**
+  and **81,400 KiB peak RSS** (scope excludes/depends on child
+  process accounting; not a proof of systemwide peak memory);
+- one fixed song worker and one ONNX thread; adaptive scanner
+  workers are not yet applicable;
+- Cargo/FFmpeg-build workflow step took approximately
+  **88 seconds** and thus dwarfed the ~15-second audio stage.
+
+The **four-question** Mood-Cosine smoke returned 3/4 correct
+majority odd-one-out predictions (**0.75**) and a vote-weighted
+agreement of **0.75** in this deliberately *preselected*
+high-consensus development cohort. This is **not** a generalization
+estimate, not a Genre/Mood rank winner and not a holdout result.
+The tiny selected set is biased by design, and independent questions
+must be grouped by original artist/track for any future confidence
+interval or hypothesis test.
+
+The first candidate throughput improvement is therefore **reusing
+a source-hash-verified Linux Rust-v5 executable or improving cross-run
+Cargo reuse**, rather than adding workers immediately. The 8-MiB
+directory fetch and 12 targeted clips already avoided >2.7-GiB
+full-archive download. Do not assume Rust worker count will
+materially reduce total job duration until fixed/serial A/B runs
+measure the same audio and all downstream feature values.
