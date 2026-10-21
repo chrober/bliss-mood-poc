@@ -457,6 +457,8 @@ def main() -> None:
                    choices=("smoke", "frozen-development", "all-exploratory"),
                    default="smoke")
     p.add_argument("--workers", type=int, choices=(1, 2, 3, 4), default=1)
+    p.add_argument("--embedding-dir", type=Path,
+                   help="Optional private 1280D exports from the same inference (research overlay only)")
     p.add_argument("--selected-clip-cache", type=Path,
                    help="Verified 1019-clip research cache; bypass publisher full archive")
     p.add_argument("--local-archive-parts", type=Path, nargs=3,
@@ -465,6 +467,8 @@ def main() -> None:
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
         p.error("Refuse to overwrite old feature sidecar or results")
+    if args.embedding_dir and not args.selected_clip_cache:
+        p.error("Embedding A/B research requires the verified curated 1019-clip cache")
     if args.selected_clip_cache and (args.local_archive_parts or args.workers == 1):
         p.error("Selected-clip cache requires 2-4 workers and excludes full local ZIP parts")
     if args.selected_clip_cache and args.selection_mode != "all-exploratory":
@@ -527,7 +531,8 @@ def main() -> None:
                     yield f"MTT/{ident}.mp3", audio
             diagnostic = analyze_parallel(
                 args.binary, args.models_dir, args.db, tasks(),
-                {f"MTT/{ident}.mp3" for ident in keys}, args.workers
+                {f"MTT/{ident}.mp3" for ident in keys}, args.workers,
+                embedding_dir=args.embedding_dir
             )
             diagnostic.update({
                 "http_range_requests": fetcher.requests
