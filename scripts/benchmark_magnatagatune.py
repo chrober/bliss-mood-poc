@@ -203,14 +203,18 @@ class RangeFetcher:
             headers = Path(temp) / "headers.txt"
             body = Path(temp) / "data.bin"
             call = subprocess.run([
-                "curl", "--fail", "--location", "--retry", "2",
-                "--retry-all-errors", "--connect-timeout", "20",
-                "--max-time", "180", "--max-filesize", str(expected + 10000),
+                # A 92-clip development run observed a transient curl 28
+                # timeout after 21 successful clips; retry only bounded
+                # Range requests, never whole multi-gigabyte ZIP parts.
+                "curl", "--fail", "--location", "--retry", "5",
+                "--retry-all-errors", "--retry-delay", "2",
+                "--retry-max-time", "300", "--connect-timeout", "15",
+                "--max-time", "50", "--max-filesize", str(expected + 10000),
                 "--silent", "--show-error", "--header", "Accept-Encoding: identity",
                 "--range", f"{start}-{end}",
                 "--dump-header", str(headers),
                 "--output", str(body), "--write-out", "%{http_code}", url
-            ], capture_output=True, text=True, check=False, timeout=200)
+            ], capture_output=True, text=True, check=False, timeout=330)
             if call.returncode != 0 or call.stdout.strip() != "206":
                 raise RuntimeError(
                     f"HTTP range download failed for MTT part {part}; "
