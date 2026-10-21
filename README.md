@@ -406,6 +406,19 @@ catalog scan or unsafe title search is performed. See
 [exact-key mapping and listening queue safety](docs/similarity-metric-evaluation.md#lyrion-listening-pilot-exact-tracksv2file--lms-song-url-mapping). Never rerun the apply mode blindly: it would append
 duplicates.
 
+**Queue duplicates:** Real Lyrion accepted only 15 of 16 items
+when a single `playlistcontrol cmd:add track_id:id1,id2,...`
+request repeated one ID from two adjacent listening pairs. The
+original command **had already changed the queue** when its returned
+count was rejected. The corrected script appends **one ID per
+request**, confirms each queue-size increment, and then checks the
+actual ordered playlist tail. It also prevents accidental retries
+when the old 15-ID sequence or a complete 16-position sequence
+already sits at the end. A multi-request append is **not atomic**:
+after any reported failure, inspect the queue rather than retrying
+Apply mode blindly. The previously appended 15 tracks need not be
+re-added for the current pilot.
+
 ## Local files and Git hygiene
 
 `.gitignore` excludes root-level `benchmark-*/` benchmark runs,
