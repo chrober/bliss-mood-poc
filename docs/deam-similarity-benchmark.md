@@ -44,7 +44,10 @@ Genre-vs.-VA correlations are diagnostic controls only, **not Genre accuracy**.
   tie handling, corruption/missing-data behavior and read-only evaluation
   on Linux and Windows CI.
 - [.github/workflows/deam-benchmark.yml](../.github/workflows/deam-benchmark.yml):
-  builds Rust on **ubuntu-24.04** with FFmpeg, fetches official Essentia
+  builds the **pinned corrected Rust-v5 analyzer from an independent checkout**
+  at PR #17 commit `2c3d44401436b3b41b6e067199016a1ed2335fbf`
+  on **ubuntu-24.04** with FFmpeg, using that source's tracked Cargo.lock.
+  PR #17 is not merged. Fetches official Essentia
   ONNX models + metadata, downloads the **official** DEAM audio/annotations,
   invokes the benchmark and uploads **only** the aggregate JSON.
   A one-time small **12-song smoke** is triggered when the workflow file
@@ -96,11 +99,11 @@ data scale; 1,802 full-song analyses may require partitions/jobs and
 artifact persistence policy. This first stage has no FMA integration.
 
 Archive hashes, model fingerprint/versions, Rust branch/commit, and
-deterministic sample seed should be compared between runs. Currently a
-Cargo.lock is not committed on this research branch: Rust build resolves
-dependencies on the ephemeral runner, which limits build reproducibility
-until a lockfile is explicitly added. Do **not** claim bit-identical builds
-without it.
+deterministic sample seed should be compared between runs. PR #16 still has no Cargo.lock; the DEAM workflow uses an explicitly
+pinned second checkout of the verified Rust-v5 implementation including
+its tracked lockfile, built with cargo build --release --locked.
+This avoids relabeling a v4 implementation or merging PR #17.
+Do **not** claim bit-identical builds without runtime validation.
 
 ## Planned next gates
 
@@ -115,3 +118,19 @@ without it.
    evidence before any Lyrion-mixer recommendation.
 
 PR #16 is Draft; PR #13, PR #17 and main remain outside scope.
+
+### Observed version-safety smoke gates
+
+- First actual run: cargo build --locked failed before any download,
+  because the PR #16 source tree has no Cargo.lock. This verified
+  fail-closed behavior, not a DEAM dataset failure.
+- Second actual run: downloaded official annotations and audio;
+  matched **1,802** audio/annotation IDs; processed **12** songs with
+  the source PR #16 analyzer. Final validation **correctly rejected**
+  this sidecar: src/features.rs still identifies **v4** preprocessing.
+- The workflow is now revised to check out the frozen PR #17 commit
+  2c3d44401436b3b41b6e067199016a1ed2335fbf in its **own**
+  separate directory and build the default Rust/ONNX backend. It checks
+  for the actual v5 preprocessing fingerprint and cannot silently
+  accept v4. Using this exact source revision is a **build dependency**
+  for DEAM research only; PR #17 is not merged or edited.
