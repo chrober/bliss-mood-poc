@@ -25,6 +25,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_inspect_magnatagatune_metadata.py'
       - name: Validate multipart ZIP directory reading (offline)
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+      - name: Verify two-worker isolated MTT sidecar merge and local multipart read (Linux)
+        run: python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
       - name: Validate sparse MTT MP3 extraction and human triplet scoring (offline)
         run: python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
       - name: Validate frozen artist-disjoint MagnaTagATune holdout on Linux
@@ -61,6 +63,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_inspect_magnatagatune_metadata.py'
       - name: Validate multipart ZIP archive metadata on Windows
         run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+      - name: Verify parallel MTT sidecars and local ZIP on Windows
+        run: python -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
       - name: Validate sparse MTT audio CRC/votes on Windows
         run: python -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
       - name: Validate artist-disjoint MagnaTagATune holdout on Windows
