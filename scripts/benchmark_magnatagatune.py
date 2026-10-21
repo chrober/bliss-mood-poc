@@ -438,12 +438,18 @@ def main() -> None:
                    choices=("smoke", "frozen-development", "all-exploratory"),
                    default="smoke")
     p.add_argument("--workers", type=int, choices=(1, 2, 3, 4), default=1)
+    p.add_argument("--selected-clip-cache", type=Path,
+                   help="Verified 1019-clip research cache; bypass publisher full archive")
     p.add_argument("--local-archive-parts", type=Path, nargs=3,
                    help="Three complete and verified official ZIP parts, only runner-private")
     p.add_argument("--seed", type=int, default=20261021)
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
         p.error("Refuse to overwrite old feature sidecar or results")
+    if args.selected_clip_cache and (args.local_archive_parts or args.workers == 1):
+        p.error("Selected-clip cache requires 2-4 workers and excludes full local ZIP parts")
+    if args.selected_clip_cache and args.selection_mode != "all-exploratory":
+        p.error("Selected-clip cache is for the registered all-346 research scope only")
     for path in (args.comparisons, args.clips, args.tail, args.binary):
         if not path.is_file():
             p.error(f"Missing required input {path}")
@@ -476,36 +482,62 @@ def main() -> None:
     members, zipinfo = directory.zip_member_directory(args.tail, args.part_sizes)
     for ident in {c for triple in selected for c in triple}:
         member_lookup(members, clips[ident]["mp3_path"])
-    if args.local_archive_parts:
+    cached = None
+    if args.selected_clip_cache:
+        from mtt_selected_clip_cache import SelectedClipCache, resolve_members
+        source_paths = {clips[i]["mp3_path"] for group in selected for i in group}
+        required = resolve_members(source_paths, members)
+        cached = SelectedClipCache(args.selected_clip_cache, required)
+        fetcher = None
+    elif args.local_archive_parts:
         fetcher = LocalMultipartRanges(args.local_archive_parts, args.part_sizes)
     else:
         fetcher = RangeFetcher(args.part_sizes)
     start = time.monotonic()
-    if args.workers > 1:
-        keys = sorted({ident for triple in selected for ident in triple})
-        def tasks():
-            for ident in keys:
-                info = member_lookup(members, clips[ident]["mp3_path"])
-                yield f"MTT/{ident}.mp3", extract_mp3(info, fetcher)
-        diagnostic = analyze_parallel(
-            args.binary, args.models_dir, args.db, tasks(),
-            {f"MTT/{ident}.mp3" for ident in keys}, args.workers
-        )
-        diagnostic.update({
-            "http_range_requests": fetcher.requests if not args.local_archive_parts else 0,
-            "downloaded_audio_zip_bytes": fetcher.total_bytes if not args.local_archive_parts else 0,
-            "local_zip_bytes_read": fetcher.total_bytes if args.local_archive_parts else 0,
-            "http_request_min_spacing_s": fetcher.min_request_spacing_seconds,
-            "http_range_pacing_sleep_seconds":
-                round(fetcher.range_pacing_sleep_seconds, 3),
-        })
-    else:
-        diagnostic = run_inference(args.binary, args.models_dir, args.db,
-                                   selected, clips, members, fetcher)
-        if args.local_archive_parts:
-            diagnostic["local_zip_bytes_read"] = fetcher.total_bytes
-            diagnostic["downloaded_audio_zip_bytes"] = 0
-            diagnostic["http_range_requests"] = 0
+    try:
+        if args.workers > 1:
+            keys = sorted({ident for triple in selected for ident in triple})
+            def tasks():
+                for ident in keys:
+                    source_path = clips[ident]["mp3_path"]
+                    if cached:
+                        audio = cached.read_clip(source_path)
+                    else:
+                        info = member_lookup(members, source_path)
+                        audio = extract_mp3(info, fetcher)
+                    yield f"MTT/{ident}.mp3", audio
+            diagnostic = analyze_parallel(
+                args.binary, args.models_dir, args.db, tasks(),
+                {f"MTT/{ident}.mp3" for ident in keys}, args.workers
+            )
+            diagnostic.update({
+                "http_range_requests": fetcher.requests
+                    if fetcher and not args.local_archive_parts else 0,
+                "downloaded_audio_zip_bytes": fetcher.total_bytes
+                    if fetcher and not args.local_archive_parts else 0,
+                "local_zip_bytes_read": fetcher.total_bytes
+                    if args.local_archive_parts else 0,
+                "curated_cache_bytes_read": cached.bytes_read if cached else 0,
+                "research_audio_input_mode": (
+                    "verified_selected_1019_clip_cache" if cached else
+                    "full_local_publisher_archive" if args.local_archive_parts else
+                    "sparse_HTTP_range"
+                ),
+                "http_request_min_spacing_s":
+                    fetcher.min_request_spacing_seconds if fetcher else 0,
+                "http_range_pacing_sleep_seconds":
+                    round(fetcher.range_pacing_sleep_seconds, 3) if fetcher else 0,
+            })
+        else:
+            diagnostic = run_inference(args.binary, args.models_dir, args.db,
+                                       selected, clips, members, fetcher)
+            if args.local_archive_parts:
+                diagnostic["local_zip_bytes_read"] = fetcher.total_bytes
+                diagnostic["downloaded_audio_zip_bytes"] = 0
+                diagnostic["http_range_requests"] = 0
+    finally:
+        if cached:
+            cached.close()
     score_begin = time.monotonic()
     results = evaluate(args.db, selected, triplets)
     result = {
@@ -527,8 +559,10 @@ def main() -> None:
             if args.selection_mode == "all-exploratory" else
             "all_frozen_development_triplets_no_consensus_selection"
             if partition_stats else "high_consensus_disjoint_artist_dev_only"),
-        "archive_transfer_policy": ("full_multipart_staged_locally_once"
-                                    if args.local_archive_parts else "sparse_http_206_per_clip"),
+        "archive_transfer_policy": (
+            "curated_verified_1019_clip_cache" if args.selected_clip_cache else
+            "full_multipart_staged_locally_once" if args.local_archive_parts else
+            "sparse_http_206_per_clip"),
         "frozen_artist_partition": partition_stats,
         "selection_sha256": hashlib.sha256(
             "\n".join(",".join(t) for t in selected).encode("utf8")
