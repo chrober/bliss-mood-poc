@@ -126,7 +126,7 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict
             audio_hashes = {row[1] for row in rows}
             patch_counts = {row[2] for row in rows}
             encoder_names = {row[3] for row in rows}
-            if len(audio_hashes) != len(patch_counts) != 1 or len(encoder_names) != 1:
+            if len(audio_hashes) != 1 or len(patch_counts) != 1 or len(encoder_names) != 1:
                 raise ValueError("Inconsistent audio or encoder across heads")
             enc_hashes = {json.loads(row[4]).get(row[3]) for row in rows}
             if len(enc_hashes) != 1 or not next(iter(enc_hashes)):
