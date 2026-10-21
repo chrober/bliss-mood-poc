@@ -145,3 +145,108 @@ bereits vollständig explorierten MTT-Fragen
 und die FMA-VALIDATION-Genreaufgabe sind keine
 unabhängigen Optimierungs- und Prüfsets für
 Fusion-Gewichte oder Produktionsentscheidungen.
+
+## Verifizierter Endstand – erfolgreicher gepaarter FMA-80-Lauf
+
+**PASS:** [Research FMA 80 A/B, Run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
+([nur aggregiertes Artefakt 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718)).
+Dieser Nachtrag ersetzt den vorherigen `noch zu prüfen`-Status
+des Workflows. Gesonderte Linux-/Windows-Python-Regressionstests waren
+zuvor ebenfalls PASS; Rust-Pooling-Unit-Tests und unverändertes
+gepinntes Runner-Overlay waren in diesem Lauf grün.
+
+**Alle 80 identischen Songs, alle 79 identischen
+Kandidaten pro Query, alle fünf Verfahren mit 80/80 =
+100 % Abdeckung.** Nur die eingefrorene FMA-VALIDATION
+wurde gelesen; der offizielle TEST blieb gesperrt.
+Das frühere Genre-Cosine-Baseline-Tripel wurde **exakt**
+reproduziert: P@5 `0.32000000`, mAP@10
+`0.17487599206349208`, nDCG@10
+`0.29853323224865014`. Der Cohort-Fingerprint
+ist unverändert
+`f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509`.
+Der verwendete originale Encoder
+`discogs-effnet-bsdynamic-1.onnx` hatte SHA256
+`a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c`;
+Pooling- und Preprocessing-Repräsentationsfingerprint:
+`48d6726d346b49aaf9f6d0377778ce0bf46be52285293e2f357ad26832cbc759`.
+
+| Repräsentation und metrische Similarity | P@5 | mAP@10 | nDCG@10 | Query coverage |
+| --- | ---: | ---: | ---: | ---: |
+| B: 1280D Encoder Song-Mean+L2, Cosine | 0,2800 | 0,163044 | 0,282363 | 80/80 |
+| A: Genre 87D, Cosine | 0,3200 | 0,174876 | 0,298533 | 80/80 |
+| A: Genre 87D, Centered Cosine | **0,3225** | **0,178147** | **0,304271** | 80/80 |
+| A: Mood/Theme 56D, Cosine | 0,2775 | 0,150394 | 0,266065 | 80/80 |
+| A: Mood/Theme 56D, Centered Cosine | 0,2675 | 0,152847 | 0,270372 | 80/80 |
+
+Random P@5 = `9/79 ≈ 0,1139`.
+
+### Gepaarte Query-Unsicherheit, korrekt interpretiert
+
+Die Differenzen sind **Embedding minus jeweilige
+Klassifikationsbaseline**; die folgenden 95-%-Quantile
+entstammen 800 geteilten *genrestratifizierten*
+Query-Resamples der **identischen 80 Queries**.
+Es sind **nur explorative Sensitivitätsbereiche,
+keine unabhängig gültigen Konfidenzintervalle**
+(gemeinsame Kandidaten, lediglich 8 Obergenres,
+bereits untersuchte Entwicklungsstichprobe,
+unsichere Encoder-Trainingsüberlappung).
+
+| Embedding − Kopf-Baseline | Differenz P@5 (pp) | 95-%-Sensitivität P@5 (pp) | Differenz mAP@10 (pp) | Differenz nDCG@10 (pp) |
+| --- | ---: | ---: | ---: | ---: |
+| Genre Cosine | −4,00 | −8,75 bis +0,75 | −1,183 | −1,617 |
+| Genre Centered Cosine | −4,25 | −8,76 bis +0,25 | −1,510 | −2,191 |
+| Mood Cosine | +0,25 | −3,50 bis +4,01 | +1,265 | +1,630 |
+| Mood Centered Cosine | +1,25 | −2,50 bis +5,00 | +1,020 | +1,199 |
+
+Entscheidungsrelevant ist vor allem die
+**Genre-gegen-Embedding**-Zeile: Direkte
+EffNet-Embeddings verlieren auf diesem **Genre-Proxy**
+in der beobachteten Stichprobe 4,00–4,25 pp P@5
+gegenüber den passenden Genre-Köpfen. Die
+Sensitivitätsbereiche schließen `0` ein.
+Mood-Köpfe werden hier nur als
+**Cross-Task-Kontrolle**, nicht als unabhängige
+Mood-Ähnlichkeitsreferenz bewertet.
+
+### Reproduzierbarkeit, Durchlaufzeiten, nächste Forschung
+
+Messwerte aus diesem erfolgreichen Workflow:
+originales FMA-7,2-GiB-Audio-ZIP **243,87 s**
+Download, Rust-v5-Releasekompilierung **51,48 s**
+(noch ohne vorherige Rust-Unit-Test-Kompilierungszeit),
+Inference+ursprüngliche Auswertung der 80 Clips
+**48,37 s**, gepaarter Evaluator samt
+Archivquellen-SHA256 **12,63 s**. Das
+Audioarchiv war der dominante Kostentreiber;
+es wird bewusst **nicht** in einem anderen Branches
+zugänglichen unkontrollierten Audio-Cache geteilt.
+Die Ausgabe enthält **keine** Audio-Dateien,
+Clip-IDs, Tracklabels oder Embeddingvektoren.
+
+### Forschungsschlussfolgerung
+
+FMA Genre-Retrieval und die zuvor vollständig
+explorierte MagnaTagATune-Menschentripelaufgabe
+zeigen **beide im betrachteten Setting keinen
+Sieg der direkten 1280D-Cosine** über die
+aufgabenpassenden Klassifikationsvektoren.
+Das ist **keine Widerlegung** direkter Embeddings:
+andere Encoder, insbesondere separat
+kontrastiv auf Similarity optimierte Modelle,
+andere Poolingvarianten und andere
+menschenbasierte Klangnähe-/Übergangsreferenzen
+bleiben ungetestet. Aus FMA VALIDATION
+darf keine Produktions- oder Fusion-
+Gewichtwahl getroffen werden.
+
+**Nächstes Evidenzziel:** DEAM Development/Validation
+auf denselben Audiodateien, Valence/Arousal
+als unabhängiger, aber nicht identischer
+Mood-Proxy; die Klassifikations- und
+Embedding-Dimensionen wieder gepaart und
+mit exakt gleichen Provenienz-/Coverage-
+Regeln. Neue echte Hörreferenzen wären für
+Klangnähe/Playlist-Übergänge weiterhin
+aussagekräftiger.
