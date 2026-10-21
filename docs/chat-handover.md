@@ -93,6 +93,23 @@ All current results are exploratory; there
 is **no production winner** or valid
 post-hoc weight-fitting holdout.
 
+## Latest verified M1/M2 checkpoint (2026-10-21)
+
+The user completed the 100-song research feature-coverage gate:
+**100/100 same-song 87D Genre, 56D Mood and 1280D Embedding vectors**
+passed the independent read-only coherence audit. Zero missing embeddings,
+invalid exports or audio/encoder mismatches. Phase 0 remains partially open.
+
+M2 preparation is available in
+[`scripts/propose_local_embedding_ab_pilot.py`](../scripts/propose_local_embedding_ab_pilot.py)
+and passed [Linux/Windows CI 39668802990](https://github.com/chrober/bliss-mood-poc/actions/runs/39668802990).
+It creates 12 blinded pairs using 24 distinct songs, with
+private model-based selection and blank ordinal human ratings.
+**Human responses are not yet collected.**
+See the [complete local pilot instructions](similarity-local-library-retest-plan-2026-10-21.md).
+Never expose the private audit prior to listening or overwrite earlier
+human ratings.
+
 ## Immediate next local milestone: repaired one-song 1280D export (2026-10-21)
 
 The user completed a read-only 100-song local L0 inventory:
