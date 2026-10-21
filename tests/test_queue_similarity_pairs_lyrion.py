@@ -28,6 +28,7 @@ class MockLyrionServer(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.calls = []
         self.appends = []
+        self.queue = [101, 102, 103]
         self.rescan = False
         self.corrupt_url = False
 
@@ -72,12 +73,28 @@ class Handler(BaseHTTPRequestHandler):
             if self.server.rescan:
                 data["rescan"] = "1"
         elif action == "playlist":
-            data = {"_shuffle": 0} if command[1] == "shuffle" else {"_tracks": 3}
+            data = ({"_shuffle": 0} if command[1] == "shuffle"
+                    else {"_tracks": len(self.server.queue)})
+        elif action == "status":
+            assert player == PLAYER_ID and command[-1] == "tags:u"
+            start, length = int(command[1]), int(command[2])
+            data = {
+                "playlist_tracks": len(self.server.queue),
+                "playlist_loop": [
+                    {"id": song, "playlist index": i}
+                    for i, song in enumerate(self.server.queue[start:start+length], start)
+                ],
+            }
         elif action == "playlistcontrol":
             assert player == PLAYER_ID and command[1] == "cmd:add"
             ids = command[2].split(":", 1)[1].split(",")
+            # Mirror the OBSERVED behavior of comma-list playlistcontrol:
+            # the same ID repeated within one request can be collapsed.
+            # Separate singleton requests are each a distinct queue entry.
+            distinct = list(dict.fromkeys(ids))
             self.server.appends.append(ids)
-            data = {"count": len(ids)}
+            self.server.queue.extend(int(x) for x in distinct)
+            data = {"count": len(distinct)}
         else:
             data = {"error": "unsupported mock command"}
         payload = json.dumps({"id": body["id"], "method": "slim.request",
@@ -136,7 +153,56 @@ class QueueScriptIntegrationTests(unittest.TestCase):
     def test_explicit_apply_appends_two_ids_in_csv_order(self):
         result = self.run_script(apply=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.server.appends, [["11", "12"]])
+        self.assertEqual(self.server.appends, [["11"], ["12"]])
+        self.assertEqual(self.server.queue[-2:], [11, 12])
+
+    def test_duplicate_track_across_pair_boundary_is_not_deduplicated(self):
+        with self.csv.open("a", encoding="utf-8", newline="") as output:
+            csv.writer(output).writerow((
+                "Band/LP/02-second.flac",
+                "Various Artists/Album, 2023/01 Song.mp3", "", ""
+            ))
+        result = self.run_script(apply=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.server.appends, [
+            ["11"], ["12"], ["12"], ["11"]
+        ])
+        self.assertEqual(self.server.queue[-4:], [11, 12, 12, 11])
+        self.assertIn("4 Queue-Positionen", result.stdout)
+
+    def test_repeat_apply_detects_matching_queue_tail_and_refuses_replay(self):
+        first = self.run_script(apply=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        second = self.run_script(apply=True)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("bereits am Queue-Ende", second.stderr + second.stdout)
+        self.assertEqual(self.server.queue, [101, 102, 103, 11, 12])
+        self.assertEqual(self.server.appends, [["11"], ["12"]])
+
+    def test_old_bulk_add_duplicate_collapsed_tail_is_not_appended_again(self):
+        with self.csv.open("a", encoding="utf-8", newline="") as output:
+            csv.writer(output).writerow((
+                "Band/LP/02-second.flac",
+                "Various Artists/Album, 2023/01 Song.mp3", "", ""
+            ))
+        self.server.queue.extend([11, 12])  # legacy distinct ID sequence
+        result = self.run_script(apply=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Alte playlistcontrol-Sammelanfuegung", result.stderr + result.stdout)
+        self.assertEqual(self.server.appends, [])
+        self.assertEqual(self.server.queue, [101, 102, 103, 11, 12])
+
+    def test_interrupted_prefix_prevents_blind_replay(self):
+        with self.csv.open("a", encoding="utf-8", newline="") as output:
+            csv.writer(output).writerow((
+                "Band/LP/02-second.flac",
+                "Various Artists/Album, 2023/01 Song.mp3", "", ""
+            ))
+        self.server.queue.extend([11, 12])  # two of four already added
+        # The old-bulk guard also protects this specific prefix.
+        result = self.run_script(apply=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.server.appends, [])
 
     def test_different_music_root_must_fail_with_no_queue_change(self):
         result = self.run_script(apply=True, root="/wrong/music")
