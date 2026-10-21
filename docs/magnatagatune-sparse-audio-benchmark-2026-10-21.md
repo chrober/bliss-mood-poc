@@ -363,3 +363,86 @@ of compressed ZIP ranges and ~14.5 s inference+download, versus
 21/92 song analyses in about 26 seconds before the source server
 temporarily stopped responding; do not extrapolate that into
 verified complete-job throughput or benefit from multiple workers.
+
+
+## All-346 exploratory design: staged audio, two isolated workers and opt-in cache
+
+**Research decision 21 Oct 2026:** Rather than overinterpret the small
+31-development/48-candidate-holdout strict artist partition, the user
+chose a **full, explicitly exploratory analysis** of all 346 unique
+unordered MTT triplets and their 1,019 referenced clips. This
+**consumes the formerly reserved holdout questions**. Once it is
+run there is **no independent MTT holdout left**; this must never be
+described as an unseen holdout experiment or used to proclaim a
+production metric winner. The 533 ordered comparison records are
+collapsed by sorted clip triple, summing individual clip-ID votes.
+
+New workflow:
+[.github/workflows/magnatagatune-all-exploratory.yml](../.github/workflows/magnatagatune-all-exploratory.yml),
+initial Actions run
+[39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438).
+**Check the actual completed run and aggregate report before claiming
+metrics or speedup.** The workflow is triggered by its own file change
+or manual dispatch (no docs-only automatic run).
+
+New implementation:
+- `scripts/benchmark_magnatagatune.py --selection-mode all-exploratory`
+  requires unchanged official CSV fingerprints plus exactly 346
+  unique unordered triplets / 1,019 clip IDs. It does not apply
+  subjective consensus filtering or artist partitioning.
+- `scripts/mtt_local_archive.py` reads each ZIP member from the
+  three consecutively staged source parts without concatenating,
+  unzipping all members or doing ~1,000 throttled network requests.
+  The HTTP Content-Range source-probed part lengths are validated
+  against the staged archives; each actually used MP3 is verified
+  against ZIP central-directory CRC and size before inference.
+- `scripts/mtt_parallel_workers.py` runs **two independently
+  writing Rust-v5 `analyze-features` subprocesses**, each with
+  ONNX `--threads 1`, on 4-CPU Actions runners. Every worker
+  owns its own SQLite schema-v3 sidecar. A deterministic,
+  fail-closed single-writer merger checks cohort metadata,
+  SQLite integrity, complete 87D/56D coverage, no duplicate
+  keys and expected clip count. There are **no concurrent writes
+  to a shared database**.
+- Aggregate-only score output for 7 metrics × 2 heads reports
+  distinct human majority ties, score undefined/metric ties/
+  Top-K zero overlap, defined-query coverage, conditional and
+  abstention-inclusive majority accuracy, 1/3 random odd-one-out
+  reference, votes-weighted agreement and two human-consensus
+  strata. This is *descriptive* same-corpus evidence and accounts
+  for correlated triplets sharing artists/songs.
+
+### Caching: deliberately opt in, do not publish raw audio artifacts
+
+The original three source ZIP parts occupy **2,972,769,864 bytes**
+(~2.77 GiB); `actions/cache@v4` could retain these between jobs.
+GitHub's standard repository cache allowance is about **10 GiB**,
+with default **seven-day inactivity eviction**; larger cache usage
+can incur cost. Crucially, **GitHub caches are not confidential**:
+cache contents can be accessible through authorized PR workflows,
+including fork-derived base-branch caches. Research audio under
+the original TagATune **CC BY-NC-SA 3.0** conditions must not
+silently be reposted as a public artifact or retained in a cache
+without a deliberate licensing/access review.
+
+For that reason the new workflow only enables the audio cache
+when manually dispatched with **`cache_audio: true`**.
+All automatic runs and default manual runs download from the
+official publisher and stage the archives **only on the ephemeral
+runner**. Cache misses redownload safely. Cache hits are rechecked
+against source Content-Range sizes, and all selected MP3 members
+undergo CRC verification. Cache restore/upload may have
+significant I/O time: **a cache hit is not automatically a measured
+speedup**. Never upload music, per-track vectors, artist IDs or
+human per-clip votes through `upload-artifact` or git.
+
+Track actual walltimes in GitHub step summary for central-directory
+preflight, archive stage, Cargo build, model downloads, parallel
+inference/scoring, and compare serial vs two-worker performance only
+on identical pinned audio/model inputs. Do not present inferred
+speedups as measurements.
+
+Official GitHub cache policies:
+https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching
+Original TagATune research terms:
+https://tagatune.org/details.html
