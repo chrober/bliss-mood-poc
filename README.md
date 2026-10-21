@@ -23,6 +23,12 @@ Phase **2** inventories and, where necessary, completes compatible 87D Genre,
 A fully maintained production-library feature set belongs to **phase 6**,
 only after the release gates. No ONNX inference runs inside the playlist mixer.
 
+**Documentation policy:** All README and `docs/*.md` prose must be in
+**English**, including handover notes and Mermaid labels. The
+[English-only documentation CI](.github/workflows/docs-english.yml)
+runs on documentation changes; source-code snippets, model names and
+historical file identifiers remain unchanged.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with
