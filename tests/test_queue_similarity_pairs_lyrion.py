@@ -124,6 +124,18 @@ class QueueScriptIntegrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.server.appends, [["11", "12"]])
 
+    def test_matching_across_multiple_lms_catalog_pages(self):
+        self.server.tracks = [
+            {"id": 1000 + i, "url": f"file:///music/Noise/Subfolder/noise-{i}.mp3"}
+            for i in range(515)
+        ] + list(TRACKS)
+        result = self.run_script(apply=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.server.appends, [["11", "12"]])
+        pages = [call["params"][1] for call in self.server.calls
+                 if call["params"][1][0] == "titles"]
+        self.assertEqual([int(page[1]) for page in pages], [0, 500])
+
     def test_duplicate_full_relative_path_in_two_music_roots_is_ambiguous(self):
         self.server.tracks.append({
             "id": 99,
