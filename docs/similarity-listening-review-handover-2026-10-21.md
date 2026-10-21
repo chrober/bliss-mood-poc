@@ -1,5 +1,37 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **FULL 346-TRIPLET EXPLORATORY MTT & CACHE POLICY (21 Oct 2026):**
+> The user decided to score **ALL 346 unique unordered triplets /
+> 1,019 distinct MagnaTagATune clips**, consuming the 48
+> previously untouched artist-holdout candidates. This is explicitly
+> **exploratory only; there is NO remaining independent MTT holdout**.
+> New `scripts/benchmark_magnatagatune.py --selection-mode all-exploratory`
+> uses pinned source file hashes and exact 346/1019 cardinality.
+> New `scripts/mtt_parallel_workers.py` uses **2 concurrent isolated
+> Rust-v5 processes, --threads 1 each**, separate schema-v3 SQLite
+> sidecars, validated/merged only after completion; no shared
+> concurrent SQLite writer. `scripts/mtt_local_archive.py` can read
+> ZIP members from the three staged publisher files without per-clip
+> HTTP calls. Real job
+> [39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
+> was triggered; check actual completed outcome/artifacts BEFORE
+> claiming 346-triplet scores or parallel performance.
+> Workflow [.github/workflows/magnatagatune-all-exploratory.yml](../.github/workflows/magnatagatune-all-exploratory.yml)
+> runs only on its own file update or manual dispatch.
+>
+> **Audio cache is opt-in** via manual `workflow_dispatch`
+> `cache_audio: true`, not enabled by default. The full licensed
+> archive is 2.77 GiB, a large fraction of GitHub default
+> 10-GiB repository cache; default inactivity eviction ~7 days.
+> Caches are accessible to certain PRs/forks, so review research
+> CC BY-NC-SA 3.0 rights and accessibility before storing the audio.
+> Even a cache hit must pass publisher size + MP3 CRC checks; always
+> measure hit/restore vs publisher download, not assume it is faster.
+> No raw audio, per-track features or private data in run artifacts.
+> See [sparse audio doc](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+>
+
+
 **Stand:** 21. Oktober 2026, Europe/Vienna.  
 **Repository:** [chrober/bliss-mood-poc](https://github.com/chrober/bliss-mood-poc)  
 **Aktiver Branch:** `feat/similarity-metric-evaluation`  
