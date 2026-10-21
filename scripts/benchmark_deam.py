@@ -24,6 +24,7 @@ import tempfile
 import zipfile
 
 import evaluate_similarity as ev
+import audit_deam_mtg_overlap as overlap_audit
 
 DEAM_SOURCE = "https://cvml.unige.ch/databases/DEAM/"
 AUDIO_NAME = re.compile(r"^([0-9]+)\.mp3$", re.IGNORECASE)
@@ -335,6 +336,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261021)
     parser.add_argument("--stratify-cohorts", action="store_true",
                         help="Oversample DEAM 2015 full-song cohort; report groups separately")
+    parser.add_argument("--exclude-mtg-catalog-matches", action="store_true",
+                        help="Conservatively remove normalized artist/title candidates from MTG catalog")
+    parser.add_argument("--deam-metadata-zip", type=Path)
+    parser.add_argument("--mtg-metadata-tsv", type=Path)
     args = parser.parse_args()
     if not 6 <= args.limit <= 1802:
         parser.error("--limit must be between 6 and 1802")
@@ -347,12 +352,46 @@ def main() -> None:
         parser.error("Missing models directory")
     annotations = load_annotations(args.annotations_zip)
     members = match_audio(args.audio_zip, annotations)
+    screening = None
+    if args.exclude_mtg_catalog_matches:
+        if not args.deam_metadata_zip or not args.mtg_metadata_tsv:
+            parser.error("Exclusion requires --deam-metadata-zip and --mtg-metadata-tsv")
+        for p in (args.deam_metadata_zip, args.mtg_metadata_tsv):
+            if not p.is_file():
+                parser.error(f"Missing required metadata: {p}")
+        deam_meta, stats = overlap_audit.load_deam_metadata(args.deam_metadata_zip)
+        mtg_names, mtg_rows = overlap_audit.load_mtg_metadata(args.mtg_metadata_tsv)
+        excluded = {
+            song_id for song_id in members
+            if song_id in deam_meta and deam_meta[song_id] in mtg_names
+        }
+        # Fail closed on material data loss/incomplete DEAM provenance.
+        if len(deam_meta) < len(members) * .95:
+            raise ValueError("DEAM metadata join coverage too low to screen overlaps")
+        original_count = len(members)
+        members = {song_id: entry for song_id, entry in members.items()
+                   if song_id not in excluded}
+        screening = {
+            "status": "partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness",
+            "excluded_mtg_catalog_candidates": len(excluded),
+            "eligible_after_exclusion": len(members),
+            "initial_matching_deam_audio_tracks": original_count,
+            "deam_metadata_coverage_count": len(set(deam_meta) & set(annotations)),
+            "mtg_catalog_metadata_rows": mtg_rows,
+            "deam_metadata_sha256": sha256_file(args.deam_metadata_zip),
+            "mtg_raw_metadata_sha256": sha256_file(args.mtg_metadata_tsv),
+            "warning": "Artist/title matches are not a training-split audit; "
+                       "non-matches may still overlap in audio or artist identity.",
+        }
     ids = select_ids(annotations, members, args.limit, args.seed,
                      stratify_cohorts=args.stratify_cohorts)
     print(f"Matched {len(members)} annotated MP3s; using {len(ids)} (seed={args.seed}).")
     run_inference(args.binary, args.models_dir, args.audio_zip, ids, members, args.db)
     result = evaluate(args.db, ids, annotations, args.seed,
                       report_subcohorts=args.stratify_cohorts)
+    if screening is not None:
+        result["dataset"]["overlap_screen"] = screening
+        result["dataset"]["train_overlap_check"] = screening["status"]
     result["dataset"]["annotation_archive_sha256"] = sha256_file(args.annotations_zip)
     result["dataset"]["audio_archive_sha256"] = sha256_file(args.audio_zip)
     args.report.parent.mkdir(parents=True, exist_ok=True)
