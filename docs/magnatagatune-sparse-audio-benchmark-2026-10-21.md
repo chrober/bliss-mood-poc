@@ -221,3 +221,36 @@ perceptual-similarity benchmark, with vote/consensus handling and
 repeated-artist sensitivity analyses, and seek a separate independent
 human-similarity dataset for final confirmation. Do not select a
 production metric based on four holdout triplets.
+
+
+### Follow-up artist-hash sensitivity: alternative 50/50 design
+
+The **revised, successful** metadata audit
+[run 39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265)
+([aggregate artifact 12342707931](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265/artifacts/12342707931))
+computed artist-hash thresholds **51, 85, 128** out of 256 without
+accessing any new model predictions or audio:
+
+| Artist hash cutoff | Development triplets | Candidate holdout triplets | Mixed artist exclusions |
+| --- | ---: | ---: | ---: |
+| 51 (~20% artists in holdout) | 162 | 4 | 180 |
+| 85 (~33%) | 86 | 13 | 247 |
+| 128 (~50%) | **31** | **56** | **259** |
+
+Under the final tested 128/256 option, **8** of the 56 potential
+holdout questions have artists already seen in the preceding
+four-triplet real-audio smoke; **48** remain untouched by that smoke.
+This is a more usable *potential* artist-disjoint test than the
+four-question 20%-artist candidate, but the loss of 259/346 triplets
+and the small 31-question development set constrain reliability.
+The all-connected artist graph finding remains unchanged.
+
+**IMPORTANT:** The hash threshold was compared using metadata-only
+counts after four development clips/triples had already been explored.
+A new test protocol must freeze the chosen cutoff **before** evaluating
+holdout model results, exclude the eight previously exposed
+questions, avoid further adjustment on test performance, and
+preserve the test-candidate identity hash in the research record.
+These triplets are only held out from our four-triplet analysis,
+not proven outside the original ONNX training corpus. No quality
+result for the 48 candidate holdout questions has yet been measured.
