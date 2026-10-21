@@ -104,6 +104,12 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors \
             --connect-timeout 30 --max-time 300 --silent --show-error \
             "$base/metadata.zip" -o benchmark-private/metadata.zip
+          # Conservative MTG catalog screen; do not publish raw metadata.
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 900 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o benchmark-private/mtg-raw.meta.tsv
+          test "$(stat -c%s benchmark-private/mtg-raw.meta.tsv)" -gt 10000
           python3 - <<'PY'
           import zipfile
           import csv, io
@@ -139,14 +145,22 @@ jobs:
             --report results/deam-summary.json \
             --limit "$DEAM_LIMIT" \
             --seed 20261021 \
-            --stratify-cohorts
+            --stratify-cohorts \
+            --deam-metadata-zip benchmark-private/metadata.zip \
+            --mtg-metadata-tsv benchmark-private/mtg-raw.meta.tsv \
+            --exclude-mtg-catalog-matches
           python3 - <<'PY'
           import json
           with open("results/deam-summary.json", encoding="utf-8") as f:
               report = json.load(f)
           print("DEAM tracks:", report["dataset"]["songs_evaluated"])
           print("Collection cohorts:", report["dataset"]["annotation_cohort_counts"])
-          print("Train overlap check:", report["dataset"]["train_overlap_check"])
+          print("Catalog overlap screening:", report["dataset"]["train_overlap_check"])
+          print("Catalog exclusion counts:", {
+              key: value for key, value in report["dataset"]["overlap_screen"].items()
+              if key in ("excluded_mtg_catalog_candidates", "eligible_after_exclusion",
+                         "deam_metadata_coverage_count")
+          })
           for name, group in report.get("subcohorts", {}).items():
               print("Within-collection:", name, "songs:", group["songs_evaluated"])
               print("  Mood cosine VA Spearman:",
