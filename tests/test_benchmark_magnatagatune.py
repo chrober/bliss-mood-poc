@@ -174,7 +174,7 @@ class SparseMttBenchmarkTests(unittest.TestCase):
             self.assertEqual(argv[argv.index("--max-filesize") + 1], "10004")
             self.assertEqual(argv[argv.index("--range") + 1], "12-15")
             Path(argv[argv.index("--dump-header") + 1]).write_text(
-                "HTTP/1.1 206 Partial Content\\nContent-Range: bytes 12-15/2048\\n",
+                "HTTP/1.1 206 Partial Content\nContent-Range: bytes 12-15/2048\n",
                 encoding="ascii")
             Path(argv[argv.index("--output") + 1]).write_bytes(b"ABCD")
             return SimpleNamespace(returncode=0, stdout="206", stderr="")
