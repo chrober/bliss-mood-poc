@@ -219,3 +219,58 @@ These additions are tested with synthetic fixture archives, 2015/older
 ID ranges, deterministic sampling, immutable SQLite assertions, and
 aggregate-only, cohort-separated reports on Linux and Windows CI.
 No metric selection is made from the 240-song run regardless of its scores.
+
+
+## Results: 240-song stratified DEAM end-to-end run (21 October 2026)
+
+**PASS**, GitHub Actions
+[run 39577605466](https://github.com/chrober/bliss-mood-poc/actions/runs/39577605466)
+on code revision b8e7486e8871ee5c245b0c11334bafdf4d8387fb;
+[aggregate-only report artifact 12335725900](https://github.com/chrober/bliss-mood-poc/actions/runs/39577605466/artifacts/12335725900).
+
+The official DEAM archive matched 1,802 annotation/audio IDs;
+the frozen seed 20261021 selected and analyzed **240** using the
+pinned corrected Rust-v5 analyzer and **no** user audio or local build:
+192 earlier excerpts and 48 full-song 2015 examples. DEAM metadata.zip
+was inspected without printing artist/title values; it has distinct
+2013/2014/2015 files and schemas:
+- metadata_2013.csv: song_id, Artist, Song title, etc.
+- metadata_2014.csv: Id, Artist, Album, Track, etc.
+- metadata_2015.csv: id, Filename, title, artist, album, etc.
+
+Mean per-query Spearman of similarity score vs **human VA Euclidean proximity**
+(higher means stronger monotonic association):
+
+| Metric | Genre head vs VA (not a Genre test) | Mood head vs VA |
+| --- | ---: | ---: |
+| RMS | 0.0857 | 0.2277 |
+| Cosine | 0.1009 | 0.2421 |
+| Centered cosine | 0.0999 | 0.2471 |
+| Weighted Jaccard | 0.1052 | 0.2507 |
+| Historical cutoff Top-K | 0.0925 (240 queries) | 0.1558 (218 queries) |
+| Ranked Top-6 | 0.0885 | 0.2250 |
+| Ranked Top-12 | 0.0969 | 0.2351 |
+
+Within-cohort Mood Cosine vs VA proximity:
+- earlier excerpts (192 songs): **0.2689**
+- 2015 full songs (48 songs): **0.3044**
+
+The pooled results are a heterogeneous, deliberately 2015-oversampled
+sample, so the overall table is **not a prevalence-weighted estimate**.
+Cohort-specific candidate pools/annotation protocols differ. These
+are **not ROC-AUC**, and a small score difference does not establish
+statistical superiority. In particular, the twelve-song result that
+favored ranked Top-6 did not generalize as the highest scorer in this
+larger run. **Do not select any metric from these numbers.**
+
+The aggregate report explicitly states that **MTG-Jamendo training
+overlap is not yet audited**. Training overlap may still be present;
+artist/track metadata matching and separate held-out evaluation are
+required. Genre VA correlation does NOT validate Genre retrieval.
+The benchmark passed the CI workflow, but does **not** establish
+playlist quality or deployment readiness.
+
+Next research gates: read-only DEAM metadata to MTG-Jamendo overlap
+screening without publicly exposing individual metadata; an independent
+FMA-Small Genre retrieval evaluation, designed separately at
+[docs/fma-genre-benchmark-plan.md](fma-genre-benchmark-plan.md).
