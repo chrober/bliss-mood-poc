@@ -1,5 +1,20 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **FMA GENRE VALIDATION E2E PASS, 21 Oct 2026:** Corrected
+> [run 39583233757](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757)
+> passed. Official FMA-Small archive has **3 size-anomalous MP3s**,
+> safely excluded, with 7,997 usable MP3s. The **80** seeded, artist-unique
+> validation tracks (10 per genre, FMA test split untouched) were processed
+> by pinned genuine Rust-v5, and an
+> [aggregate-only artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39583233757/artifacts/12338242831)
+> published. P@5 random expectation .1139; RMS .3175, cosine .3500,
+> centered cosine .3525, weighted Jaccard .3550, old Top-K .3150,
+> ranked Top-6 .3150 and ranked Top-12 .3400. Exploratory ONLY,
+> no metric chosen. See docs/fma-genre-benchmark-plan.md and
+> docs/github-actions-trigger-and-worker-audit-2026-10-21.md.
+> Trigger change to push-only CI and docs-only skip is verified;
+> Rust adaptive workers are not used by per-song AnalyzeFeatures.
+>
 > **GH CI / FMA FOLLOW-UP — 21 Oct 2026:** The real FMA validation
 > run [39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733)
 > failed **before inference**, after downloading the archives, because
