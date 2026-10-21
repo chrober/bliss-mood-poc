@@ -126,10 +126,7 @@ jobs:
       # be exposed to PR workflows targeting the cache-bearing branch.
       - name: Restore only 1019 relevant MTT clips, never source archives
         id: clip_cache
-        if: >-
-          ${{ github.repository == 'chrober/bliss-mood-poc' && }}
-          github.ref == 'refs/heads/feat/similarity-metric-evaluation' &&
-          (github.event_name == 'push' || inputs.cache_audio == true)
+        if: ${{ github.repository == 'chrober/bliss-mood-poc' && github.ref == 'refs/heads/feat/similarity-metric-evaluation' && (github.event_name == 'push' || inputs.cache_audio == true) }}
         uses: actions/cache/restore@v4
         with:
           path: benchmark-private/mtt-required-1019-clips.zip
@@ -192,11 +189,7 @@ jobs:
           echo "curated_cache_bytes=$size" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cache ONLY the selected research clips, never full music archives
-        if: >-
-          ${{ steps.clip_cache.outputs.cache-hit != 'true' && }}
-          github.repository == 'chrober/bliss-mood-poc' &&
-          github.ref == 'refs/heads/feat/similarity-metric-evaluation' &&
-          (github.event_name == 'push' || inputs.cache_audio == true)
+        if: ${{ steps.clip_cache.outputs.cache-hit != 'true' && github.repository == 'chrober/bliss-mood-poc' && github.ref == 'refs/heads/feat/similarity-metric-evaluation' && (github.event_name == 'push' || inputs.cache_audio == true) }}
         uses: actions/cache/save@v4
         with:
           path: benchmark-private/mtt-required-1019-clips.zip
