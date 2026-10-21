@@ -30,6 +30,8 @@ jobs:
           ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
           path: validated-rust-v5
           persist-credentials: false
+      # Regression 2026-10-21: verify original DEAM v1 literal-backslash-n
+      # 240-ID fingerprint serialization before any licensed audio download.
       - name: 'Preflight: synthetic paired DEAM regression and no dataset access'
         shell: bash
         run: |
