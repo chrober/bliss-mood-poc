@@ -1,3 +1,32 @@
+## Einstieg: zentrale Roadmap und aktuelle Phasenzuordnung (21.10.2026)
+
+**Bitte als erstes lesen:** [Song-Similarity bis Lyrion-Integration – Roadmap Phase 0–6](similarity-lyrion-roadmap.md).
+Vier GitHub-renderbare Mermaid-Diagramme, Status und
+kleine Stop-/Go-Pakete. Dieses Dokument ist der
+**aktuelle Gesamtplan**; historische Handover-Abschnitte
+darunter können mittlerweile abgeschlossene Arbeiten
+noch als „offen“ bezeichnen und sind chronologisch
+zu interpretieren.
+
+**„Analysierte Song-Features“:**
+Phase **0** erzeugt 87D Genre, 56D Mood und
+optional 1280D Audio-Embeddings offline;
+Phase **2** prüft / vervollständigt die drei
+Repräsentationen auf **denselben** lokalen
+Library-Songs ohne Full-Rescan;
+Phase **6** umfasst erst nach Qualitäts-, Lizenz-
+und Ressourcenprüfung produktive Vollständigkeit.
+Die 1280D-Embeddings sind nicht automatisch
+in der lokalen schema-v3-Feature-DB vorhanden.
+
+**Nächster Schritt:** isolierter DEAM-Host-/SHA-Preflight;
+bei weiter bestehendem externem Blocker lokal
+read-only Feature-Completeness L0,
+danach gesonderter 12-Kontraste-Hörpilot.
+FMA-80-Selected-Clip-Cache wurde warm
+und cross-workflow erfolgreich verifiziert.
+PR #16 bleibt Draft, keine Produktionsänderung.
+
 ## AKTUELLER FORSCHUNGSHANDOVER — Repräsentation statt nur Metrik (21.10.2026)
 
 **Bitte in der nächsten Chat-Session ZUERST lesen:**
