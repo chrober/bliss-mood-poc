@@ -345,3 +345,69 @@ Alle Handover-Dokumente laufend aktualisieren.
 Das sind etablierte Implementierungs-/Modellbeispiele,
 keine unabhängig reproduzierte Überlegenheit von B/C
 auf unseren Lyrion-Zielen.
+
+
+## Implementierungsfortschritt E1/E2 auf PR #16 (21.10.2026, nach diesem Handover)
+
+Die erste Umsetzung wurde **ausschließlich** im Branch `feat/similarity-metric-evaluation`
+angelegt; PR #17, PR #13, `main`, der produktive Mixer und private Musik sind
+unverändert. Folgende Änderungen sind **implementiert, aber bis zum Abschluss
+der unten genannten Actions-Gates nicht als numerisch validiert zu bezeichnen**:
+
+- [`research/song_embedding.rs`](../research/song_embedding.rs):
+  eigenständiges JSON-Sidecar v1, 1.280D signierte `f32`-Latentwerte;
+  rohe Patch-Embeddings in Audio-Patch-Reihenfolge in `f64` summiert,
+  `f64`-arithmetisches Mittel, L2-Normierung in `f64`, einmalig nach
+  `f32` konvertiert. Nullnorm, nichtendliche Komponenten, leere
+  Patches und falsche Dimensionen werden zurückgewiesen.
+  Fingerprint bindet Encodername/-SHA256, Preprocessing, Pooling,
+  Normierung und Dimension. Audio-SHA256 und Patchzahl sind separat
+  gespeichert. Der Ausgabevektor ist **keine Sigmoid-Klassifikation**.
+- [`scripts/apply_rust_v5_embedding_export.py`](../scripts/apply_rust_v5_embedding_export.py):
+  überprüft den exakten Checkout
+  `2c3d44401436b3b41b6e067199016a1ed2335fbf`,
+  fügt nur im **temporären GitHub-Runner-Checkout** ein
+  `--embedding-out <path>` zu `analyze-features` hinzu und arbeitet
+  direkt im vorhandenen EffNet-Patchpfad vor den Köpfen. Ohne Flag
+  läuft die Klassifikation und schema-v3-Persistierung wie bisher.
+  Es erfolgt **kein Merge oder Commit auf PR #17**.
+- [Embedding-Smoke-Actions](../.github/workflows/research-song-embedding-smoke.yml):
+  Rust-Unit-Tests, Release-Build, synthetische 6-s-WAV,
+  unveränderte Genre-/Mood-JSON- und SQLite-Scores bei off/on,
+  unabhängige Rekonstruktion aus rohem `embedding-dump`, und
+  1-/2-ONNX-Threadvergleich. Der **erste Lauf** kompilierte erfolgreich,
+  wurde aber vor der Inferenz durch fehlendes `ffprobe` gestoppt;
+  die Installation ist korrigiert. Abschlussresultat im jeweiligen
+  Actions-Run prüfen. Offizielle TensorFlow/C++-Patch-Parität ist
+  damit noch **nicht** vollständig erneut verifiziert.
+- [`scripts/mtt_parallel_workers.py`](../scripts/mtt_parallel_workers.py)
+  und [`scripts/evaluate_mtt_embedding_ab.py`](../scripts/evaluate_mtt_embedding_ab.py):
+  opt-in **privater** embedding-pro-Clip-Export beim selben
+  Decoder/Encoder/Kopf-Durchgang; strikte Gleichheit von
+  Track-Identität, Audio-SHA, Patchzahl, Encoder/Pooling-Fingerprint
+  gegenüber schema-v3-Klassifikationswerten; `embedding_cosine`,
+  `genre_cosine`, `mood_cosine` und beide Centered-Cosine-Baselines
+  auf den exakt selben MTT-Tripeln. Keine Normierung nach
+  Klassifikations-Sigmoid-Regeln auf latente Embeddings.
+- [MTT-A/B-Actions](../.github/workflows/research-mtt-embedding-ab.yml):
+  verwendet **nur den bestehenden 1.019-Clip-Cache**, vier isolierte
+  Prozesse mit je einem ONNX-Thread, keine erneute vollständige
+  Archivbereitstellung bei Cache-Miss. Veröffentlichbar sind nur
+  aggregierte Scores und gepaarte Sensitivitätsintervalle,
+  **niemals Clips, Songlisten oder Embeddings**. Die 346
+  MTT-Fragen/293 eindeutig bewertbaren bleiben **explorativ**;
+  IID-Bootstraps und Artist-Gewichtungen sind keine unabhängigen
+  Populations-Konfidenzintervalle.
+
+**Verifikationsstatus zum Dokumentationscommit:** Die Änderungen und
+Workflows wurden eingereicht; **noch kein erfolgreich abgeschlossener
+A/B-Real-Audio-Lauf und kein quantifizierter Vorteil von B vor A**.
+Bei Workflow-Fehlern erst den Pin/Overlay-Paritätsgate reparieren.
+Kein Fusion-Gewicht und keine Produktionsentscheidung aus diesen
+technischen Änderungen ableiten.
+
+**Weiterer Ablauf:** (1) Smoke grün + Sidecar- und Headparität
+prüfen, (2) MTT-Cache-HIT, 1019/346/293 und gepaarte A/B-Auswertung
+verifizieren, (3) zusätzliche unabhängige Development-Referenzen und
+Embedding-Patchparität validieren, (4) erst danach C auf strikt
+getrennten Development-/Testkohorten kalibrieren; FMA-TEST gesperrt.
