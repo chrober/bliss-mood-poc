@@ -47,6 +47,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
       - name: Evaluate similarity metrics on read-only synthetic feature fixture
         run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate paired 1280D FMA VALIDATION only (provenance, same 80-sample contract, paired queries)
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py'
       - name: Validate FMA-Small Genre retrieval offline (artist/split/score coverage)
         run: python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
       - name: Verify FMA-Small metadata split/parser on synthetic data
@@ -99,6 +101,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
       - name: Verify SQLite handles close before tempdir cleanup
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate paired 1280D FMA VALIDATION and no-TEST contract on Windows
+        run: python -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py'
       - name: Validate FMA-Small Genre retrieval and SQLite on Windows
         run: python -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
       - name: Verify FMA-Small metadata schema and artist split checks on Windows
