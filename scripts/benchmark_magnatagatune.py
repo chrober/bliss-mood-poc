@@ -112,6 +112,40 @@ def dev_selection(triplets: dict, catalog: dict, count: int, seed: int,
     return selected
 
 
+
+def frozen_artist_development_selection(triplets: dict, catalog: dict) -> tuple[list, dict]:
+    """Select only all-development artist triplets from the frozen 128/256 split.
+
+    No model results influence this selection. The 56 holdout candidates
+    are never sent to the remote audio fetcher or feature evaluator.
+    """
+    import audit_magnatagatune_holdout as holdout
+    audit = holdout.evaluate_inputs(triplets, catalog)
+    expected = audit["artist_disjoint_questions"]["development"]
+    selected = sorted(
+        triple for triple in triplets
+        if all(holdout.artist_bucket(catalog[ident]["artist"], 128) == "development"
+               for ident in triple)
+    )
+    if not selected or len(selected) != expected["count"]:
+        raise ValueError("Frozen MTT development partition cardinality mismatch")
+    if holdout.digest_triplets(selected) != expected["sorted_triplet_id_sha256"]:
+        raise ValueError("Frozen MTT development partition fingerprint mismatch")
+    excluded = set(triplets) - set(selected)
+    if any(triple in excluded for triple in selected):
+        raise ValueError("Frozen MTT selection collision")
+    return selected, {
+        "artist_hash_cutoff": 128,
+        "policy": audit["artist_hash_policy"],
+        "development_triplets": len(selected),
+        "holdout_triplets_never_scored": audit["artist_disjoint_questions"]["holdout"]["count"],
+        "mixed_triplets_excluded": audit["artist_disjoint_questions"]["mixed_excluded"]["count"],
+        "development_partition_sha256": expected["sorted_triplet_id_sha256"],
+        "holdout_partition_sha256":
+            audit["artist_disjoint_questions"]["holdout"]["sorted_triplet_id_sha256"],
+    }
+
+
 def member_lookup(members: dict, path: str):
     canonical = directory.zip_path(path)
     if canonical in members:
@@ -345,6 +379,8 @@ def main() -> None:
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--part-sizes", type=int, nargs=3, required=True)
     p.add_argument("--development-triplets", type=int, default=4)
+    p.add_argument("--selection-mode", choices=("smoke", "frozen-development"),
+                   default="smoke")
     p.add_argument("--seed", type=int, default=20261021)
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
@@ -355,7 +391,13 @@ def main() -> None:
     if not args.models_dir.is_dir():
         p.error("Models directory missing")
     triplets, clips = triplets_by_vote(args.comparisons, args.clips)
-    selected = dev_selection(triplets, clips, args.development_triplets, args.seed)
+    if args.selection_mode == "frozen-development":
+        if args.development_triplets != 4 or args.seed != 20261021:
+            p.error("Frozen-development mode uses the registered 128/256 split and seed")
+        selected, partition_stats = frozen_artist_development_selection(triplets, clips)
+    else:
+        selected = dev_selection(triplets, clips, args.development_triplets, args.seed)
+        partition_stats = None
     members, zipinfo = directory.zip_member_directory(args.tail, args.part_sizes)
     for ident in {c for triple in selected for c in triple}:
         member_lookup(members, clips[ident]["mp3_path"])
@@ -366,13 +408,18 @@ def main() -> None:
     score_begin = time.monotonic()
     results = evaluate(args.db, selected, triplets)
     result = {
-        "schema": "magnatagatune-odd-one-out-development-smoke-v1",
-        "status": "research_smoke_only_not_a_holdout_or_metric_selection",
+        "schema": ("magnatagatune-frozen-artist-development-v1"
+                   if partition_stats else "magnatagatune-odd-one-out-development-smoke-v1"),
+        "status": ("frozen_128_256_artist_development_only_NOT_holdout"
+                   if partition_stats else "research_smoke_only_not_a_holdout_or_metric_selection"),
         "source": "https://mirg.city.ac.uk/datasets/magnatagatune/",
         "triplets_scored": len(selected),
         "unique_clip_ids": len({x for triple in selected for x in triple}),
-        "seed": args.seed, "selection_consensus_minimum": 0.7,
-        "sampling_policy": "high_consensus_disjoint_artist_dev_only",
+        "seed": args.seed,
+        "selection_consensus_minimum": None if partition_stats else 0.7,
+        "sampling_policy": ("all_frozen_development_triplets_no_consensus_selection"
+                            if partition_stats else "high_consensus_disjoint_artist_dev_only"),
+        "frozen_artist_partition": partition_stats,
         "selection_sha256": hashlib.sha256(
             "\n".join(",".join(t) for t in selected).encode("utf8")
         ).hexdigest(),
@@ -387,8 +434,9 @@ def main() -> None:
                                round(time.monotonic()-score_begin, 3)},
         "per_head": results,
         "limitations": [
-            "Tiny 4-triplet high-consensus DEVELOPMENT SMOKE, not final performance.",
-            "Selection uses human labels to choose clear examples; this is not a random holdout.",
+            "Small same-corpus DEVELOPMENT study or 4-triplet technical smoke; not independent validation.",
+            "Frozen development includes all eligible triplets regardless of human vote consensus; smoke selection is high-consensus biased.",
+            "The reserved 48 previously-unexposed artist-holdout triplets must NOT be scored until preregistration.",
             "Original corpus includes 533 ordered rows but fewer unique unordered triplets.",
             "All clip audio temporary; only grouped aggregate metrics published.",
             "Human voting represents general perceived similarity, not Genre/Mood ground truth.",
