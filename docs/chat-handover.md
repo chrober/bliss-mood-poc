@@ -1,5 +1,47 @@
 > **CURATED CACHE REAL MISS→HIT VERIFIED (21 OCT 2026):**
 
+> **FMA–MTG CATALOG SCREEN COMPLETED / FILTERED VALIDATION RUNNING (21 OCT 2026):**
+> Metadata-only [GitHub Actions 39605675932](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932)
+> **PASS**, aggregate [artifact 12347897819](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932/artifacts/12347897819).
+> On FMA-Small **TRAINING**: 121/6,400 possible exact
+> artist+title MTG-Jamendo catalog matches, 260 artist-only
+> matches. On official **VALIDATION**: **42/800 possible
+> exact matches**, 68 artist-only; of those exact matches,
+> **35 of 100 Hip-Hop validation songs**. TEST's 800 records
+> were counted only for official split-size checking; NO
+> TEST artist/title/genre/MP3/prediction was examined.
+> These are **possible metadata matches, not verified
+> recordings or actual ONNX training examples**.
+> Existing 80-song unfiltered VALIDATION result is NOT
+> guaranteed MTG-independent.
+>
+> Added `scripts/audit_fma_mtg_overlap.py`, synthetic tests,
+> [.github/workflows/fma-mtg-overlap-audit.yml](../.github/workflows/fma-mtg-overlap-audit.yml);
+> extended `scripts/benchmark_fma_genre.py` with
+> `--exclude-mtg-catalog-matches --mtg-metadata-tsv PATH`
+> for **validation-only**, filtering potential exact matches
+> BEFORE artist-distinct sample selection and inference.
+> The official TEST partition is now skipped before
+> even parsing its song ID in this discovery CLI.
+> [Linux+Windows Python CI 39606799883](https://github.com/chrober/bliss-mood-poc/actions/runs/39606799883)
+> PASS after correcting synthetic sealed TEST-row fixture.
+> New [filtered FMA workflow 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+> has verified its source/42-match metadata preflight,
+> a TRUE pinned Rust-v5 binary-cache HIT, and is downloading
+> the official 7.2-GiB FMA-Small ZIP (no audio caching).
+> **CHECK final PASS/artifact before reporting filtered
+> genre-retrieval scores or new walltimes**. New sample
+> differs from old unfiltered 80-track cohort; score
+> deltas CANNOT be interpreted as a controlled causal effect.
+>
+> Research details:
+> [FMA/MTG catalog methodology](fma-mtg-catalog-overlap-2026-10-21.md),
+> [FMA genre validation plan](fma-genre-benchmark-plan.md),
+> [cross-dataset evidence](similarity-cross-dataset-evidence-2026-10-21.md).
+> No TEST evaluation, PR merge, Lyrion queue/library scan,
+> or production metric selection; PR #16 remains Draft.
+>
+
 > **MTT FOUR-WORKER BINARY+MUSIC CACHE A/B COMPLETED (21 OCT 2026):**
 > [Four-worker run 39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
 > **PASS** ([aggregate artifact 12346509848](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932/artifacts/12346509848)).
