@@ -26,6 +26,13 @@ FROZEN_FMA80_SAMPLE_SHA256 = "f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b48847
 FROZEN_METADATA_SHA256 = "d9527a5297a65da31c5676484d5047c3e2b8a8060ce72a46e26158be736bf265"
 FROZEN_AUDIO_SHA256 = "f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c"
 FROZEN_MTG_SHA256 = "bb1efa2876536cbe1a8b67db5dda15249ca144f0cff69e481b638803cbdc9aca"
+# Frozen before the 1280D comparison: artifact from successful
+# FMA screened-validation run 39606850307, not fitted to new embeddings.
+FROZEN_ORIGINAL_GENRE_COSINE = {
+    "precision_at_5": 0.32,
+    "map_at_10": 0.17487599206349208,
+    "ndcg_at_10": 0.29853323224865014,
+}
 PREPROCESSING = "experimental-essentia-audio-v5-f32-src-ratio-unvalidated"
 METHODS = {
     "embedding_cosine": ("embedding", ev.cosine),
@@ -278,15 +285,13 @@ def main() -> None:
         raise ValueError("FMA A/B not paired with the existing genre-only run")
     output = evaluate(args.db,args.embedding_dir,chosen,songs,
                       FROZEN_FMA80_SAMPLE_SHA256)
-    if abs(output["methods"]["genre_cosine"]["precision_at_5"] -
-           original["metric_results"]["cosine"]["precision_at_5"]["macro_mean"]) > 1e-9:
-        raise ValueError("FMA paired genre-cosine baseline changed from original study")
-    if abs(output["methods"]["genre_cosine"]["map_at_10"] -
-           original["metric_results"]["cosine"]["map_at_10"]["macro_mean"]) > 1e-9:
-        raise ValueError("FMA paired mAP@10 baseline diverged from original study")
-    if abs(output["methods"]["genre_cosine"]["ndcg_at_10"] -
-           original["metric_results"]["cosine"]["ndcg_at_10"]["macro_mean"]) > 1e-9:
-        raise ValueError("FMA paired nDCG@10 baseline diverged from original study")
+    for measure, reference in FROZEN_ORIGINAL_GENRE_COSINE.items():
+        if (abs(output["methods"]["genre_cosine"][measure] -
+                original["metric_results"]["cosine"][measure]["macro_mean"]) > 1e-9
+                or abs(output["methods"]["genre_cosine"][measure] - reference) > 1e-9):
+            raise ValueError(
+                f"FMA paired genre baseline diverged from pre-embedding run: {measure}"
+            )
     output["source_provenance_sha256"] = {
         "fma_metadata_zip": FROZEN_METADATA_SHA256,
         "fma_audio_zip": FROZEN_AUDIO_SHA256,
