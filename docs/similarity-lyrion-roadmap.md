@@ -44,8 +44,8 @@ playlist-strategy, and release gates.
 flowchart TD
     P0["Phase 0 — Offline feature extractor<br/>Research implementation available<br/>Verification and release gates OPEN"]
     P1["Phase 1 — External evidence<br/>MTT and FMA complete for specified studies<br/>Paired DEAM blocked by source outage"]
-    P2["Phase 2 — Local cohort features<br/>Inventory matching 87D, 56D, 1280D<br/>Not started"]
-    P3["Phase 3 — Controlled listening judgments<br/>12-contrast pilot, then new review block<br/>Not started"]
+    P2["Phase 2 — Local research cohort<br/>100/100 matched 87D, 56D, 1280D<br/>Verified for bounded study"]
+    P3["Phase 3 — Controlled listening judgments<br/>Blinded 12-pair selector prepared<br/>Human labels not yet collected"]
     P4["Phase 4 — Select representation + metric<br/>A vs B vs C, disjoint validation<br/>Not decided"]
     P5["Phase 5 — Compare Lyrion strategies<br/>Bliss-only, Bliss-first, feature-first, hybrid<br/>Architecture only"]
     P6["Phase 6 — Productization and release<br/>Performance, rights, maintenance, fallback<br/>Not authorized"]
@@ -167,20 +167,27 @@ A substitute source must be verified against source archive SHA256,
 contents, and applicable rights. If unavailable, proceed to phase 2,
 not another speculative benchmark.
 
-**Current M1 implementation checkpoint:** The read-only
+**Phase 2 local research cohort checkpoint — COMPLETE for the frozen 100-song
+sample, not a production feature catalogue.** The user measured 100/100
+corrected-Rust-v5 Genre 87D and Mood 56D features with zero mismatched
+audio/encoder provenance and zero invalid joined vectors. A separately built
+research-only Windows CLI exported **100/100** exact-song 1280D
+Discogs-EffNet embeddings with **zero errors**. The independent read-only
 [`audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py)
-is available and its synthetic Linux/Windows tests
-[passed in CI run 39660242090](https://github.com/chrober/bliss-mood-poc/actions/runs/39660242090).
-It measures coherent 87D/56D head coverage,
-corrected Rust-v5 frontend/source provenance,
-and optionally exact same-song 1280D sidecar
-coverage on a bounded sample, without writing
-SQLite or accessing audio. **The user's local
-database has not yet been audited.** The next
-exit gate requires their actual aggregate
-feature-readiness result. See the
-[complete local PowerShell procedure](similarity-local-library-retest-plan-2026-10-21.md#first-local-execution-windows-powershell-no-queue-or-audio-changes).
-This engineering checkpoint does not complete phase 0.
+then reported **100/100 compatible head pairs and 100/100 valid embeddings**,
+with **zero missing or invalid sidecars**. This verifies consistent
+recording/model/pooling metadata, not full Essentia-C++ numerical parity,
+real-song music relevance, or phase-0 release readiness.
+
+**Phase 3 entry checkpoint:** The read-only
+[`propose_local_embedding_ab_pilot.py`](../scripts/propose_local_embedding_ab_pilot.py)
+creates a model-blinded 12-pair pilot from those exact 100 songs, with
+12 pairs, 24 distinct song keys and five similarity baselines recorded
+only in a separate **private sealed** selection audit.
+It requires all 100 embedding JSON files and matching 87D/56D
+provenance before creating any listening files.
+Its synthetic [Linux and Windows CI checks](https://github.com/chrober/bliss-mood-poc/actions/runs/39668802990)
+passed. **No new human listening ratings have yet been collected.**
 
 ### Phase 2: read-only local cohort audit
 
@@ -205,9 +212,11 @@ and eight Genre negatives; Mood had four positives and four negatives.
 Its model-influenced selection and tiny size prevent a credible
 general comparison. Preserve the original ratings unmodified.
 
-The next pilot is approximately **12 new contrasts**:
-four human-identified similar controls, four clearly different
-controls, and four cases on which A/B predictions conflict. The
+The next pilot is **12 new contrasts** selected before human review:
+three model-high-Genre candidates, two model-high-Mood candidates,
+two model-high-Embedding candidates, two Genre-over-Embedding
+and two Embedding-over-Genre disagreements, plus one model-low control.
+**None of these is a human-verified similar or different pair:** The
 last category is a selected challenge set, **not** a random or
 independent test. Blind participants to model choice, score, rank,
 and selection stratum (artists/titles may remain visible for finding
@@ -340,9 +349,9 @@ correctness gates:
 | Package | Dependency | Success criterion | When blocked |
 | --- | --- | --- | --- |
 | **N1. DEAM source-only preflight** | None | Publisher accessible or byte-for-byte/SHA/licence-verified alternative | Record outage; do N2 without waiting |
-| **N2. Local feature inventory (L0)** | Experimental feature DB and exact local track mapping | Small read-only 87D/56D/1280D identity and coverage report | Target only missing research vectors |
+| **N2. Local feature inventory (L0) — COMPLETE for research cohort** | Experimental feature DB and exact local track mapping | Small read-only 87D/56D/1280D identity and coverage report | Target only missing research vectors |
 | **N3. Paired DEAM-240 replay** | N1 successful | Same sample SHA and 197/43 cohorts, exact Mood-Cosine baseline, common candidate coverage, aggregate A/B report | No invented embedding-vs-Mood scores |
-| **N4. Twelve-contrast pilot** | N2 successful | Review protocol usable; positive/negative controls and four human rating dimensions | Adjust prospective method; preserve old labels |
+| **N4. Twelve-contrast pilot — instrument ready, human judgments pending** | N2 successful | Review protocol usable; positive/negative controls and four human rating dimensions | Adjust prospective method; preserve old labels |
 | **N5. New evaluation block** | N4 and predeclared method | Fresh artist-/album-aware observations with paired, untuned A/B/C evaluation | Remain exploratory |
 | **N6. Playlist strategy test** | N5 and review | Bliss-only comparison, transition quality and safe candidate constraints | Keep experimental code opt-in |
 | **N7. Production release** | N6 plus remaining phase-0 gates | Correctness, rights, platform budgets, feature lifecycle and rollback | No production integration |
