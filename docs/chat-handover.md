@@ -93,6 +93,43 @@ All current results are exploratory; there
 is **no production winner** or valid
 post-hoc weight-fitting holdout.
 
+## Immediate next local milestone: repaired one-song 1280D export (2026-10-21)
+
+The user completed a read-only 100-song local L0 inventory:
+**100/100 compatible 87D Genre and 56D Mood features, 0 provenance
+mismatches, 0 invalid head pairs**. A one-song local dry-run
+then verified source audio and the three ONNX model weights
+and left SQLite unchanged.
+
+The **first real one-song embedding export FAILED**
+(`failed=1`, `incomplete_do_not_use_for_scoring`).
+Root cause was **confirmed in the immutable Rust-v5 source**:
+`analyze-features` rejected `--track-key` without `--db`
+even though `--embedding-out` was requested, so the existing
+exporter intentionally avoided SQLite and the executable bailed.
+No musical quality conclusion follows from this CLI bug.
+
+**FIXED:** The PR #16-only
+[`apply_rust_v5_embedding_export.py`](../scripts/apply_rust_v5_embedding_export.py)
+patch now permits `--track-key` without `--db` only alongside
+`--embedding-out`; pinned base Rust-v5/PR #17 remains untouched.
+[Replacement Windows x64 run 39664316069](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069)
+PASS, and real synthetic-audio ONNX embedding-only regression
+[run 39664440263](https://github.com/chrober/bliss-mood-poc/actions/runs/39664440263)
+PASS (identical vector/audio/fingerprint to the original test).
+The **old Windows artifact from run 39661674510 is OBSOLETE**.
+The local exporter now refuses old-build provenance by checking
+the fixed overlay commit and reports aggregate failure stages.
+
+**Next single action:** Use the corrected Windows artifact from
+run 39664316069 and a **new local ignored output directory**
+for **one song** (`--limit 1 --seed 20261021 --execute`).
+Do not delete the previously failed folder, upload music,
+re-analyze all 100 songs, write existing head SQLite, or
+move to M2 before this one real-song export verifies.
+Exact steps and safeguard details:
+[local listening preflight and CLI correction](similarity-local-library-retest-plan-2026-10-21.md#critical-windows-research-cli-correction-2026-10-21).
+
 ## M1 local feature readiness: implementation delivered; local measurement pending
 
 The project can now run a **bounded, read-only** phase-2
