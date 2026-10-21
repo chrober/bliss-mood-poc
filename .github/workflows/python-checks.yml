@@ -49,6 +49,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
       - name: Validate selected-only FMA archive cache (source + per-MP3 checksums)
         run: python3 -m unittest discover -s tests -p 'test_fma_selected_audio_cache.py'
+      - name: Audit bounded local experimental 87D/56D/1280D feature readiness (Linux, synthetic)
+        run: python3 -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py'
       - name: Validate paired DEAM VA 1280D vs heads and cohort sensitivity
         run: python3 -m unittest discover -s tests -p 'test_evaluate_deam_embedding_ab.py'
       - name: Validate paired 1280D FMA VALIDATION only (provenance, same 80-sample contract, paired queries)
@@ -107,6 +109,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
       - name: Validate selected-only FMA ZIP cache provenance on Windows
         run: python -m unittest discover -s tests -p 'test_fma_selected_audio_cache.py'
+      - name: Audit bounded local experimental 87D/56D/1280D feature readiness (Windows, synthetic)
+        run: python -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py'
       - name: Validate paired DEAM VA embedding A-B on Windows
         run: python -m unittest discover -s tests -p 'test_evaluate_deam_embedding_ab.py'
       - name: Validate paired 1280D FMA VALIDATION and no-TEST contract on Windows
