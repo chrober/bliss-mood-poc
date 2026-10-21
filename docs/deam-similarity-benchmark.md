@@ -274,3 +274,53 @@ Next research gates: read-only DEAM metadata to MTG-Jamendo overlap
 screening without publicly exposing individual metadata; an independent
 FMA-Small Genre retrieval evaluation, designed separately at
 [docs/fma-genre-benchmark-plan.md](fma-genre-benchmark-plan.md).
+
+
+## Conservative DEAM/MTG overlap screening and filtered rerun (21 Oct 2026)
+
+The first **metadata-only** GitHub Actions
+[run 39579084649](https://github.com/chrober/bliss-mood-poc/actions/runs/39579084649)
+completed successfully. It downloaded only DEAM metadata.zip and the
+official MTG-Jamendo raw.meta.tsv (no audio), parsed actual 2013/2014/2015
+DEAM CSV formats, and compared artist+track title after unicode NFKD
+accent folding, case folding and punctuation normalization.
+The [aggregate artifact 12335402582](https://github.com/chrober/bliss-mood-poc/actions/runs/39579084649/artifacts/12335402582)
+contains no individual artist, title or track key.
+
+- DEAM: **1,801 of 1,802** songs with usable artist/title data.
+- MTG-Jamendo: **56,552** catalog metadata rows.
+- Potential exact-artist/title catalog overlap candidates:
+  **60 earlier excerpts + 15 full-song 2015 = 75**.
+
+These are **possible catalog matches**, not a verified model-training
+split match, and titles/artist strings can be inexact or reused.
+A nonmatch cannot prove independent audio or unseen artists.
+We therefore cannot yet claim that the DEAM pilot is a truly
+train-independent external test. This audit is part of the study's
+provenance record, not a metric-validation result.
+
+[scripts/audit_deam_mtg_overlap.py](../scripts/audit_deam_mtg_overlap.py)
+implements the conservative, metadata-only screening, with synthetic
+Linux/Windows CI tests and strict no-personal-data aggregate reports.
+[.github/workflows/deam-mtg-overlap-audit.yml](../.github/workflows/deam-mtg-overlap-audit.yml)
+can run it separately without downloading media/models.
+
+The DEAM benchmark now has an opt-in
+--exclude-mtg-catalog-matches flag plus required --deam-metadata-zip and
+--mtg-metadata-tsv paths. It rejects insufficient metadata coverage
+before processing any song, removes all exact candidates from the
+available sampling pool, then evaluates a **new** frozen seed sample.
+The new report records only counts, hashes and the explicit status
+partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness.
+The original unfiltered 240-song run and report remain untouched.
+
+An exclusion-filtered 240-track E2E GitHub Actions run was started by
+[workflow update 374514d](https://github.com/chrober/bliss-mood-poc/commit/374514debe47564a70f0b57db52140dbae47cabe).
+Check the actual run outcome before reporting any filtered metrics.
+The 2015 cohort is limited to at most **43** filtered full songs
+from the originally available 58; with N=240 this gives an expected
+197 older excerpts and 43 full songs, subject to real log verification.
+
+Next: assess the filtered aggregate results and independent
+[planned FMA genre benchmark](fma-genre-benchmark-plan.md).
+No metric winner, PR merge or local Rust build is justified.
