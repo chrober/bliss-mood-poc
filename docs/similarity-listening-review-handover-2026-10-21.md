@@ -1,5 +1,47 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **CURATED MTT AUDIO CACHE — 21 OCT 2026:**
+> User approved caching **ONLY 1,019 actually referenced MagnaTagATune
+> MP3 clips**, rather than the 2.77-GiB original ZIP parts. New
+> [scripts/mtt_selected_clip_cache.py](../scripts/mtt_selected_clip_cache.py)
+> builds a lossless, deterministic **ZIP_STORED curated research cache**
+> of approximately 117 MB (real size must be checked in Actions), with
+> SHA-256-hashed internal names, exact 1,019-file cardinality, and
+> original-publisher MP3 length + CRC cross-checks. Original 3-part
+> archive downloaded *once on cache miss*, immediately deleted after
+> packing and never uploaded or cached. Cache hit only fetches original
+> CSV metadata plus 8-MiB ZIP directory tail, validates all 1,019 audio
+> payloads, then Rust-v5's **two independent workers** process cached
+> bytes. Automated feature-branch workflow uses
+> [actions/cache/restore](../.github/workflows/magnatagatune-all-exploratory.yml)
+> and cache/save with fixed source identity, manual `cache_audio`
+> defaults true and can be disabled. GitHub caches **are not private**,
+> third-party CC BY-NC-SA research audio remains subject to access and
+> license conditions; no music is ever uploaded as an artifact or git.
+>
+> **REAL QUALITY BASELINE VERIFIED:**
+> [346-triplet run 39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
+> PASS: 1,019 real clips, all seven metrics/both heads,
+> two parallel isolated SQLite workers; **145.505 s inference+merge**,
+> 145.714 s audio-analysis+scoring, 0.209 s evaluation alone.
+> Mood cosine ~**0.6553** majority agreement on *defined*
+> predictions (not all-question/holdout accuracy). All 346 triplets
+> exploratory => **NO independent MTT holdout remains**.
+> Curated-cache seed run
+> [39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
+> must be examined for completed outcome and actual saved package
+> size; **a second true cache-hit run is required** to measure any
+> build/download speedup. The synthetic 1,019-member CRC/cache tests
+> [Python CI 39599073019](https://github.com/chrober/bliss-mood-poc/actions/runs/39599073019)
+> passed Linux/Windows. See the
+> [updated sparse-audio benchmark doc](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+> Next: verify cache MISS→HIT timing and metric parity, run
+> paired / artist-sensitive confidence intervals on 346 triplets,
+> cross-check DEAM/FMA/MTG and seek independent human similarity
+> reference for final production metric choice. Do not use MTT as
+> an independent held-out test, merge PRs, or rescan private music.
+>
+
 > **FULL 346-TRIPLET EXPLORATORY MTT & CACHE POLICY (21 Oct 2026):**
 > The user decided to score **ALL 346 unique unordered triplets /
 > 1,019 distinct MagnaTagATune clips**, consuming the 48
