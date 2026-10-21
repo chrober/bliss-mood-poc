@@ -48,7 +48,7 @@ class FmaMetadataTests(unittest.TestCase):
         })
         self.assertEqual(data["artists_in_multiple_splits"]["training_test"], 1)
         self.assertEqual(len(report["metadata_zip_sha256"]), 64)
-        self.assertNotIn("123", json.dumps(report))
+        self.assertNotIn('"123"', json.dumps(report))
 
     def test_missing_artist_id_column_rejected(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
