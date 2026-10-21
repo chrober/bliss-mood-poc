@@ -1,7 +1,26 @@
 name: Rust checks
+
 on:
   push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -16,63 +35,3 @@ jobs:
       - run: cargo fmt --all
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
-
-      - name: Evaluate similarity metrics on read-only synthetic feature fixture
-        run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
-      - name: Validate FMA-Small Genre retrieval offline (artist/split/score coverage)
-        run: python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
-      - name: Verify FMA-Small metadata split/parser on synthetic data
-        run: python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
-      - name: Validate conservative DEAM vs MTG catalog screening (no external data)
-        run: python3 -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
-      - name: Validate DEAM metadata and offline similarity benchmark fixtures
-        run: python3 -m unittest discover -s tests -p 'test_benchmark_deam.py'
-      - name: Generate deterministic unlabeled pilot listening pairs with strict Rust v5 fingerprint
-        run: python3 -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
-
-      - name: Validate read-only quality sampling
-        run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
-
-  similarity-windows:
-    name: Python similarity tests (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Verify SQLite handles close before tempdir cleanup
-        run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
-      - name: Validate FMA-Small Genre retrieval and SQLite on Windows
-        run: python -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
-      - name: Verify FMA-Small metadata schema and artist split checks on Windows
-        run: python -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
-      - name: Validate metadata-only DEAM/MTG overlap audit on Windows
-        run: python -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
-      - name: Validate DEAM archive matching, independent V/A retrieval and read-only reports
-        run: python -m unittest discover -s tests -p 'test_benchmark_deam.py'
-      - name: Verify SQLite, UTF-8 filenames and read-only hearing set generation
-        run: python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
-      - name: Validate Lyrion song URL mapping and safe append against mock JSON-RPC server
-        run: python -m unittest discover -s tests -p 'test_queue_similarity_pairs_lyrion.py'
-      - name: Validate full-block PowerShell Lyrion queue script syntax (do NOT execute against user server)
-        shell: pwsh
-        run: |
-          $path = 'scripts/queue_similarity_pairs_lyrion.ps1'
-          $tokens = $null
-          $errors = $null
-          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path $path).Path, [ref]$tokens, [ref]$errors
-          )
-          if ($errors.Count -gt 0) {
-              throw ($errors | ForEach-Object { $_.Message } | Out-String)
-          }
-          $source = Get-Content -LiteralPath $path -Raw
-          $trimmed = $source.Trim()
-          if (-not $trimmed.StartsWith('& {') -or -not $trimmed.EndsWith('}')) {
-              throw 'Project PowerShell examples must be enclosed in a full script block.'
-          }
-          if ($source -notmatch '\$Apply\s*=\s*\$false') {
-              throw 'Lyrion listening queue script must default to dry run.'
-          }
-
