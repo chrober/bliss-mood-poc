@@ -1,5 +1,6 @@
 """Small, self-contained deterministic read-only listening selection fixtures."""
 import csv
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -142,7 +143,7 @@ class PairProposalTests(unittest.TestCase):
         self.assertEqual(valuable.read_text("utf-8"), "user listening judgments")
 
     def test_strict_small_bounded_listening_set_and_pool(self):
-        with ev.open_database(self.db) as conn:
+        with closing(ev.open_database(self.db)) as conn:
             heads = {h: ev._catalog(conn, h, True) for h in ev.MODELS}
             sample = ev.load_sample(conn, heads, 14, 8)
         for count, pool in ((101, 110), (5, 50), (20, 10), (6, 25000)):
@@ -153,7 +154,7 @@ class PairProposalTests(unittest.TestCase):
             proposal.select_review_pairs(tiny, 6, 5)
 
     def test_defined_low_mood_vectors_do_not_require_absolute_threshold(self):
-        with ev.open_database(self.db) as conn:
+        with closing(ev.open_database(self.db)) as conn:
             heads = {h: ev._catalog(conn, h, True) for h in ev.MODELS}
             sample = ev.load_sample(conn, heads, 14, 8)
         prompts, audit = proposal.select_review_pairs(sample, 16, 19, 80)
