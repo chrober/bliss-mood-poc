@@ -241,3 +241,138 @@ Only explicit `--execute` enables inference, using `analyze-features --embedding
 **Previous verified library baseline:** 100/100 correctly dimensioned and compatible 87D/56D v5 feature pairs, zero head provenance mismatches. Direct 1280D availability was **not assessed** (no embedding directory), so the initial report did not establish that those sidecars were absent.
 
 **Research test gates:** [synthetic Linux and Windows tests 39662462594](https://github.com/chrober/bliss-mood-poc/actions/runs/39662462594) PASSED for dry-run/no-change, model and audio drift, unsafe track keys, missing/existing exports, validation, resume and no-overwrite. The next independent human review remains phase 3 and does not require a whole-library rescan.
+
+## M1 COMPLETE; start M2 blinded 12-pair same-song pilot (2026-10-21)
+
+**User-measured final L0 result:** The user's existing 100-track
+schema-v3 feature DB has **100/100 compatible 87D Genre and 56D
+Mood/Theme vectors**, with zero joined invalid vectors and zero
+provenance mismatches. The corrected Windows research CLI successfully
+exported **100/100** new 1280D sidecars, with zero CLI, missing-file
+or validation failures. The follow-up independent
+[`audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py)
+over the same DB and new embedding directory reported
+`embedding_valid=100`, `embedding_missing=0`,
+`embedding_invalid_or_incompatible=0`, and
+`compatible_head_pairs=100`. The existing database is unchanged.
+**This closes only the bounded phase-2 research-cohort feature-coverage
+gate**; phase-0 release/C++ numerical gates remain open.
+
+**No additional ONNX/audio analysis is needed for the pilot.** Use
+[`scripts/propose_local_embedding_ab_pilot.py`](../scripts/propose_local_embedding_ab_pilot.py)
+to produce a **new**, local, model-blind 12-pair human-review CSV.
+It fails closed unless it can independently revalidate **all 100**
+exact matching recording hashes, encoder and pooling fingerprints,
+classifier model cohorts and 1280D sidecars. It scores the 4,950
+possible unique song pairs using
+Genre Cosine, Genre Centered Cosine, Mood Cosine,
+Mood Centered Cosine and Audio-Embedding Cosine. It uses within-cohort
+ranks **only to select contrasts**, not as genre, mood or human labels.
+
+The fixed **exploratory pilot sampling quotas** are three high-Genre,
+two high-Mood, two high-Embedding, two Genre-over-Embedding
+disagreements, two Embedding-over-Genre disagreements, and one
+low-all control. It uses 24 distinct song keys (no song repeats),
+prefers cross-artist pairings based only on a weak path-derived hint,
+shuffles pair presentation reproducibly, and can exclude previously
+reviewed pairs via `--exclude-reviewed` (CSV with `left,right`).
+**A model-high-Genre candidate is not a human Genre-positive
+control**. Do not interpret these purposively selected pairs
+as a random sample, holdout test, or validated musical neighbors.
+
+The new `listening-pairs.csv` has only exact `left` and
+`right` track keys and blank review columns:
+`genre_similarity_1to5`, `mood_energy_similarity_1to5`,
+`timbre_similarity_1to5`,
+`next_track_suitability_1to5`, `confidence_1to3`,
+and `notes`. Suggested scale for each quality dimension:
+**1 = very different/unsuitable; 3 = mixed or moderate;
+5 = very similar/suitable**. Leave a field blank if unable to
+assess. Confidence 1 = low, 2 = moderate, 3 = high.
+The playlist-transition rating refers to **left then right**.
+All rating cells must be entered by a human, not generated from
+model similarity.
+
+The separate `selection-audit-private.json` includes the
+sampling strata and model scores keyed by track identities.
+**Do not inspect it before finishing ratings, upload it, or
+commit it.** Unlike the earlier binary `genre_label`/
+`mood_label` CSV, the new ordinal 1-to-5 pilot CSV is **NOT**
+accepted by the old binary-label similarity evaluator; scoring
+must be implemented separately after collecting the human responses.
+
+### Complete local PowerShell generation (no player or playlist changes)
+
+Run this in the existing local PR #16 research clone.
+The named output folder must not already exist. The optional
+`LYRION_PREVIOUS_LISTENING_CSV` environment variable may contain
+a previous review CSV to exclude already-rated song pairs; if
+not present, no earlier-pair exclusion is claimed.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $Repo = 'D:\LMS\bliss-mood-poc'
+    $Branch = 'feat/similarity-metric-evaluation'
+    $Db = Join-Path $Repo 'benchmark-rust-v5-workers4-20261020-191946\round-01-workers-04-rust.db'
+    $Embeddings = Join-Path $Repo 'benchmark-local-song-embeddings-full100-20261021'
+    $Script = Join-Path $Repo 'scripts\propose_local_embedding_ab_pilot.py'
+    $Out = Join-Path $Repo 'benchmark-local-blinded-ab-pilot12-20261021'
+    $EarlierReview = [string]$env:LYRION_PREVIOUS_LISTENING_CSV
+
+    if (!(Test-Path -LiteralPath $Repo -PathType Container)) {
+        throw 'Local repository clone not found.'
+    }
+    Push-Location -LiteralPath $Repo
+    try {
+        $Current = (& git branch --show-current).Trim()
+        if ($LASTEXITCODE -ne 0 -or $Current -cne $Branch) {
+            throw "Expected research branch: $Branch"
+        }
+        & git pull --ff-only origin $Branch
+        if ($LASTEXITCODE -ne 0) { throw 'Git pull failed.' }
+        foreach ($InputPath in @($Db, $Embeddings, $Script)) {
+            if (!(Test-Path -LiteralPath $InputPath)) {
+                throw "Required local research input missing: $InputPath"
+            }
+        }
+        if (Test-Path -LiteralPath $Out) {
+            throw 'Review output directory already exists. Human ratings must never be overwritten.'
+        }
+        $ArgsList = @(
+            $Script, '--db', $Db,
+            '--embedding-dir', $Embeddings,
+            '--out-dir', $Out
+        )
+        if (-not [string]::IsNullOrWhiteSpace($EarlierReview)) {
+            if (!(Test-Path -LiteralPath $EarlierReview -PathType Leaf)) {
+                throw 'Configured previous listening CSV does not exist.'
+            }
+            $ArgsList += @('--exclude-reviewed', $EarlierReview)
+        }
+        & python @ArgsList
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Blinded pilot selection failed. No audio or Lyrion changes were made.'
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+```
+
+Expected **aggregate** output:
+`status=BLINDED_REVIEW_READY`,
+`source_song_count=100`, `pilot_pairs=12`,
+`unique_songs_in_pilot=24`,
+`all_human_rating_cells_blank=true`.
+These numbers describe a generated local instrument,
+**not measured human judgments**.
+Send only that aggregate summary for review before any player
+queue mutations. The existing
+[`queue_similarity_pairs_lyrion.ps1`](../scripts/queue_similarity_pairs_lyrion.ps1)
+reads the `left,right` CSV columns, but it must be
+configured and run with `LYRION_APPLY=false` first,
+independently of this research-only selector.
+Preserve all original eight human ratings and keep the new
+human review files local.
