@@ -67,11 +67,17 @@ class FMASparseCacheTests(unittest.TestCase):
         self.bundle.write_bytes(self.bundle.read_bytes()+b"changed")
         with self.assertRaisesRegex(ValueError,"ZIP SHA"):
             self.check()
-        # Protect against a coordinated rewrite of only the outer ZIP checksum.
+        # Appending bytes outside ZIP entries does not change any member;
+        # replace one actual MP3 while updating only the outer ZIP hash.
         d=json.loads(self.manifest.read_text())
+        with zipfile.ZipFile(self.bundle) as src:
+            rows=[(name,src.read(name)) for name in src.namelist()]
+        with zipfile.ZipFile(self.bundle,"w") as dst:
+            for idx,(name,raw) in enumerate(rows):
+                dst.writestr(name,raw+b"changed" if idx==0 else raw)
         d["bundle_zip_sha256"]=fc.fma.sha256_file(self.bundle)
         self.manifest.write_text(json.dumps(d))
-        with self.assertRaisesRegex(ValueError,"ZIP"):
+        with self.assertRaisesRegex(ValueError,"MP3 content"):
             self.check()
 
     def test_reject_changed_metadata_or_reordered_selection(self):
