@@ -17,6 +17,7 @@ import sqlite3
 import benchmark_magnatagatune as mtt
 import evaluate_similarity as ev
 from mtt_paired_evidence import paired_sensitivity
+from fixed_rank_fusion import FIXED_FUSIONS, predict as fixed_rank_prediction
 
 METHODS = {
     "embedding_cosine": ("embedding", ev.cosine),
@@ -82,7 +83,8 @@ def odd_one_out(triple: tuple, vectors: dict, metric) -> tuple[str | None, str |
     return (c, b, a)[pair_scores.index(best)], None
 
 
-def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict:
+def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
+             *, fixed_rank_fusions: bool = False) -> dict:
     if mtt.digest(comparisons) != mtt.REGISTERED_MTT_COMPARISONS_SHA256:
         raise ValueError("MTT human comparisons provenance differs from pinned research metadata")
     if mtt.digest(clips) != mtt.REGISTERED_MTT_CLIPS_SHA256:
@@ -146,7 +148,7 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict
             vector_by_id[id] = {"embedding": vec, "genre": heads["genre"],
                                 "moodtheme": heads["moodtheme"]}
 
-    methods = list(METHODS)
+    methods = list(METHODS) + (list(FIXED_FUSIONS) if fixed_rank_fusions else [])
     counts = {m: {"correct": 0, "predicted": 0, "undefined": 0, "metric_ties": 0}
               for m in methods}
     paired_rows = []
@@ -159,9 +161,15 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict
             continue
         human_outlier = max(votes, key=votes.get)
         outcomes = {}
-        for name, (representation, metric) in METHODS.items():
-            vectors = {id: vector_by_id[id][representation] for id in triple}
-            prediction, abstention = odd_one_out(triple, vectors, metric)
+        for name in methods:
+            if name in FIXED_FUSIONS:
+                prediction, abstention = fixed_rank_prediction(
+                    triple, vector_by_id, FIXED_FUSIONS[name]
+                )
+            else:
+                representation, metric = METHODS[name]
+                vectors = {id: vector_by_id[id][representation] for id in triple}
+                prediction, abstention = odd_one_out(triple, vectors, metric)
             if abstention:
                 counts[name]["undefined" if abstention == "undefined" else "metric_ties"] += 1
             else:
@@ -187,14 +195,24 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict
                 count["correct"] / count["predicted"] if count["predicted"] else None,
         }
     paired = paired_sensitivity(paired_rows, methods)
-    paired["schema"] = "mtt-audio-heads-paired-exploratory-sensitivity-v1"
+    paired["schema"] = ("mtt-fixed-rank-fusion-exploratory-sensitivity-v1"
+                        if fixed_rank_fusions else
+                        "mtt-audio-heads-paired-exploratory-sensitivity-v1")
     paired["limits"] = [
         x.replace("Twenty-one post-hoc method comparisons per head", "Multiple post-hoc A/B comparisons")
         for x in paired["limits"]
     ]
     return {
-        "schema_version": 1,
-        "representation_comparison": "audio_embedding_vs_genre_mood_heads",
+        "schema_version": 2 if fixed_rank_fusions else 1,
+        "representation_comparison": ("fixed_equal_rank_fusions_with_audio_genre_mood_baselines"
+                                      if fixed_rank_fusions else
+                                      "audio_embedding_vs_genre_mood_heads"),
+        "fixed_rank_fusions": ({"triplet_local": True, "no_label_fit": True,
+                                "per_head_metric": "cosine",
+                                "score_calibration": "within_triplet_three_pair_midranks_v1",
+                                "weights": "equal_included_representations",
+                                "combinations": FIXED_FUSIONS}
+                               if fixed_rank_fusions else None),
         "status": "EXPLORATORY_346_MTT_NO_UNSEEN_HOLDOUT",
         "total_unique_triplets": len(questions),
         "human_ties": tied_human,
@@ -212,6 +230,7 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path) -> dict
             "Unverified Discogs/MTG training-set overlap; apparent improvements may reflect leakage.",
             "Only nearest pair in three-song human odd-one-out; not direct evidence about good playlist transitions.",
             "No fusion weights selected from these exploratory results.",
+            "Triplet-local rank fusion is not a globally calibrated similarity score or a production playlist policy.",
         ],
     }
 
@@ -223,8 +242,11 @@ def main() -> None:
     p.add_argument("--comparisons", type=Path, required=True)
     p.add_argument("--clips", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--fixed-rank-fusions", action="store_true",
+                   help="Exploratory four predeclared equal-weight local Borda fusions; NO tuning")
     args = p.parse_args()
-    result = evaluate(args.db, args.embeddings_dir, args.comparisons, args.clips)
+    result = evaluate(args.db, args.embeddings_dir, args.comparisons, args.clips,
+                      fixed_rank_fusions=args.fixed_rank_fusions)
     with args.out.open("x", encoding="utf-8") as file:
         json.dump(result, file, ensure_ascii=False, allow_nan=False, indent=2)
     print(json.dumps({"status": result["status"], "scores": result["methods"]}, indent=2))
