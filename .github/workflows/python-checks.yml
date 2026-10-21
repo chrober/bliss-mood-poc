@@ -27,6 +27,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
       - name: Validate sparse MTT MP3 extraction and human triplet scoring (offline)
         run: python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+      - name: Validate frozen artist-disjoint MagnaTagATune holdout on Linux
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
       - name: Validate MagnaTagATune odd-one-out votes and CSV dialects (offline)
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
       - name: Evaluate similarity metrics on read-only synthetic feature fixture
@@ -61,6 +63,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
       - name: Validate sparse MTT audio CRC/votes on Windows
         run: python -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+      - name: Validate artist-disjoint MagnaTagATune holdout on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
       - name: Validate MagnaTagATune vote parsing on Windows
         run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
       - name: Verify SQLite handles close before tempdir cleanup
