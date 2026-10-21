@@ -62,6 +62,41 @@ the current per-file workflow. A small controlled A/B of fixed two
 workers and a sidecar-safe batch scheduler is a separate task;
 no unverified performance improvements claimed.
 
+## MTT sparse-audio end-to-end PASS, with artist-holdout limitation
+
+- ZIP central directory audit
+  [39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423)
+  **PASS**, using only HTTP Range 8 MiB from last archive part.
+  All **1,019** required MP3 paths found uniquely; ZIP has 25,863
+  entries, total 2,972,769,864 bytes. Required individual compressed
+  MP3s sum to 116,910,845 bytes. **533 vote rows are only 346 unique
+  unordered triplets** (permutations/repetitions need grouping).
+- Development-only sparse audio smoke
+  [39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662)
+  **PASS** with true pinned corrected Rust-v5, both classifier heads,
+  all seven metrics, twelve verified ZIP MP3s in four high-consensus
+  artist-separated questions. Real HTTP transferred **1.386 MB**,
+  analysis/sparse download **14.477 s**, serial one worker / ONNX
+  `--threads 1`. Weighted and majority agreement for Mood Cosine both
+  **0.75** on deliberately selected *development* questions.
+  No best metric or generalization conclusion.
+- Artist graph/holdout feasibility
+  [39591601421](https://github.com/chrober/bliss-mood-poc/actions/runs/39591601421)
+  **PASS**: 214 artist strings and 346 unique triplets form
+  **one single connected co-occurrence component**. A strict connected
+  artist-disjoint 80/20 holdout is impossible. Deterministic per-artist
+  hash partition yielded **162 dev / 4 holdout / 180 excluded mixed**
+  questions. Four independent held-out triples are not adequate for
+  choosing among seven metrics. Prior smoke must NOT be considered
+  held out; may contaminate naive post-hoc partitions.
+
+Details: [sparse benchmark protocol](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+Next: carefully define an *exploratory* analysis of all 346
+grouped questions, with dependence-aware uncertainty, and obtain an
+additional separate human-perceptual-similarity dataset for final
+confirmation. Continue recording download/Cargo build/inference
+stage timings. PR #16 remains Draft, main and PR #13/#17 untouched.
+
 ## COMPLETED: two official audio-free preflights (21.10.2026)
 
 **MTG-Jamendo**: [GitHub Actions 39586686845](https://github.com/chrober/bliss-mood-poc/actions/runs/39586686845)
