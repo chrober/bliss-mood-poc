@@ -35,6 +35,8 @@ jobs:
           ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
           path: validated-rust-v5
           persist-credentials: false
+      # Regression gate: sealed official TEST rows may contain unusable
+      # identifiers; filtered validation skips them before parsing IDs.
       - name: Verify bounded validation-only study
         shell: bash
         run: |
