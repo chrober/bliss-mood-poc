@@ -56,6 +56,17 @@ class MttVoteTests(unittest.TestCase):
         self.assertNotIn("Artist 1", json.dumps(r))
         self.assertNotIn("a/1.mp3", json.dumps(r))
 
+    def test_realistic_semicolon_and_tab_delimited_source_files(self):
+        for path, target in ((self.clips, ";"), (self.comparisons, "\t")):
+            original = list(csv.reader(io.StringIO(path.read_text(encoding="utf-8"))))
+            content = io.StringIO(newline="")
+            writer = csv.writer(content, delimiter=target)
+            writer.writerows(original)
+            path.write_text(content.getvalue(), encoding="utf-8")
+        report = mtt.evaluate(self.comparisons, self.clips)
+        self.assertEqual(report["questions"], 400)
+        self.assertEqual(report["audio_requirements"]["distinct_available_mp3_paths_in_questions"], 3)
+
     def test_inconsistent_audio_paths_fail_closed(self):
         self.create_comparisons(malformed=True)
         with self.assertRaisesRegex(ValueError, "paths mismatch"):
