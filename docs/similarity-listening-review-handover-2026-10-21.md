@@ -47,7 +47,7 @@ und klare, nicht überzogene Unsicherheitsangaben.
 
 **Erster technischer Arbeitsauftrag:**
 Im gepinnten PR-#17-Rust-v5-Code
-(Commit \`2c3d44401436b3b41b6e067199016a1ed2335fbf\`)
+(Commit `2c3d44401436b3b41b6e067199016a1ed2335fbf`)
 den 1280D-Encoder-Output, Patches und das
 aktuelle schema-v3-Feature-Speicherformat
 überprüfen. Song-Mittelwert-Embeddings
@@ -63,7 +63,7 @@ Actions; vier feste CI-Worker und Audio-/Binary-
 Cache zur Laufzeitbegrenzung wiederverwenden.
 Kein Eingriff in private Musikbibliothek,
 Lyrion-Produktion, PR #13 oder #17;
-kein Merge nach \`main\` ohne Freigabe.
+kein Merge nach `main` ohne Freigabe.
 
 **In den nächsten Chat übernehmen:** Den
 aktualisierten [Chat-Handover](chat-handover.md),
