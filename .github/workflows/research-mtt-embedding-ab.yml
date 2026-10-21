@@ -37,6 +37,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
           python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
           python3 -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
+          python3 -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
           python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
@@ -301,6 +302,35 @@ jobs:
           PY
           echo "paired_ab_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Evaluate four fixed equal-rank exploratory fusions (NO fitting or production calibration)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+          echo "fixed_fusion_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'fixed_rank_fusion_eval_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/evaluate_mtt_embedding_ab.py \
+              --db benchmark-private/mtt-all-exploratory-features.db \
+              --embeddings-dir benchmark-private/song-embeddings \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --out results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json \
+              --fixed-rank-fusions
+          python3 - <<'PY'
+          import json, os
+          p=json.load(open("results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json"))
+          assert p["schema_version"]==2
+          assert len(p["methods"])==9
+          assert len(p["fixed_rank_fusions"]["combinations"])==4
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\\n## Frozen equal-rank A/B/C fusion ablation (exploratory ONLY)\\n\\n")
+              out.write("| Method | Correct/293 | Prediction coverage | Accuracy incl. abstentions |\\n| --- | ---: | ---: | ---: |\\n")
+              for name, data in p["methods"].items():
+                  out.write(f"| {name} | {data['correct']}/293 | {data['prediction_coverage']:.3f} | {data['accuracy_with_abstentions_as_incorrect']:.4f} |\\n")
+              out.write("\\nTriplet-local ranking is **not** a globally calibrated similarity score, no fitting, no independent holdout.\\n")
+          PY
+          echo "fixed_fusion_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Summarize all 14 metric/head combinations with coverage
         shell: bash
         run: |
@@ -320,6 +350,7 @@ jobs:
             results/mtt-all-exploratory-aggregate.json
             results/mtt-seven-metric-scorecard.md
             results/mtt-audio-vs-heads-ab-exploratory.json
+            results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json
             research-smoke/smoke-check-summary.json
           if-no-files-found: error
           retention-days: 14
