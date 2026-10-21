@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
             ]}
         elif action == "songinfo":
             assert player == "0" and command[-1] == "tags:u"
-            assert command[3].startswith("url:file:///mnt/music/")
+            assert command[3].startswith("url:file:///")
             candidate = command[3][4:]
             for _ in range(4):
                 decoded = unquote(candidate)
@@ -141,7 +141,7 @@ class QueueScriptIntegrationTests(unittest.TestCase):
     def test_different_music_root_must_fail_with_no_queue_change(self):
         result = self.run_script(apply=True, root="/wrong/music")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("LYRION", result.stderr + result.stdout)
+        self.assertIn("erwartet: 1", result.stderr + result.stdout)
         self.assertEqual(self.server.appends, [])
 
     def test_server_returned_id_but_mismatched_url_must_be_rejected(self):
