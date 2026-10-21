@@ -62,6 +62,32 @@ the current per-file workflow. A small controlled A/B of fixed two
 workers and a sidecar-safe batch scheduler is a separate task;
 no unverified performance improvements claimed.
 
+
+## New frozen 31-triplet MTT artist-only development CI
+
+`scripts/benchmark_magnatagatune.py --selection-mode frozen-development`
+and [new dedicated GH workflow](../.github/workflows/magnatagatune-development.yml)
+now enforce the registered SHA-256 cutoff 128/256. The entire
+**31-question** artist-only development set is selected without using
+human vote consensus; the script verifies source metadata fingerprint
+before downloading any media. It excludes all **56 artist-only holdout
+candidates** and 259 mixed-artist questions. The **48 candidates
+not exposed by the earlier smoke remain untouched**.
+
+Real first-run [39593423801](https://github.com/chrober/bliss-mood-poc/actions/runs/39593423801)
+FAILED at MP3 22/92 due to transient curl timeout 28 / HTTP 000.
+Twenty-one preceding real tracks passed CRC/audio analysis; no
+metric scores or artifact. Bounded HTTP range retries with strict
+206 response and ZIP CRC gates added and checked in Linux/Windows
+[Python CI 39594080260](https://github.com/chrober/bliss-mood-poc/actions/runs/39594080260).
+A retry [39594161136](https://github.com/chrober/bliss-mood-poc/actions/runs/39594161136)
+was started; verify completed outcome and aggregate-only artifact
+before reporting its metric results. See
+[research protocol](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+Development results must not be described as independent/production
+evidence. No change to PR #13, PR #17, main, Lyrion queue or private
+library analysis.
+
 ## MTT sparse-audio end-to-end PASS, with artist-holdout limitation
 
 - ZIP central directory audit
