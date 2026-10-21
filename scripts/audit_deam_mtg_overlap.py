@@ -40,8 +40,9 @@ def field(fields: dict, aliases: tuple[str, ...]) -> str | None:
 
 
 def clean(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(re.findall(r"[\w]+", normalized, flags=re.UNICODE))
+    normalized = unicodedata.normalize("NFKD", value).casefold()
+    folded = "".join(char for char in normalized if not unicodedata.combining(char))
+    return " ".join(re.findall(r"[\w]+", folded, flags=re.UNICODE))
 
 
 def artist_title(row: dict, title_aliases: tuple[str, ...]) -> tuple[str, str] | None:
@@ -155,7 +156,7 @@ def check(deam_archive: Path, mtg_tsv: Path) -> dict:
         "schema": "deam-mtg-exact-metadata-screen-v1",
         "deam_source": SOURCE,
         "mtg_source": MTG_SOURCE,
-        "method": "strict_NFKC_casefold_artist_plus_title_exact_match",
+        "method": "normalized_NFKD_accent_fold_artist_plus_title_exact_match",
         "status": "partial_metadata_screen_only_NOT_verified_training_disjointness",
         "coverage": {**stats, "mtg_metadata_rows": mtg_rows,
                      "mtg_distinct_artist_title_pairs": len(mtg)},
