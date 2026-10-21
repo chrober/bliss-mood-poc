@@ -182,3 +182,47 @@ it. No measured speedup exists yet.
 
 Workflow maintenance and trigger caveats are detailed in
 [GitHub Actions audit](github-actions-trigger-and-worker-audit-2026-10-21.md).
+
+
+## FMA validation provenance clarification and catalog-screened rerun
+
+The dedicated metadata-only
+[FMA–MTG screen 39605675932](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932)
+**PASS** (aggregate [artifact 12347897819](https://github.com/chrober/bliss-mood-poc/actions/runs/39605675932/artifacts/12347897819)):
+121/6,400 **FMA training** and **42/800 FMA validation**
+songs share normalized artist+title catalog entries with the
+56,552-row MTG-Jamendo raw catalog. An additional 260 training
+and 68 validation songs share artist strings alone.
+**35 of the 42** validation exact artist/title matches are
+in **Hip-Hop** (35 of 100 songs in that genre).
+These are *possible metadata matches only*: no sound fingerprint,
+no actual ONNX classifier training-split comparison, no proof
+of reused encoder training music. Original FMA artist-ID
+split disjointness does not resolve overlap with external
+MTG-Jamendo training material. The previous 80-song validation
+cohort was not individually provenance-audited.
+
+New `scripts/benchmark_fma_genre.py` flags
+`--exclude-mtg-catalog-matches --mtg-metadata-tsv`
+exclude conservative catalog-matched FMA VALIDATION tracks
+**before** selecting ten artist-distinct songs per
+top-level genre and before any Rust-v5 ONNX inference.
+The official FMA **TEST** split is skipped before even
+reading the track ID in this benchmark. A dedicated
+[filtered validation workflow](../.github/workflows/fma-genre-filtered-validation.yml)
+reuses the pinned corrected Rust-v5 release-binary cache
+while downloading canonical source FMA archives (never
+publishing or caching music). The
+[real filtered run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+completed metadata and cached-binary preflights; its
+final retrieval results remain to be verified.
+[Linux/Windows tests 39606799883](https://github.com/chrober/bliss-mood-poc/actions/runs/39606799883)
+PASS. The first synthetic TEST-row fixture exposed that
+the parser tried to parse an unusable TEST ID before
+skipping it; corrected to skip TEST based on its split
+before accessing any identity/labels. The earlier
+unfiltered and subsequent filtered 80-song samples
+**are not the same tracks** and their score differences
+cannot be interpreted as paired/causal evidence.
+For full research methodology see
+[FMA/MTG catalog screen](fma-mtg-catalog-overlap-2026-10-21.md).
