@@ -233,3 +233,42 @@ MTT-Fragen bereits gesehen, kein unabhängiger Holdout.
 separat kontrastive Discogs-Modelle,
 unabhängige zweite Ground-Truth für B und die endgültige
 Lyrion-Mixer-Entscheidung. Erst den neuen A/B-Run prüfen.
+
+## Verifiziert: erster vollständiger Embedding-A/B auf identischer MTT-Cohort (21.10.2026)
+
+**Achtung – ersetzt die oben noch als ausständig bezeichnete
+A/B-Messung.** [Run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
+ist **PASS**; 1019 Cache-Clips CRC-validiert, exakt 346
+explorative Menschenfragen, davon 293 mehrheitsentscheidbar.
+Auf denselben Aufnahmen lieferte **direkte 1280D-Cosine
+182/293 = 62,12 %**, Genre-Cosine **191/293 = 65,19 %**,
+Mood-Cosine **192/293 = 65,53 %** und
+Mood-Centered-Cosine **193/293 = 65,87 %**.
+Alle vier hatten wie das Embedding **100 % Abdeckung**.
+Das Embedding lag gegenüber Mood-Centered-Cosine um
+**−3,754 Prozentpunkte** zurück (nur Embedding korrekt 27,
+nur Mood-Centered korrekt 38). Naives gepaartes
+95-%-Tripel-Resampling für den Unterschied:
+**−9,215 bis +1,365 Prozentpunkte**; wegen
+Abhängigkeiten **kein unabhängiges Populations-CI**.
+Auch Künstlergewichts-Sensitivitäten sind kein valides
+Konfidenzintervall. Die Kausalinterpretation und
+Generalisierbarkeit bleiben offen.
+
+Der vorherige unabhängige synthetische Rust-Smoke
+[Run 39616222834](https://github.com/chrober/bliss-mood-poc/actions/runs/39616222834)
+bestand Rust-Unit-Tests und Release-Kompilierung,
+brach aber beim externen Modell-Download wegen
+`essentia.upf.edu`-Netzwerk-Timeout ab. Deshalb
+wurde ein **synthetisches off/on/Pooling/Threads-Paritätsgate
+vor den 1019er-Lauf** des neuen A/B-Workflows
+hinzugefügt; dessen nachfolgenden Run erst auf
+PASS prüfen, bevor dieses Gate als bestätigt gilt.
+
+Vollständiger Studienbericht mit Methoden,
+Paar-Discordanzen, statistischer Unsicherheit,
+CI-Runs, Fingerprints, Limitierungen und nächstem
+Evidenz-Gate:
+[Audio-Embedding vs. Kopf-Baselines: MTT-A/B-Resultate](similarity-audio-embedding-ab-results-2026-10-21.md).
+**Keine Fusion-Kalibrierung, keine Produktionsentscheidung,
+kein erneuter MTT-Holdout, kein FMA-TEST, kein Merge.**
