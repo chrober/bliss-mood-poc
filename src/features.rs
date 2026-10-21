@@ -11,8 +11,9 @@ use std::{
 };
 
 use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
+use crate::essentia_worker::{BackendChoice, EssentiaWorker};
 
-const PREPROCESSING: &str = "experimental-essentia-audio-v4-unvalidated";
+const PREPROCESSING: &str = crate::audio_decode::RUST_PREPROCESSING;
 const AGGREGATION: &str = "arithmetic_mean_of_per_patch_sigmoid_scores";
 const SOFTMAX_AGGREGATION: &str = "arithmetic_mean_of_per_patch_softmax_scores";
 
@@ -170,6 +171,34 @@ pub fn load_profiles(
     Ok(profiles)
 }
 
+/// Profile model keys must differ for alternative preprocessing code and each
+/// exact native-worker binary. Never alias the default Rust frontend cache.
+pub fn retarget_profiles(profiles: &mut [Profile], backend: &BackendChoice) -> Result<()> {
+    if let Some(worker_hash) = backend.worker_hash() {
+        for profile in profiles {
+            profile.hashes.insert(
+                "essentia_cpp_worker_binary_sha256".to_owned(),
+                worker_hash.to_owned(),
+            );
+            if let Some(deployment_hash) = backend.deployment_hash() {
+                profile.hashes.insert(
+                    "essentia_cpp_native_deployment_manifest_sha256".to_owned(),
+                    deployment_hash.to_owned(),
+                );
+            }
+            profile.model_key = storage::model_key_for(
+                &profile.descriptor.embedding_model,
+                &profile.descriptor.classification_model,
+                &profile.hashes,
+                backend.preprocessing(),
+                profile.descriptor.output_type.aggregation(),
+                &profile.labels, false,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Serialize)]
 pub struct ClassificationResult {
     pub capability: String,
@@ -203,6 +232,8 @@ pub struct FeatureEngine {
     load_secs: f64,
     counted_load: bool,
     threads: usize,
+    frontend: Option<EssentiaWorker>,
+    preprocessing: &'static str,
 }
 
 fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
@@ -230,7 +261,14 @@ fn feature_environment() -> Result<&'static ort::environment::Environment> {
 }
 
 impl FeatureEngine {
+    #[allow(dead_code)] // Retain legacy constructor for code paths using the Rust frontend.
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
+        Self::with_backend(profiles, threads, &BackendChoice::Rust)
+    }
+
+    pub fn with_backend(
+        profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
+    ) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
         }
@@ -248,8 +286,16 @@ impl FeatureEngine {
                 .commit_from_file(&profile.head_path)?;
             heads.push((profile, session));
         }
+        let frontend = match backend {
+            BackendChoice::Rust => None,
+            BackendChoice::Essentia { executable, timeout_seconds, .. } =>
+                Some(EssentiaWorker::with_timeout(
+                    executable.clone(), std::time::Duration::from_secs(*timeout_seconds),
+                )),
+        };
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
-            counted_load: false, threads })
+            counted_load: false, threads, frontend,
+            preprocessing: backend.preprocessing() })
     }
 
     pub fn analyze(&mut self, path: &Path, max_patches: Option<usize>) -> Result<FeatureReport> {
@@ -257,13 +303,21 @@ impl FeatureEngine {
             bail!("Audio file does not exist: {}", path.display());
         }
         let started = Instant::now();
-        let at = Instant::now();
-        let audio = ffmpeg_pcm_mono_16k(path)?;
-        let decode_seconds = at.elapsed().as_secs_f64();
-        let at = Instant::now();
-        let mel = preprocess::mel_spectrogram(&audio)?;
-        let patches = preprocess::patches(&mel, max_patches)?;
-        let features_seconds = at.elapsed().as_secs_f64();
+        let (patches, decode_seconds, features_seconds) = match self.frontend.as_mut() {
+            Some(worker) => {
+                let native = worker.analyze(path, max_patches)?;
+                (native.patches, native.decode_seconds, native.features_seconds)
+            }
+            None => {
+                let at = Instant::now();
+                let audio = ffmpeg_pcm_mono_16k(path)?;
+                let decode_seconds = at.elapsed().as_secs_f64();
+                let at = Instant::now();
+                let mel = preprocess::mel_spectrogram(&audio)?;
+                let patches = preprocess::patches(&mel, max_patches)?;
+                (patches, decode_seconds, at.elapsed().as_secs_f64())
+            }
+        };
         let count = patches.len();
         let mut sums: Vec<Vec<f64>> = self.heads.iter()
             .map(|(profile, _)| vec![0.0; profile.labels.len()]).collect();
@@ -311,7 +365,7 @@ impl FeatureEngine {
         let audio_hash = sha256_file(path)?;
         let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(FeatureReport {
-            schema_version: 3, preprocessing_version: PREPROCESSING,
+            schema_version: 3, preprocessing_version: self.preprocessing,
             aggregation: AGGREGATION,
             audio_path: path.display().to_string(),
             audio_sha256: audio_hash,
@@ -513,10 +567,21 @@ struct ScanDiagnostics {
     system_available_ram_min_mib: Option<f64>,
     process_working_set_max_mib: Option<f64>,
     process_private_bytes_max_mib: Option<f64>,
+    /// Observed high-water estimate for the Rust process plus registered
+    /// Essentia worker subprocesses. Shared pages may be counted twice.
+    process_tree_working_set_max_mib: Option<f64>,
+    process_tree_private_bytes_max_mib: Option<f64>,
+    native_child_working_set_max_mib: Option<f64>,
+    native_child_private_bytes_max_mib: Option<f64>,
+    native_child_processes_max: usize,
+    /// Transient child exits may race with resource enumeration: samples
+    /// missing child counters are recorded but not treated as complete.
+    process_tree_incomplete_samples: usize,
     /// Difference between first and last sampled Windows page-fault counter.
     /// Includes soft faults; is NOT disk page-ins or paging-file I/O.
     process_page_fault_delta: Option<u64>,
     #[serde(skip)]
+    #[cfg_attr(not(windows), allow(dead_code))]
     process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
     final_workers: usize,
@@ -558,10 +623,33 @@ impl ScanDiagnostics {
                 .unwrap_or(0.0).max(process.working_set_mib));
             self.process_private_bytes_max_mib = Some(self.process_private_bytes_max_mib
                 .unwrap_or(0.0).max(process.private_bytes_mib));
-            let first = *self.process_first_page_fault_count
-                .get_or_insert(process.page_fault_count);
-            self.process_page_fault_delta =
-                Some(process.page_fault_count.wrapping_sub(first));
+            #[cfg(windows)]
+            {
+                let first = *self.process_first_page_fault_count
+                    .get_or_insert(process.page_fault_count);
+                self.process_page_fault_delta =
+                    Some(process.page_fault_count.wrapping_sub(first));
+            }
+        }
+        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
+            self.native_child_processes_max =
+                self.native_child_processes_max.max(tree.registered_children);
+            if tree.complete {
+                self.process_tree_working_set_max_mib = Some(
+                    self.process_tree_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.total_working_set_mib));
+                self.process_tree_private_bytes_max_mib = Some(
+                    self.process_tree_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.total_private_bytes_mib));
+                self.native_child_working_set_max_mib = Some(
+                    self.native_child_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.child_working_set_mib));
+                self.native_child_private_bytes_max_mib = Some(
+                    self.native_child_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.child_private_bytes_mib));
+            } else {
+                self.process_tree_incomplete_samples += 1;
+            }
         }
         if let Some(memory) = crate::resources::memory_diagnostics() {
             self.system_available_ram_min_mib = Some(self.system_available_ram_min_mib
@@ -588,6 +676,7 @@ pub struct ScanOptions<'a> {
     pub min_workers: usize,
     pub max_workers: usize,
     pub dry_run: bool,
+    pub backend: BackendChoice,
 }
 
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
@@ -595,7 +684,8 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
         bail!("--threads, --max-new and --max-errors must be positive");
     }
-    let profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    retarget_profiles(&mut profiles, &options.backend)?;
     if options.workers == 0 || options.workers > 64 {
         bail!("Worker count must be 1..=64");
     }
@@ -679,7 +769,9 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             break;
         }
         if engine.is_none() {
-            engine = Some(FeatureEngine::new(profiles.clone(), options.threads)?);
+            engine = Some(FeatureEngine::with_backend(
+                profiles.clone(), options.threads, &options.backend,
+            )?);
             summary.model_sessions_initialized = true;
         }
         let outcome = engine.as_mut().expect("engine available").analyze(&path, None)
@@ -816,6 +908,7 @@ fn scan_parallel(
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
+            let backend = options.backend.clone();
             let active_analyses = Arc::clone(&active_analyses);
             let peak_active_analyses = Arc::clone(&peak_active_analyses);
             scope.spawn(move || {
@@ -832,7 +925,9 @@ fn scan_parallel(
                     peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
                         Some(engine) => engine.analyze(&task.path, None),
-                        None => match FeatureEngine::new(profiles.clone(), options.threads) {
+                        None => match FeatureEngine::with_backend(
+                            profiles.clone(), options.threads, &backend,
+                        ) {
                             Ok(created) => {
                                 engine = Some(created);
                                 engine.as_mut().expect("initialized").analyze(&task.path, None)
@@ -1133,6 +1228,59 @@ mod tests {
             assert!(!safe_model_name(name));
         }
         assert!(safe_model_name("head.onnx"));
+    }
+
+    #[test]
+    fn native_frontend_has_distinct_cached_model_key_per_worker_binary() {
+        let descriptor = Descriptor {
+            id: "genre".to_owned(), capability: "genre".to_owned(),
+            embedding_model: "encoder.onnx".to_owned(),
+            classification_model: "genre.onnx".to_owned(),
+            metadata: "genre.json".to_owned(), embedding_dimensions: 1280,
+            expected_classes: 2, output_type: OutputType::Sigmoid,
+        };
+        let hashes = BTreeMap::from([
+            ("encoder.onnx".to_owned(), "a".repeat(64)),
+            ("genre.onnx".to_owned(), "b".repeat(64)),
+        ]);
+        let labels = vec!["a".to_owned(), "b".to_owned()];
+        let original_key = storage::model_key_for(
+            "encoder.onnx", "genre.onnx", &hashes, PREPROCESSING,
+            AGGREGATION, &labels, false,
+        ).unwrap();
+        let original = Profile {
+            descriptor, labels, encoder_path: PathBuf::from("encoder.onnx"),
+            head_path: PathBuf::from("genre.onnx"), hashes,
+            model_key: original_key.clone(),
+        };
+        let mut untouched = vec![original.clone()];
+        retarget_profiles(&mut untouched, &BackendChoice::Rust).unwrap();
+        assert_eq!(untouched[0].model_key, original_key);
+        let mk_backend = |fingerprint: &str| BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: fingerprint.repeat(64),
+            deployment_sha256: None, timeout_seconds: 900,
+        };
+        let mut first = vec![original.clone()];
+        let mut second = vec![original];
+        retarget_profiles(&mut first, &mk_backend("c")).unwrap();
+        retarget_profiles(&mut second, &mk_backend("d")).unwrap();
+        assert_ne!(first[0].model_key, original_key);
+        assert_ne!(second[0].model_key, first[0].model_key);
+        assert_eq!(first[0].hashes["essentia_cpp_worker_binary_sha256"], "c".repeat(64));
+        let mut with_dependencies = vec![first[0].clone()];
+        let installed = BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: "c".repeat(64),
+            deployment_sha256: Some("d".repeat(64)),
+            timeout_seconds: 900,
+        };
+        retarget_profiles(&mut with_dependencies, &installed).unwrap();
+        assert_eq!(
+            with_dependencies[0].hashes["essentia_cpp_native_deployment_manifest_sha256"],
+            "d".repeat(64)
+        );
+        assert_ne!(with_dependencies[0].model_key, first[0].model_key);
     }
 
     #[test]

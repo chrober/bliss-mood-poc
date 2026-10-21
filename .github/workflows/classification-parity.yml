@@ -7,6 +7,7 @@ on:
     paths:
       - "src/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_classification_essentia.py"
       - ".github/workflows/classification-parity.yml"
 
@@ -73,11 +74,11 @@ jobs:
           sha256sum models/*
       - name: Export identical ONNX embeddings to feed BOTH classifiers
         run: |
-          cargo run --release -- embedding-dump test-classification.wav \
+          cargo run --locked --release -- embedding-dump test-classification.wav \
             --models-dir models --max-patches 4 --threads 1 > onnx-embeddings.json
       - name: Classify embeddings with ONNX
         run: |
-          cargo run --release -- classify-embeddings onnx-embeddings.json \
+          cargo run --locked --release -- classify-embeddings onnx-embeddings.json \
             --models-dir models --threads 1 > onnx-classification.json
       - name: Compare 56 per-patch and mean scores with TensorFlow
         run: |

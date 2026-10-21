@@ -5,6 +5,38 @@ Experimental Rust CLI for capability-based music feature analysis using MTG/Esse
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
+## Windows real-audio parity checkpoint (2026-10-21)
+
+**Original Essentia C++ and corrected Rust-v5 feature scores agree within the
+unchanged 0.001 maximum per-class tolerance** on the already completed
+100-real-MP3-song cohort (14,500 scores, four and six Rust workers),
+controlled bit-identical decoded WAV24/FLAC, and two original independent
+lossless downloads (48 kHz/24-bit FLAC, 44.1 kHz/16-bit WAV).
+Those tests are finished; do not unnecessarily rescan private music.
+The CLI's original C++ frontend remains opt-in
+(`--audio-backend essentia --essentia-worker ...`); the previous Rust
+DSP remains available. Adaptive worker telemetry was exercised, but
+no actual dynamic worker increase/decrease occurred in the six-worker run.
+
+[Release qualification, including source evidence and the read-only
+Windows native dev-kit auditor](docs/release-qualification-gates.md) and
+[licensing/distribution strategy](docs/essentia-licensing-distribution-strategy.md)
+remain authoritative. **This is technical parity evidence, not permission
+to redistribute Essentia AGPL, FFmpeg native DLLs or third-party models.**
+The existing test kit deliberately declares
+`release_approved=false`; public/production distribution is blocked
+pending manual review. A **real kit audit** verified 100 native
+EXE/DLL files, 77 installed MSYS2 packages and 94 present license
+notice references; **17 packages lack installed notice files**.
+`scripts/triage_windows_native_license_gaps.py` creates a read-only
+exact-version review register, without inventing license grants.
+The **public native C++ Windows development ZIP upload is paused**
+while Windows CI continues building/testing and publishes metadata-only
+diagnostics. Existing locally verified test kits remain usable for
+development; this is not permission to redistribute their contents.
+See the [licensing scenarios A–D](docs/essentia-licensing-distribution-strategy.md).
+Draft PR #17 is separate from similarity PR #16.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with
@@ -30,6 +62,54 @@ its first gate is a read-only schema-v3 feature lookup and **exact**
 production Bliss Mixer, invoke ONNX at mixing time, or silently use
 unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
 is recorded for later and does not block functional integration.
+
+## Essentia C++ development handover (2026-10-20)
+
+**Current status, experimental:** the **genuine original Essentia C++ Windows x64
+worker has passed** build/linkage, dependency packaging, isolated startup,
+synthetic WAV/FLAC/MP3 DSP and complete 1280D/87D/56D/2D ONNX numerical
+parity, schema-v3 sidecar persistence, two-worker scanner reuse and the
+unchanged PR #16 similarity evaluator. See [successful Windows run
+#39421541546](https://github.com/chrober/bliss-mood-poc/actions/runs/39421541546)
+at `bdb281d3a952775d62f4b29786e687a05471f9b1`.
+Its `bliss-mood-essentia-windows-x64-dev` artifact is valid through
+2026-11-03.
+
+**NEXT GATE (not yet validated):** compare Rust and original C++ frontends on
+the **same real music** using fresh, separate schema-v3 sidecars and different
+model fingerprints. Read the [bounded Windows real-music compatibility
+runbook](docs/essentia-cpp-real-music-compatibility-gate.md).
+After successful real-audio numerical parity, CI and review, merge #17 into
+main and continue the independent Genre/Mood similarity investigations in
+#16 on newly generated C++ feature data. Rust default remains unchanged;
+native licensing/release approval is still open. Older Windows linker
+failure investigations are historical and superseded by the successful run.
+
+For architecture and history see [the handover](docs/handover-essentia-cpp-20261020.md)
+and [Windows linker runbook](docs/handover-essentia-windows-linker-20261020.md).
+
+## Experimental original Essentia C++ frontend (feature branch only)
+
+The [Essentia C++ worker architecture](docs/essentia-cpp-worker-architecture.md)
+explains how the existing Rust multi-worker scanner, adaptive controller,
+ONNX Runtime sessions and SQLite writer can be reused with a **separate,
+persistent original Essentia C++ DSP subprocess per Rust worker**.
+A versioned, bounded binary IPC frontend is implemented in
+`src/essentia_worker.rs`, with native source and test fixture in
+[`native/`](native/README.md). The default is still the original Rust
+frontend; the C++ backend is explicitly selected using
+`--audio-backend essentia --essentia-worker <trusted-executable>`
+for `analyze-features` or `scan-features`.
+
+**Not production-ready:** Genuine original-Essentia C++ Windows x64
+DSP/ONNX numerical parity is now proven on synthetic fixtures and the
+development test kit is available, but **real-music cohort compatibility,
+large-library performance, Pi/ARM64/macOS distribution and complete native
+licensing review remain open**. Native process watchdogs, restart behavior
+and process-tree memory sampling remain implemented. Do not scan an
+unattended full music library or distribute the binary as a production
+release. Backend fingerprints are intentionally distinct, so retain new
+C++ sidecars separately from prior Rust data.
 
 ## Generic feature models (opt-in)
 

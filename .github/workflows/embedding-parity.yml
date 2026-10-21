@@ -7,6 +7,7 @@ on:
     paths:
       - "src/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_embedding_essentia.py"
       - "scripts/requirements-embedding-parity.txt"
       - ".github/workflows/embedding-parity.yml"
@@ -73,7 +74,7 @@ jobs:
 
       - name: Export all ONNX Discogs-EffNet embeddings (full short signal)
         run: |
-          cargo run --release -- embedding-dump test-embedding.wav \
+          cargo run --locked --release -- embedding-dump test-embedding.wav \
             --models-dir models --max-patches 64 --threads 1 > onnx-embeddings.json
           python - <<'PY'
           import json

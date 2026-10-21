@@ -14,8 +14,41 @@ jobs:
       # During initial bootstrap apply formatting so compiler/API errors surface.
       # TODO: enforce a clean git diff after rustfmt once the sources are formatted.
       - run: cargo fmt --all
-      - run: cargo test
-      - run: cargo clippy --all-targets -- -D warnings
+      - name: Compile stand-alone C++ IPC test fixture (no Essentia dependency)
+        run: c++ -std=c++17 -O2 -Wall -Wextra -o /tmp/essentia-ipc-fixture native/protocol_fixture.cpp
+      - name: Run Rust tests, including actual persistent child-process IPC
+        env:
+          ESSENTIA_IPC_FIXTURE_EXE: /tmp/essentia-ipc-fixture
+        run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
+      - name: Validate native C++ codec/model comparator failure handling
+        run: python3 -m unittest discover -s tests -p 'test_native_cpp_end_to_end.py'
+      - name: Validate paired Rust/native C++ benchmark safety and score comparison
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_audio_backends.py'
+      - name: Validate existing real-song sidecar audit without rescan
+        run: python3 -m unittest discover -s tests -p 'test_verify_existing_backend_sidecars.py'
+      - name: Validate real-song model and codec drift diagnostics
+        run: python3 -m unittest discover -s tests -p 'test_diagnose_backend_drift.py'
+      - name: Validate bounded real-MP3 to decoded-WAV control diagnostics
+        run: python3 -m unittest discover -s tests -p 'test_diagnose_mp3_wav_control.py'
+      - name: Validate shared-PCM frontend Mel and ONNX comparison
+        run: python3 -m unittest discover -s tests -p 'test_diagnose_pcm_frontend.py'
+      - name: Validate corrected Rust resampler against preserved original C++ reports
+        run: python3 -m unittest discover -s tests -p 'test_verify_resampler_fix_on_existing_wav.py'
+      - name: Validate one-new-Rust-v5-cohort versus preserved original C++ sidecar
+        run: python3 -m unittest discover -s tests -p 'test_verify_rust_v5_cohort.py'
+      - name: Validate adaptive Rust v5 real-cohort parity, resource telemetry, and immutable references
+        run: python3 -m unittest discover -s tests -p 'test_verify_rust_v5_adaptive.py'
+      - name: Validate real PCM24 WAV/FLAC cross-codec parity gate invariants
+        run: python3 -m unittest discover -s tests -p 'test_verify_lossless_codec_parity.py'
+      - name: Validate bounded original NAS FLAC/WAV track source and official-model parity gate
+        run: python3 -m unittest discover -s tests -p 'test_verify_original_lossless_tracks.py'
+      - name: Validate original Essentia Windows PE packaging and DLL licence safety
+        run: python3 -m unittest discover -s tests -p 'test_package_essentia_worker_windows.py'
+      - name: Validate development-only native Windows kit integrity and provenance release blockers
+        run: python3 -m unittest discover -s tests -p 'test_audit_windows_native_release.py'
+      - name: Validate exact-version native DLL license-evidence backlog and import-chain non-approval
+        run: python3 -m unittest discover -s tests -p 'test_triage_windows_native_license_gaps.py'
