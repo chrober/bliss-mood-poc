@@ -62,7 +62,7 @@ def load_vectors(db: Path, embedding_dir: Path, chosen: list[str]) -> tuple[dict
     keys = {ident: f"FMA/{ident}.mp3" for ident in chosen}
     required_names = {filename_for_key(key) for key in keys.values()}
     if not embedding_dir.is_dir() or {p.name for p in embedding_dir.iterdir()} != required_names:
-        raise ValueError("Embedding directory must contain exactly the 80 FMA cohort sidecars")
+        raise ValueError("Embedding directory must contain exactly the selected FMA cohort sidecars")
     with closing(ev.open_database(db)) as conn:
         cohorts = {head: ev._catalog(conn, head, experimental=True)
                    for head in ("genre", "moodtheme")}
