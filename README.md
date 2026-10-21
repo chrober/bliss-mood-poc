@@ -388,11 +388,15 @@ documented in [docs/powershell-script-conventions.md](docs/powershell-script-con
 
 For the PR #16 eight-pair listening pilot, run
 [`scripts/queue_similarity_pairs_lyrion.ps1`](scripts/queue_similarity_pairs_lyrion.ps1).
-It defaults to **dry run**, uses the exact local CSV keys and the
-previously identified stable Lyrion player ID, and explicitly decodes
-Lyrion JSON-RPC bytes as UTF-8. It only **appends** the 16 tracks in
-pairwise order after setting `$Apply = $true`; it does not replace the
-existing queue or start playback. Playback URLs that do not resolve
+It defaults to **dry run**, uses the exact local CSV keys and a
+configured stable Lyrion player ID, and explicitly decodes Lyrion
+JSON-RPC bytes as UTF-8. Configure locally via
+`LYRION_SERVER_URL`, `LYRION_PLAYER_ID`, `LYRION_LISTENING_CSV`.
+Only opt in to writing with `LYRION_APPLY=true` after reviewing a
+complete dry run. It **appends** the tracks in pairwise order, without
+replacing the existing queue or starting playback. The script keeps
+LAN addresses, private player IDs and audio paths out of the public
+source tree. Playback URLs that do not resolve
 exactly cause a preflight failure rather than fallback to an unsafe
 artist/title match. Never rerun the apply mode blindly: it would append
 duplicates.
