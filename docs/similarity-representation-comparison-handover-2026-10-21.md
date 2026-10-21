@@ -1,5 +1,7 @@
 # Handover: Drei Repräsentationsansätze für Song-Similarity
 
+> **Einordnung:** Dieses Dokument ist die ausführliche **technische Ergänzung** zum [maßgeblichen Drei-Ansätze-Handover](similarity-three-representation-approaches-handover-2026-10-21.md). Beide sind inhaltlich kompatibel. Beginne in einer neuen Session mit dem maßgeblichen Handover; verwende dieses Dokument für präzise Formeln, Implementierungs-/Persistenzverträge und Qualitäts-Gates.
+
 **Stand:** 21. Oktober 2026 · **Repository:** [chrober/bliss-mood-poc](https://github.com/chrober/bliss-mood-poc) · **Branch:** `feat/similarity-metric-evaluation` · **PR:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16).
 
 **Kernfrage:** Wie berechnen wir aus offline analysierten Audioaufnahmen musikalisch nützliche **Song-zu-Song-Ähnlichkeit**, und welche Repräsentation eignet sich für welchen Zweck? **Noch keine Produktionsentscheidung.** Die bisherige Forschung testete sieben Distanzen/Ähnlichkeiten auf *Klassifikationsvektoren*. Der nächste wissenschaftlich wichtige Vergleich ist **Klassifikationsvektoren vs. direkte Audio-Embeddings vs. kombinierte Signale**; die Metrikwahl allein löst nicht die Repräsentationsfrage.
