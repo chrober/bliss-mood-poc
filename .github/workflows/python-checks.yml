@@ -31,6 +31,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
       - name: Validate four fixed, unfit equal-rank fusion ablations on Linux
         run: python3 -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+      - name: Regress four-worker embedding versus classifier filename selection (Linux)
+        run: python3 -m unittest discover -s tests -p 'test_check_song_embedding_smoke.py'
       - name: Validate research Embedding-vs-Genre/Mood pairing and fingerprint guard on Linux
         run: python3 -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
       - name: Validate paired MTT artist-sensitive outcomes on Linux
@@ -81,6 +83,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
       - name: Validate four fixed, unfit equal-rank fusion ablations on Windows
         run: python -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+      - name: Regress four-worker embedding versus classifier filename selection (Windows)
+        run: python -m unittest discover -s tests -p 'test_check_song_embedding_smoke.py'
       - name: Validate research Embedding-vs-Genre/Mood pairing and fingerprint guard on Windows
         run: python -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
       - name: Validate paired MTT dependence sensitivity on Windows
