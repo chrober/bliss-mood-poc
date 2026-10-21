@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+import hashlib
 from pathlib import Path
 import shutil
 import sqlite3
@@ -20,7 +21,8 @@ import time
 HEADS = frozenset(("genre", "moodtheme"))
 
 
-def analyze_one(binary: Path, models_dir: Path, sidecar: Path, key: str, audio: bytes):
+def analyze_one(binary: Path, models_dir: Path, sidecar: Path, key: str, audio: bytes,
+                embedding_dir: Path | None = None):
     if not audio or len(audio) > 20 * 1024 * 1024:
         raise ValueError("Audio buffer missing or oversized")
     with tempfile.TemporaryDirectory(prefix="mtt-analysis-") as temp:
@@ -32,6 +34,9 @@ def analyze_one(binary: Path, models_dir: Path, sidecar: Path, key: str, audio: 
             "--models", "genre,moodtheme", "--threads", "1",
             "--db", str(sidecar.resolve()), "--track-key", key
         ]
+        if embedding_dir is not None:
+            output = embedding_dir / (hashlib.sha256(key.encode("utf-8")).hexdigest() + ".json")
+            cmd.extend(["--embedding-out", str(output.resolve())])
         completed = subprocess.run(cmd, check=False, capture_output=True,
                                    text=True, timeout=900)
         if completed.returncode:
@@ -40,6 +45,8 @@ def analyze_one(binary: Path, models_dir: Path, sidecar: Path, key: str, audio: 
                 f"exit={completed.returncode}; stderr tail: "
                 f"{completed.stderr[-800:]}"
             )
+        if embedding_dir is not None and (not output.is_file() or output.stat().st_size == 0):
+            raise RuntimeError("Expected private song embedding output missing")
 
 
 def combine_sidecars(paths: list[Path], target: Path, track_keys: set[str]) -> None:
@@ -119,7 +126,8 @@ def combine_sidecars(paths: list[Path], target: Path, track_keys: set[str]) -> N
 
 def analyze_parallel(binary: Path, models_dir: Path, db: Path,
                      tasks, expected_track_keys: set[str],
-                     workers: int = 2) -> dict:
+                     workers: int = 2,
+                     embedding_dir: Path | None = None) -> dict:
     """Consume (track_key, audio_bytes) lazily, bounded by worker count.
 
     Caller owns the sequential network extraction, so this does not
@@ -131,6 +139,10 @@ def analyze_parallel(binary: Path, models_dir: Path, db: Path,
         raise FileExistsError("Refuse overwrite of existing feature sidecar")
     if not expected_track_keys:
         raise ValueError("Empty feature cohort")
+    if embedding_dir is not None:
+        if embedding_dir.exists():
+            raise FileExistsError("Refuse overwrite of private embedding export directory")
+        embedding_dir.mkdir(parents=True)
     start = time.monotonic()
     sidecars = [db.parent / f"{db.stem}-worker-{i}.db" for i in range(workers)]
     if any(path.exists() for path in sidecars):
@@ -143,7 +155,7 @@ def analyze_parallel(binary: Path, models_dir: Path, db: Path,
             if active[slot] is not None:
                 active[slot].result()
             active[slot] = pool.submit(analyze_one, binary, models_dir,
-                                       sidecars[slot], key, audio)
+                                       sidecars[slot], key, audio, embedding_dir)
             count += 1
             if count % 50 == 0:
                 print(f"MTT dispatched {count} clips to {workers} isolated workers",
@@ -160,4 +172,5 @@ def analyze_parallel(binary: Path, models_dir: Path, db: Path,
         "onnx_threads_per_song": 1,
         "parallel_inference_and_merge_wall_seconds": round(time.monotonic()-start, 3),
         "isolated_worker_sidecars": len([x for x in sidecars if x.is_file()]),
+        "research_embedding_export": embedding_dir is not None,
     }
