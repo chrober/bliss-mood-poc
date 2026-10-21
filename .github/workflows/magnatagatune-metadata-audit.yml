@@ -58,6 +58,17 @@ jobs:
               --clips benchmark-private/clip_info_final.csv \
               --report results/mtt-human-triplet-votes.json
 
+      - name: Validate deterministic artist-disjoint holdout audit (offline)
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+      - name: Freeze artist-hash holdout feasibility before larger similarity trials
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -f 'holdout_preflight_seconds=%e peak_rss_kib=%M' \
+            python3 scripts/audit_magnatagatune_holdout.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --report results/mtt-artist-holdout-audit.json
       - name: Upload only aggregate/schema inventory JSON
         if: success()
         uses: actions/upload-artifact@v4
@@ -66,5 +77,6 @@ jobs:
           path: |
             results/mtt-metadata-preflight.json
             results/mtt-human-triplet-votes.json
+            results/mtt-artist-holdout-audit.json
           if-no-files-found: error
           retention-days: 14
