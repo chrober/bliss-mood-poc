@@ -1,408 +1,369 @@
-# Roadmap: Von Song-Features zur validierten Lyrion-Similarity und Playlist-Integration
+# Roadmap: From song features to validated similarity and Lyrion playlist integration
 
-**Stand:** 21. Oktober 2026 · **Status:** Forschungs-/Integrationsplan, kein Produktionsentscheid ·
-**Repository:** `chrober/bliss-mood-poc` · **Branch:** `feat/similarity-metric-evaluation` · **PR:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16)
+**Updated:** October 21, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
+**Repository:** `chrober/bliss-mood-poc` · **Branch:** `feat/similarity-metric-evaluation` ·
+**Pull request:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16)
 
-> **Ziel:** Ein belastbar geeignetes Verfahren zur **Song-zu-Song-Ähnlichkeitsmessung**
-> auf der realen Lyrion-Musikbibliothek finden und in einer optionalen,
-> kontrollierten Lyrion-Playlist-Integration testen. Genre-Nähe,
-> Stimmung/Niveau, allgemeine Klangähnlichkeit und Qualität des **nächsten**
-> Playlist-Songs sind **verschiedene Zielgrößen**. Keine Ähnlichkeitszahl
-> ist automatisch eine Wahrscheinlichkeit für „passt gut“.
+> **Goal:** Identify a defensible mathematical method for comparing songs in a real
+> Lyrion library, then determine whether using it improves real playlists and their
+> transitions. Genre proximity, mood/energy, general timbral similarity, and
+> suitability as the next track are **distinct targets**. A similarity score is not
+> automatically a calibrated probability of a good playlist transition.
 
-## Executive Summary: Was jetzt, was später?
+## 1. Executive summary and corrected phase-0 status
 
-1. **DEAM-Quellencheck, ohne Rust-Build**: Verfügbarkeit des offiziellen Publishers
-   prüfen; ggf. alternativen Download **erst nach Lizenz-/Archiv-SHA-Verifikation**
-   zulassen. Der gepaarte DEAM-240-Evaluator und seine Tests sind vorbereitet,
-   aber der externe Server ist aktuell nicht erreichbar.
-2. **Unabhängig davon**: Kleine **read-only** Probe der bereits lokal
-   analysierten Lyrion-Tracks hinsichtlich 87D Genre, 56D Mood und optionalem
-   1280D-Embedding. Keine gesamte Bibliothek neu scannen.
-3. **Lokaler 12-Kontraste-Hörpilot**, um Aufgabenstellung, Musikpräsentation,
-   Positiv-/Negativkontrollen und Bewertungsskalen zu überprüfen. Danach
-   getrennten, zuvor ungesehenen ca. 24–40-Paare-Block mit vorher fixiertem
-   Auswertungsprotokoll planen.
-4. Kandidaten **A (Genre/Mood-Köpfe), B (direktes 1280D-Embedding) und
-   C (vorsichtig kalibrierte Fusion)** paarweise auf denselben Songs bewerten;
-   keine Fusionsgewichte am späteren Testblock anpassen.
-5. Erst danach drei eigenständige **Lyrion-Kandidatenstrategien**
-   (Bliss-first, Feature-first, Hybrid) gegen Bliss-only überprüfen;
-   Integration nur nach Qualitäts-, Ressourcen-, Lizenz- und
-   Sicherheitsgates.
+**Phase 0 must NOT be labelled “completed.”** The research feature-extraction
+implementation is available and has passed significant synthetic, single-track,
+and dataset-level gates, but not every broader numerical parity, data-quality,
+cross-platform, licensing, and product-readiness requirement has been met.
 
-**Arbeitsregel:** Kleine, einzeln abgeschlossene Änderungen,
-jeweils mit klarer Eingabe/Abnahme, CI-Nachweis und Dokumentationsupdate.
-Kein großer Workflow-/Daten-/Mixer-Umbau in einem Schritt.
+The distinction is essential:
 
-## 1. Gesamtfahrplan (Mermaid)
+- **Phase 0 — Implement, verify, and harden offline feature extraction.**
+  The basic extractor works experimentally; **the phase remains partially
+  complete**, with explicit release-blocking parity and operational gates.
+- **Phase 2 — Make a small local comparison cohort complete and compatible.**
+  Inspect features for **the same library songs** and export missing 1280D
+  vectors only for a bounded sample. This does **not** mean scanning the
+  entire library or approving the feature extractor for production.
+- **Phase 6 — Production feature lifecycle and deployment.**
+  Only after method selection, listening evidence, validated runtime behavior,
+  rights review, and rollback planning would a production-wide feature inventory
+  be built and maintained.
 
-Die Prozentzahlen früherer Chat-Visualisierungen waren **nur grobe
-Orientierung, kein gemessener Fortschritt**. Verbindlich sind
-Status und Abnahmekriterien je Phase.
+The next small packages are: (N1) verify the DEAM archive source **without
+building Rust**; (N2) independently inspect existing library feature
+coverage in read-only mode; (N3) run the already-prepared paired DEAM
+comparison if provenance is verified; (N4) pilot a controlled local
+listening protocol; then proceed to distinct model-selection,
+playlist-strategy, and release gates.
+
+### Overall dependency graph
 
 ```mermaid
 flowchart TD
-    P0["Phase 0: Technische Basis<br/>ONNX / Rust-v5 / Feature-Export / CI<br/>Status: Forschungsbasis vorhanden"]
-    P1["Phase 1: Datensatz-Evidenz<br/>MTT und FMA abgeschlossen<br/>DEAM-A/B: extern blockiert"]
-    P2["Phase 2: Lokale Feature-Pruefung<br/>Dieselben Tracks: Genre + Mood + 1280D<br/>Status: offen"]
-    P3["Phase 3: Hoertests auf eigener Library<br/>12er Pilot, danach neuer Testblock<br/>Status: geplant"]
-    P4["Phase 4: Repräsentation und Metrik waehlen<br/>A vs B vs C, ohne Test-Leakage<br/>Status: offen"]
-    P5["Phase 5: Lyrion-Mixing-Strategien<br/>Bliss-only vs Bliss-first vs Feature-first vs Hybrid<br/>Status: Architektur vorhanden"]
-    P6["Phase 6: Optionaler Produktivpfad<br/>Rollout, Lizenzen, Pi, Fallback, Regression<br/>Status: nicht freigegeben"]
-
+    P0["Phase 0 — Offline feature extractor<br/>Research implementation available<br/>Verification and release gates OPEN"]
+    P1["Phase 1 — External evidence<br/>MTT and FMA complete for specified studies<br/>Paired DEAM blocked by source outage"]
+    P2["Phase 2 — Local cohort features<br/>Inventory matching 87D, 56D, 1280D<br/>Not started"]
+    P3["Phase 3 — Controlled listening judgments<br/>12-contrast pilot, then new review block<br/>Not started"]
+    P4["Phase 4 — Select representation + metric<br/>A vs B vs C, disjoint validation<br/>Not decided"]
+    P5["Phase 5 — Compare Lyrion strategies<br/>Bliss-only, Bliss-first, feature-first, hybrid<br/>Architecture only"]
+    P6["Phase 6 — Productization and release<br/>Performance, rights, maintenance, fallback<br/>Not authorized"]
     P0 --> P1
     P0 --> P2
-    P1 -. "Externe Evidenz ergaenzt lokale Urteile" .-> P4
-    P2 --> P3
-    P3 --> P4
-    P4 --> P5
-    P5 --> P6
+    P1 -. "Adds external evidence" .-> P4
+    P2 --> P3 --> P4 --> P5 --> P6
+    P0 -. "Remaining extraction gates" .-> P6
 ```
 
-**Wichtig:** Phase 2 ist nicht von der Wiederherstellung des DEAM-Servers
-abhängig. Phase 1 und 2 können in kleinen, getrennten Schritten fortschreiten.
-Die übrigen Phasen haben explizite Qualitätsgates; fehlende Datensätze dürfen
-nicht still durch bereits explorierte Testdaten „ersetzt“ werden.
+The 0–6 numbers denote logical phases, **not completion percentages**.
+Phase 1 and phase 2 can advance separately: an inaccessible DEAM
+publisher must not block local, read-only preparation.
 
-## 2. Was bedeuten „analysierte Song-Features“ im Diagramm?
+## 2. Where do “analyzed song features” belong?
 
-**Featureproduktion = Phase 0. Featurevollständigkeit und -paarung auf
-der tatsächlichen Bibliothek = Phase 2. Flächendeckender
-produktiver Featurebestand = frühestens Phase 6.**
+**Producing features is phase 0; inspecting and completing matching features
+for a local validation sample is phase 2; operating an approved,
+complete production feature catalogue is phase 6.**
 
 ```mermaid
 flowchart TD
-    AUDIO["Musikdatei / exakt aufgeloester Lyrion Track-Key"]
-    ANALYZER["Offline Scanner: dekodieren und vorverarbeiten<br/>gepinnter Discogs EffNet ONNX Encoder"]
-    ENCODER["1280D Patch-Embeddings"]
-    MOOD["Mood/Theme Head<br/>56D Sigmoidwerte"]
-    GENRE["Genre Head<br/>87D Sigmoidwerte"]
-    ESONG["Research: 1280D Song-Vektor<br/>Patch-Mean und L2-Norm"]
-    DB["Lokaler SQLite Feature-Sidecar v3<br/>87D / 56D, Modell-Fingerprints"]
-    ED["Getrennte 1280D Research-Sidecars<br/>noch nicht Produktiv-Schema v3"]
-    CHECK["Phase 2: Kohorten- und Audio-Paritaetspruefung<br/>gleicher Track, Encoder, Patchzahl und Audio-Hash"]
-    SCORE["Phase 4: gepaarte Similarity-Vergleiche"]
-    LIVE["Phase 5/6: optionale Lyrion Similarity-Guidance"]
+    SONG["Audio recording + exact Lyrion TracksV2.File key"]
+    PRE["Offline decode / preprocessing<br/>Pinned Discogs-EffNet ONNX encoder"]
+    PATCH["1280D patch embeddings"]
+    GENRE["Genre classifier<br/>87D sigmoid vector"]
+    MOOD["Mood/Theme classifier<br/>56D sigmoid vector"]
+    POOL["Research song embedding<br/>Patch arithmetic mean + L2 norm, 1280D"]
+    DB["Separate SQLite feature sidecar v3<br/>Genre + Mood, model fingerprints"]
+    EMB["Separate experimental 1280D sidecars<br/>NOT part of v3 production schema"]
+    AUDIT["Phase 2: Verify identical song/audio<br/>Encoder SHA, patch count, preprocessing<br/>Feature coverage and identity"]
+    SCORE["Phase 4: Paired similarity measurements"]
+    LY["Phases 5–6: Optional Lyrion guidance"]
 
-    AUDIO --> ANALYZER --> ENCODER
-    ENCODER --> GENRE --> DB
-    ENCODER --> MOOD --> DB
-    ENCODER --> ESONG --> ED
-    DB --> CHECK
-    ED --> CHECK
-    CHECK --> SCORE --> LIVE
+    SONG --> PRE --> PATCH
+    PATCH --> GENRE --> DB
+    PATCH --> MOOD --> DB
+    PATCH --> POOL --> EMB
+    DB --> AUDIT
+    EMB --> AUDIT
+    AUDIT --> SCORE --> LY
 ```
 
-### Ist die Feature-Analyse schon fertig?
+### What exists, and what is still missing?
 
-- **Ja, als technische Forschungsfunktion:** Der korrigierte Rust-v5-Pfad
-  mit ONNX-Modellen, offline Genre-/Mood-Scores und optionalem
-  Forschungs-Embedding-Export existiert und wurde in mehreren
-  **synthetischen und datensatzbasierten** CI-Experimenten ausgeführt.
-  Die 1.280D-Exporte wurden **nicht als neues Feld in schema v3
-  aufgenommen**.
-- **Nicht generell für die komplette lokale Bibliothek verifiziert:**
-  Die vorliegenden Genre-/Mood-Werte in der SQLite-Feature-DB
-  müssen nach Song-Key, Kohorten-/Audio-Hash, Reihenfolge der Klassen
-  und korrigiertem Preprocessing verifiziert werden.
-  **1280D-Embeddings sind lokal nicht automatisch vorhanden.**
-  Gegebenenfalls muss eine **begrenzte** Anzahl von Tracks
-  neu/zusätzlich analysiert werden.
-- **Kein Echtzeit-ONNX im Mixer:** Der spätere Mixer konsumiert
-  ausschließlich vorberechnete, vertrauenswürdige, kompatible
-  Vektoren; Scanner und Playlist-Auswahl bleiben getrennt.
-- **Noch kein „Produktions-Parität“ behaupten:** Ein nachgewiesener
-  numerischer Gleichlauf auf einzelnen oder synthetischen Fällen
-  ersetzt nicht die erforderliche breite Original-Essentia-C++-
-  Paritäts-/Plattformprüfung; experimentelle Flags nicht
-  in validierte Produktivfeatures umdeuten.
+The capability-based CLI already provides offline feature extraction,
+a model registry, schema-v3 Genre/Mood storage, and an optional experimental
+1280D export derived directly from the same encoder patches in the pinned
+Rust-v5 research build. Synthetic numeric smoke tests, ONNX-thread
+comparisons, and external-dataset runs have passed for their **declared
+scopes**. The successful single-song C++ comparison must **not** be
+misrepresented as broad C++ parity over an entire library.
 
-## 3. Phasen, Pakete und Abnahmekriterien
+Remaining phase-0 and production-related validation includes: broader
+real-audio reference parity across codecs/sample rates and machines;
+reproducible model/frontend/decoder provenance; failure and corrupt-input
+handling; operational performance/resource controls; distribution and
+licensing decisions; and confirmed correctness of any final packaging on
+the intended platforms. Some of these checks are relevant during phase 6
+as well, but their absence means phase 0 cannot be called fully done.
 
-| Phase | Status (21.10.2026) | Kleines naechstes Paket | Messbare Abnahme / Gate |
+Locally stored 87D/56D features are **not evidence that corresponding
+1280D song embeddings are already persisted**. The latter are presently
+separate versioned research outputs and may require targeted extraction.
+Never silently modify existing SQLite rows or infer exact track identity
+from artist/title strings. Do not run ONNX inference during playlist generation.
+
+## 3. Status and acceptance criteria by phase
+
+| Phase | Current status | Small deliverable | Exit criteria |
 | --- | --- | --- | --- |
-| **0: Extraktion** | **Technisch vorhanden; Forschungspfad** | Keine neue Architektur; bestehende CRC-/Hash-/ONNX-/Rust-v5-/CI-Nachweise erhalten | Reproduzierbare Vektoren, korrekte Provenienz, SQLite-read-only im Vergleich |
-| **1: Externe Evidenz** | **MTT + FMA done; DEAM A/B blockiert** | DEAM-Quelle *nur* metadata/network/SHA-vorprüfen, danach gepaarten 240er-Lauf | Gleiche 240 Titel, 197+43 Cohorts, Mood-Cosine-Referenz reproduziert, A/B-Abdeckung und VA-Spearman je Cohort |
-| **2: Lokale Vektoren** | **Offen** | Read-only Bestandsaufnahme einer begrenzten, bereits analysierten lokalen Songstichprobe | Derselbe Song-Key mit kompatiblen 87D, 56D und 1280D; keine verdeckten fehlenden Daten |
-| **3: Hörurteile** | **Pilot 8 Paare, unzureichend** | 12-Paare-Protokollprobe; danach neuer unabhängiger Block | Positiv/Negativfälle vorhanden; vier getrennte Hördimensionen, Unsicherheiten, Ausfälle, fixiertes Protokoll |
-| **4: Similarity-Verfahren** | **Noch keine Wahl** | Gleiche Paare für alle A/B/C, erst Development und danach getrennte Prüfung | Gepaarte Qualitätszahlen, Coverage, Robustheit, Sensitivität und dokumentierte Abwägung |
-| **5: Mixing** | **Architektur vorhanden, keine Entscheidung** | Bliss-only gegen drei Kandidatenstrategien mit identischen Seeds/Hartregeln | Blinde Playlist-Bewertung plus Recall, Wiederholung/Drift, Pi-Aufwand, Fallback |
-| **6: Produktivfreigabe** | **Nicht begonnen** | Erst nach Phase-5-Gates | Berechtigte Modelldistribution, reproduzierbarer Build, breit validierte Extraktion, kontrolliertes Opt-in/Rollback |
+| **0. Offline extraction foundation** | **Partially complete — research-ready, NOT production-validated** | Audit remaining parity, frontend, model hashes, invalid inputs, deployment/release concerns; keep existing reproducible tests | The required numerical correctness, provenance, and platform gates are explicitly passed before production use |
+| **1. External evidence** | **MTT/FMA studies completed; paired DEAM A/B source-blocked** | Isolated official-source/mirror preflight, then frozen DEAM-240 rerun | Complete paired results with exact 240-song sample, 197/43 strata, baseline replay, and coverage |
+| **2. Local library cohort** | **Pending** | Read-only bounded audit of matching Genre/Mood/1280D song records; add only missing sample embeddings | Same file identity, compatible model and audio hashes, all requested representations present |
+| **3. Human listening evidence** | **Eight-item pilot only; not sufficient** | New ~12-contrast instrument check, then fresh ~24–40-pair review block | Both positive/negative examples, distinct human rating axes, review confidence, predefined analysis |
+| **4. Similarity selection** | **No selected winner** | Fair A/B/C paired evaluation and independent review | Human agreement, coverage, uncertainty, stability, understandable trade-offs; no evaluation leakage |
+| **5. Lyrion playlist strategy** | **Integration concept only; no product choice** | Compare Bliss-only vs Bliss-first, feature-first, and hybrid under common constraints | Blinded transition/coherence reviews plus candidate recall, drift/repeats, Pi latency, and fallback |
+| **6. Deployment/release** | **Not started / not approved** | Controlled opt-in, rights checks, feature lifecycle, resource tests and rollback | Proven build/runtime correctness, rights, repeatability, measured quality, reliable Bliss-only fallback |
 
-### Phase 0 – bisherige technische Basis
+### Phase 0: technical implementation vs validation
 
-Vorhanden: gesonderte Feature-Sidecar-DB,
-`analyze-features` und `scan-features`, gepinnter
-Rust-v5-/Essentia-Pfad, separate Genre-/Mood-Heads,
-optionaler direkt abgezapfter 1280D-Research-Export,
-Test-Harness, GitHub Actions und Forschungs-Dataset-Caches.
-Der **FMA-80-Selected-Audio-Cache** wurde nach dem
-bestehenden MagnaTagATune-1019-Clip-Ansatz gebaut:
-[Cold A/B 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
-PASS,
-[Warm-Cross-Workflow 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
-PASS; ca. 74 MB statt erneuter 7,2-GiB-Download.
-Der offizielle FMA-TEST wurde nicht angefasst.
+Research implementation and measurements exist; no new scanner architecture
+is needed immediately. Preserve the model/frontend and SQLite contracts
+and investigate known remaining reference-parity scope before
+production claims. Keep scanner optimization separate from selecting
+the similarity representation. The adaptive multiworker `scan-features`
+orchestration is not proof that the per-song `analyze-features` benchmark
+uses adaptive workers.
 
-### Phase 1 – wissenschaftliche Evidenz: verifiziert vs. offen
+FMA's selected-song cache is another **research infrastructure**
+milestone, not feature validation:
+[cold run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381)
+and [warm cross-workflow run 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262)
+passed. Around 74 MB of curated audio was restored instead of
+re-downloading the original 7.2-GiB archive. Access to Actions caches
+must still be treated as potentially public; source audio licences
+are not overridden by successful CI.
 
-| Dataset / Zielgröße | Vergleich und Ergebnis | Methodische Grenze |
+### Phase 1: external scientific evidence, with limits
+
+| Dataset / reference target | Measured findings | Interpretive constraint |
 | --- | --- | --- |
-| **MagnaTagATune (MTT)** menschlich gewähltes unähnlichstes Element im Tripel | 1.280D Embedding-Cosine **182/293 = 62,12 %**; Mood-Centered-Cosine **193/293 = 65,87 %** | Sämtliche 346 verfügbaren Forschungsfragen sind exploriert; 53 mit Human-Mehrheits-Tie. **Kein neuer Holdout** |
-| **FMA-Small, offizieller VALIDATION-Split** gleiche Obergenreklasse | Embedding-Cosine P@5 **0,2800**, Genre-Cosine **0,3200**, Genre-Centered-Cosine **0,3225** auf gleichen 80 Künstler-unterschiedlichen Titeln | Genre ist nur ein Grob-Label-Proxy; Sample bereits im Development gesehen, keine signifikante universelle Überlegenheit behaupten. **Offizieller FMA-TEST reserviert** |
-| **DEAM, katalogbereinigte 240er Kohorte** menschliche Valence-/Arousal-Mittelwerte | Bisher Mood-Cosine gegen VA-Nähe: Mean-Query-Spearman **0,28678455**; **neuer 1280D-vs-Head-Vergleich noch nicht erfolgreich** | Der Evaluator-Hash-Fix ist unter Linux/Windows grün, aber offizieller DEAM-Server **`cvml.unige.ch:443` derzeit nicht erreichbar**. Metadaten-Screening ist kein Beweis für Trainingsunabhängigkeit |
+| **MagnaTagATune (MTT)** — humans choose the odd song in a triple | On 293 human-majority-decidable questions: direct 1280D Embedding Cosine **182/293 = 62.12%**; Mood Centered Cosine **193/293 = 65.87%** | All 346 unique questions have been explored; 53 have human majority ties. There is **no remaining new MTT holdout** |
+| **FMA-Small official VALIDATION** — coarse same-genre retrieval | Same 80 artist-distinct songs: embedding P@5 **0.2800**, Genre Cosine **0.3200**, Genre Centered Cosine **0.3225** | Genre labels are a proxy, not musical transition judgments. Previously explored validation cohort, **FMA official TEST left untouched** |
+| **DEAM, screened 240-song cohort** — human mean valence/arousal proximity | Earlier filtered Mood Cosine mean-query Spearman against VA **0.28678455**; direct 1280D-vs-head comparison **not yet successfully completed** | Partial artist/title overlap screen does not establish train independence. `cvml.unige.ch:443` was unreachable in the latest source check |
 
-**Strikte Trennung:** MTT/Odd-One-Out, FMA/Genre-Retrieval
-und DEAM/Emotionsabstand sind verschieden gelabelte
-Aufgaben. Zahlen nicht poolen oder als Gleichwertigkeits-
-/Produktionsbeweis verkaufen. Query-Resampling mit gemeinsam
-verwendeten Kandidaten ist Sensitivitätsdiagnostik,
-**kein unabhängiges Populations-Konfidenzintervall**.
+Do not pool these task-specific numbers. The
+same-query resampling sensitivity ranges are **not**
+independent population confidence intervals when candidates overlap.
+MTT already contains direct human triplet judgments but has
+no untouched test questions; FMA VALIDATION and DEAM's explored
+cohort are development evidence, not independent final tests.
 
-Der konkrete nächste DEAM-Schritt besteht **nur** darin,
-den Original-Download oder einen lizenz-/SHA-geprüften
-alternativen Bezug auf einem kleinen Preflight zu
-verifizieren; weder weitere Rust-Builds noch große Downloads
-auf ungetestete Quellen. Der vorgelagerte
-[Fast-Fail-Workflow 39639506656](https://github.com/chrober/bliss-mood-poc/actions/runs/39639506656)
-hat die Server-Nichterreichbarkeit bestätigt.
-Ein neuer DEAM-240-Benchmark erst **nach** erfolgreichem Quellen-Gate.
-Wenn das Gate blockiert bleibt, Phase 2 unabhängig fortsetzen.
+The paired DEAM comparator and its frozen fingerprint regression
+passed Linux and Windows tests. A later GitHub Actions run was blocked
+**before** inference by the official publisher's unreachable TCP/HTTPS
+endpoint; the fast-fail preflight now avoids unnecessary Rust builds.
+A substitute source must be verified against source archive SHA256,
+contents, and applicable rights. If unavailable, proceed to phase 2,
+not another speculative benchmark.
 
-### Phase 2 – lokale Song-Feature-Vollständigkeit
+### Phase 2: read-only local cohort audit
 
-**L0 / erster Ausführungsschritt, nur read-only:**
+1. Select a **small, bounded subset** already analyzed, using exact
+   original `TracksV2.File` keys and LMS identity checks.
+2. Inspect existing schema-v3 rows for the correct 87/56 dimensions,
+   ordered class lists, encoder and head SHA256, preprocessing version,
+   patch counts, audio hashes, duplicates, and missing vectors.
+3. Determine whether experimental 1280D song-embedding sidecars exist
+   for **those same files**. Do not assume the internal 1280D
+   encoder pass was ever saved as a song-level vector.
+4. When needed, run a targeted, version-pinned export for only those
+   songs. Keep the existing feature database untouched. Avoid a full
+   library scan, local Windows Rust rebuild, or upstream PR changes.
+5. Freeze a private sample manifest before proposing listening pairs;
+   do not score pairs with silently incompatible feature provenance.
 
-1. Kleine, bekannte Teilmenge aus der lokal vorhandenen
-   schema-v3-Sidecar-DB wählen, inklusive identischer
-   `TracksV2.File`-Song-Keys; echte LMS-/Lyrion-
-   Dateizuordnung prüfen, nicht per Artist/Title raten.
-2. Head-Dimensionen 87/56, Modell-Hash, Klassenreihenfolge,
-   Audio-Hash, Patchanzahl, korrektes Preprocessing,
-   Duplikate und fehlende Werte prüfen; quantifizieren,
-   wie viele Songs vollständig kompatibel sind.
-3. Für **dieselben** Songs feststellen, ob separate
-   1280D-L2-Sidecars schon existieren. Nicht bloß
-   annehmen, dass der 1280D-Encoder bei jeder früheren
-   Analyse automatisch songweise gespeichert wurde.
-4. Fehlende Embeddings nur für eine **begrenzte Probe**
-   und nur durch denselben nachweislich kompatiblen
-   Forschungs-CLI-Pfad exportieren. Alte Genre-/Mood-
-   Feature-Sidecars **nicht überschreiben**.
-5. Privates Sample/Fingerprint vor dem Hörpilot einfrieren;
-   ohne kompatible Paar-Features keine Rangfolge berechnen.
+### Phase 3: listening protocol and new human reference
 
-### Phase 3 – Hörtestdesign
+The earlier eight-pair pilot yielded **zero Genre positives**
+and eight Genre negatives; Mood had four positives and four negatives.
+Its model-influenced selection and tiny size prevent a credible
+general comparison. Preserve the original ratings unmodified.
 
-Das 8-Paare-Pilotresultat war für Genre unbrauchbar
-(**0 Genre-positive und 8 Genre-negative Fälle**),
-für Mood nur vier Positive und vier Negative; die damalige
-Paarselektion war methodenabhängig.
-Deshalb **zuerst nur 12 neue Kontraste**:
-ca. vier menschlich als ähnlich bekannte Kontrollen,
-vier deutliche Gegensätze und vier Fälle, bei denen
-Methoden stark widersprechen. Letztere sind **gezielte
-Challenge-Fälle**, keine zufällige Validierungsstichprobe.
-Modellnamen, Scores, Rangplätze und Selektionsgrund
-beim Hören verbergen; Songnamen dürfen zur
-Navigation sichtbar sein.
+The next pilot is approximately **12 new contrasts**:
+four human-identified similar controls, four clearly different
+controls, and four cases on which A/B predictions conflict. The
+last category is a selected challenge set, **not** a random or
+independent test. Blind participants to model choice, score, rank,
+and selection stratum (artists/titles may remain visible for finding
+the recordings). Capture separate ratings for (1) style/genre,
+(2) mood/energy, (3) overall audible similarity, and (4) suitability
+as the immediate next playlist song. Permit „cannot assess“, low
+confidence, and comments.
 
-Vier **getrennte** menschliche Bewertungen:
-(1) Stil/Genre, (2) Stimmung/Energie,
-(3) generelle Klangnähe und (4) Qualität
-als direkter nächster Playlist-Song; jeweils
-„nicht beurteilbar“ zulassen. Optional
-Urteilssicherheit und Kommentar. Historische
-acht Bewertungen unverändert lassen.
-**Danach** für spätere Evaluation einen frischen,
-vorher nie nach Score/Labels optimierten
-ca. **24–40-Paare-Block** definieren;
-Unabhängigkeit nach Song/Artist/Album
-und Protokoll vorab prüfen. Kleine Stichproben
-nicht mit „signifikant“ überinterpretieren.
+Only after the protocol works should a **separate, unseen
+approximately 24–40-pair review block** be frozen, with artist/album
+grouping and development/evaluation separation fixed beforehand.
+Do not tune methods to its labels or overstate the statistical
+precision of a small study.
 
-### Phase 4 – Repräsentation **und** mathematische Metrik
+### Phase 4: choose the representation and mathematical metric
 
 ```mermaid
 flowchart LR
-    INPUT["Gleiches gefrorenes Song-Paar / Query"]
-    A["A: 87D Genre + 56D Mood<br/>Cosine, Centered Cosine, weitere"]
-    B["B: 1280D Song-Embedding<br/>Cosine, definierte Pooling-Version"]
-    C["C: Fusion A+B<br/>nur mit Development-Kalibrierung"]
-    DEV["Explorative Entwicklung<br/>gleiche Kandidaten und Coverage"]
-    TEST["Getrennte neue Hoerurteile<br/>keine Parameteranpassung"]
-    GATE{"Bessere und robuste<br/>menschliche Qualitaet?"}
-    YES["Vergleichbare Kandidaten fuer Playlist-A/B"]
-    NO["Keine Siegerbehauptung<br/>weitere Evidenz / einfachere Baseline"]
-
-    INPUT --> A --> DEV
-    INPUT --> B --> DEV
-    INPUT --> C --> DEV
+    Q["Same frozen query / candidate audio"]
+    A["A: Genre 87D / Mood 56D heads<br/>Cosine, centered cosine, other baselines"]
+    B["B: Direct 1280D audio embedding<br/>Versioned pooling + Cosine"]
+    C["C: Embedding + heads fusion<br/>Calibrate only on development data"]
+    DEV["Development comparisons<br/>Common queries and coverage"]
+    TEST["New separate human ratings<br/>No tuning on evaluation labels"]
+    GATE{"More reliable human agreement<br/>and adequate robustness?"}
+    NEXT["Candidate method for playlist A/B"]
+    MORE["Do not declare a winner<br/>Prefer measured simpler baseline"]
+    Q --> A --> DEV
+    Q --> B --> DEV
+    Q --> C --> DEV
     DEV --> TEST --> GATE
-    GATE -->|ja| YES
-    GATE -->|nein oder uneindeutig| NO
+    GATE -->|Yes| NEXT
+    GATE -->|No or inconclusive| MORE
 ```
 
-- **A:** Die Klassifikationswerte sind Sigmoid-Head-Ausgaben,
-  nicht notwendigerweise kalibrierte Ähnlichkeits-
-  wahrscheinlichkeiten. Mood und Genre eigenständig auswerten.
-- **B:** Das rohe Discogs-EffNet-Embedding (Patch-Mean, L2)
-  ist nicht nachgewiesenermaßen spezifisch für
-  Song-Similarity kontrastiv trainiert. Eventuell später
-  passende **vortrainierte kontrastive Modelle**
-  unabhängig evaluieren, aber **kein neues Modelltraining**
-  ohne klare Evidenzlücke/Abnahmetest.
-- **C:** Eine bereits erprobte, untrainierte
-  lokale Rank-Fusion in MTT beweist keine robuste
-  globale Distanzskala. Verteilungs- und
-  Kalibrierungsstrategie plus mögliche Gewichte
-  **nur auf getrenntem Development** festlegen.
-- **Methodenkontrolle:** Auch 87D/56D-RMS,
-  Weighted Jaccard und Top-K mit
-  Zero-Overlap-Abstentions dokumentiert lassen,
-  jedoch keine ad-hoc Metrikflut auf denselben
-  publizierten Humanfragen optimieren.
-- **Gate:** Menschliche positive/negative
-  Diskrimination, query-/artist-gruppierte
-  Robustheit, identische Songpaare, gemeinsame
-  Coverage und Kosten. Falls keine
-  belastbare Differenz vorliegt: bewusst
-  einfacheren gut verstandenen Ansatz
-  **vorläufig** bevorzugen, kein künstlicher Sieger.
+**A** compares the 87D Genre and 56D Mood/Theme sigmoid-head
+scores with cosine, centered cosine, and other pre-existing
+distance functions. These activations are not calibrated
+song-similarity probabilities.
 
-### Phase 5 – eine **zweite**, völlig separate Entscheidung
+**B** compares direct 1280D Discogs-EffNet song embeddings
+currently pooled by patchwise arithmetic mean followed by song L2
+normalization. The underlying encoder was not demonstrated to be
+specifically trained for this exact pairwise similarity target.
+Independently pre-trained contrastive models may be evaluated
+later with a frozen protocol; training an entirely new model is
+not justified by current evidence alone.
 
-**A/B/C sind Song-Repräsentationen bzw. Similarity-Funktionen.
-„Bliss-first / Feature-first / Hybrid“ sind Strategien der
-**Playlist-Kandidatengenerierung**. Beides darf nicht
-unter demselben „Hybrid“ zusammenfallen.**
+**C** combines A and B only after explicitly defining score
+normalization and calibration on disjoint development data.
+The prior fixed local MTT rank-fusion ablations are exploratory,
+not proof of a transferable global score or optimal weighting.
+
+Evaluate on the same songs, anchor/candidate pools, abstention
+denominators, and human axes; check representation coverage,
+artist/genre robustness, uncertainty and computational cost.
+Avoid selecting a complicated method when the evidence does
+not establish a meaningful advantage over a simpler baseline.
+
+### Phase 5: separate choice of *playlist candidate strategy*
+
+**A/B/C are representations and similarity functions.
+Bliss-first / feature-first / hybrid describe how Lyrion
+*generates and filters candidate tracks*. They are two distinct
+decisions: fusion of features is not the same as a union of
+candidate pools.**
 
 ```mermaid
 flowchart TD
-    SEED["Seed-Song + Library-Zulassungsregeln"]
-    BLISS["Bliss Kandidaten"]
-    FEAT["Feature/Similarity Kandidaten"]
-    BONLY["Bliss-only Kontroll-Mix"]
-    BF["Bliss-first<br/>Feature-Reranking innerhalb Bliss Pool"]
-    FF["Feature-first<br/>Feature-Neighbours, danach Bliss-Check"]
-    HYB["Hybrid<br/>Union, Deduplikation, Kalibrierung"]
-    RULES["Gemeinsame Lyrion-Hartregeln<br/>Artist-Repeats, Source, Library, Eligibility"]
-    REVIEW["Identische Seeds + blinde Playlist-Hoertests<br/>Transition, Kohärenz, Vielfalt, Drift"]
-    DECIDE["Qualitaet, Recall, Pi-Zeit / RAM und Fallback"]
+    SEED["Seed song + common Lyrion eligibility constraints"]
+    BLISS["Bliss acoustic candidate pool"]
+    FEAT["Feature-based candidate pool"]
+    CONTROL["Bliss-only control"]
+    BF["Bliss-first<br/>Rerank only within Bliss candidates"]
+    FF["Feature-first<br/>Feature candidates plus Bliss scoring"]
+    HYBRID["Hybrid<br/>Pool union + deduplication + calibration"]
+    RULES["Shared hard constraints<br/>Virtual library, repeat/artist, source eligibility"]
+    REVIEW["Same seeds, blinded playlist review<br/>Transitions, coherence, diversity, drift"]
+    RESULT["Quality, recall, Pi CPU/RAM and fallback"]
     SEED --> BLISS
     SEED --> FEAT
-    BLISS --> BONLY
+    BLISS --> CONTROL
     BLISS --> BF
     FEAT --> FF
-    BLISS --> HYB
-    FEAT --> HYB
-    BONLY --> RULES
+    BLISS --> HYBRID
+    FEAT --> HYBRID
+    CONTROL --> RULES
     BF --> RULES
     FF --> RULES
-    HYB --> RULES
-    RULES --> REVIEW --> DECIDE
+    HYBRID --> RULES
+    RULES --> REVIEW --> RESULT
 ```
 
-Die bisherige **Bliss-first-Bridge** ist ein pragmatischer
-Integrations- und Fallback-Prototyp, **kein** Votum
-für beste Playlists. Feature-first benötigt eine
-separate Candidate-Quelle / Index und
-Host-Erweiterungen; Hybrid benötigt
-Deduplikation und vergleichbar kalibrierte
-Signale. **Bliss-only** bleibt Pflichtkontrolle.
-Keine Kandidatenstrategie darf Lyrion-Hartregeln
-oder Virtual-Library-Zulassung umgehen.
+Bliss-first has lower implementation risk and offers a straightforward
+reversible experiment, but its candidate recall is constrained by
+Bliss's initial pool. Feature-first requires a separate neighbor
+index/retrieval source and host candidate admission support.
+Hybrid combines pools and must handle duplicate tracks, evidence
+calibration, drift and common eligibility requirements. No model
+or strategy is the current product winner. Always include
+**Bliss-only** as a listening and performance control.
 
-### Phase 6 – produktiver Einsatz erst nach Gates
+### Phase 6: operational integration and release gates
 
-- **Funktionen:** Optionales Feature-Guidance-Modul/
-  BlissMixerLab-Experiment, Neutralgewichte,
-  identisches Bliss-only-Verhalten wenn deaktiviert,
-  read-only Feature-Sidecar, keine Live-ONNX-Inferenz.
-- **Korrektheit:** Verifizierte Song-Key-LMS-Zuordnung,
-  Modell-/Dimensions-/Audio-/Preprocessing-Prüfung,
-  Schema-Kompabilität; fehlende Features führen
-  zu neutralem Fallback.
-- **Performance:** Auf Raspberry Pi unter
-  realen Librarygrößen gemessene P95-Latenz,
-  Peak RSS, Build-Caches, Mehrworker-Verhalten,
-  Scan-Dauer, Kosten für ggf. vollständigen
-  Feature-Export und Playlist-Generierung.
-- **Qualität:** Mehrere Genres/Sessions/Seeds,
-  menschlicher Blindvergleich zu Bliss-only,
-  kein unkontrollierter Artist-/Mood-Drift,
-  dokumentierte Fehler-/Rollback-Probe.
-- **Distribution:** ONNX-Modell- und
-  Essentia-/FFmpeg-/MinGW-/Rust/C++-
-  Abhängigkeiten inkl. Lizenz, Download-
-  und Nutzer-Voraussetzungen prüfen.
-  Wissenschaftliche Audio-Archive bleiben
-  nicht Bestandteil der Distribution.
-- **Rollout:** Separate
-  Lyrion-/Guidance-Repositories erst
-  **nach** explizitem Freigabeschritt
-  bearbeiten; `main`, PR #13,
-  PR #17 und Produktivmixer bis dahin
-  unverändert.
+Only after phase-4/5 decisions and the outstanding phase-0
+correctness gates:
 
-## 4. Praktische Reihenfolge mit Stop-/Go-Gates
+- **Behavior:** Optional plugin/BlissMixerLab experiment, neutral
+  default weights, unchanged Bliss-only behavior when disabled,
+  read-only sidecars, no ONNX during playlist generation.
+- **Correctness:** Verified `TracksV2.File` / LMS mapping,
+  model and class ordering, dimensions, preprocessing and
+  hash compatibility, deterministic missing-feature fallback.
+- **Performance:** Measure Raspberry Pi CPU/memory, P95 query
+  latency, end-to-end scan time, index size, updates, and
+  playlist construction under realistic collections.
+- **Listening quality:** Blinded comparisons with matching
+  seeds and restrictions; monitor transitions, diversity,
+  artist repeats, stability, mood drift and failure cases.
+- **Licensing:** Document original Essentia/ONNX, Rust/C++,
+  FFmpeg and platform-runtime terms and distribution choices.
+  Research dataset audio must not ship as application assets.
+- **Operations:** Opt-in flag, observable diagnostics,
+  reversible rollout, upgrade/rollback/backup plan; edit
+  separate Lyrion-related repositories **only after
+  explicit authorization**.
 
-| Naechster kleiner Schritt | Start | Go-Kriterium | Bei Blocker |
+## 4. Immediate sequence with stop/go decisions
+
+| Package | Dependency | Success criterion | When blocked |
 | --- | --- | --- | --- |
-| **N1 DEAM-Quellen-Preflight** | Sofort; ohne Audio-Inferenz | Identische Quellen/Hashes oder begründet wieder erreichbarer Originalhost | Blocker dokumentieren, **N2 parallel** durchführen |
-| **N2 Lokale Features inventarisieren (L0)** | Unabhängig von DEAM | Begrenzter read-only Track-/Head-/Embedding-Provenienzreport | Nur fehlende Vektoren für Probe nachziehen |
-| **N3 DEAM-240 gepaart neu bewerten** | Nur nach N1 GO | 240/240 gleicher Cohort-SHA, 197+43, reproduzierte Mood-Cosine-Referenz, vollständiger A/B-Report | Keine erfundenen Embedding-Scores |
-| **N4 12er-Hörpilot** | Nach N2 GO | 12 beurteilbare Kontraste inkl. positiven Genres und mehrere Hörziele | Fragen/Skalen ändern, **ohne** alten Labels anzupassen |
-| **N5 Neuer Prüfblock** | Nach N4 und fixiertem Protokoll | Gruppengetrennter, noch nicht optimierter Datensatz; A/B/C-Auswertung | Weiter explorieren, keine Freigabe |
-| **N6 Mix-Strategie-A/B** | Nach N5 / explizitem Review | Gute Playlist-Urteile und sicherer Bliss-only-Fallback | Kein produktiver Eingriff |
-| **N7 Release-Gates** | Nach N6 | Korrektheit, Pi-Budget, Rechte, Rollback geprüft | Forschungsprototyp belassen |
+| **N1. DEAM source-only preflight** | None | Publisher accessible or byte-for-byte/SHA/licence-verified alternative | Record outage; do N2 without waiting |
+| **N2. Local feature inventory (L0)** | Experimental feature DB and exact local track mapping | Small read-only 87D/56D/1280D identity and coverage report | Target only missing research vectors |
+| **N3. Paired DEAM-240 replay** | N1 successful | Same sample SHA and 197/43 cohorts, exact Mood-Cosine baseline, common candidate coverage, aggregate A/B report | No invented embedding-vs-Mood scores |
+| **N4. Twelve-contrast pilot** | N2 successful | Review protocol usable; positive/negative controls and four human rating dimensions | Adjust prospective method; preserve old labels |
+| **N5. New evaluation block** | N4 and predeclared method | Fresh artist-/album-aware observations with paired, untuned A/B/C evaluation | Remain exploratory |
+| **N6. Playlist strategy test** | N5 and review | Bliss-only comparison, transition quality and safe candidate constraints | Keep experimental code opt-in |
+| **N7. Production release** | N6 plus remaining phase-0 gates | Correctness, rights, platform budgets, feature lifecycle and rollback | No production integration |
 
-Für jeden Schritt: **eine eng umgrenzte Änderung,
-ein überprüfbarer GitHub-Actions-/Lokal-Nachweis,
-ein kurzes Ergebnis-/Limitation-Update**.
-Bei externen Datenblockern zuerst allein
-Netzwerk und Fingerprint verifizieren;
-keinen kostspieligen Build voranstellen.
+**Work discipline:** One narrow change, one measurable acceptance
+check, a short CI/result update, and only then the next change.
+External source failures should be diagnosed before rebuilding models,
+or downloading licensed audio.
 
-## 5. Datenhaltung, Testpolitik und Grenzen
+## 5. Privacy, research safety, and boundaries
 
-- **PR #16 Draft**, nur
-  `feat/similarity-metric-evaluation` ändern;
-  niemals ungefragt nach `main` mergen,
-  PR #13/17 oder den laufenden Mixer bearbeiten.
-- GitHub Actions statt lokalem Windows-Rust-Build
-  für neue Scanner-Binaries und CI-Performance.
-  Die lokale Musiksammlung, LMS-URLs,
-  Audio- und Label-Dateien bleiben **privat/lokal**;
-  kein privater Song-Upload nach GitHub.
-- Caches der wissenschaftlichen Audio-Clips
-  nur begrenzt, prüfbar und unter expliziter
-  Lizenz-/Sichtbarkeitsvorsicht. Actions-Caches
-  sind nicht vertraulich, auch wenn nur 80
-  bzw. 1019 Originalclips enthalten sind.
-- **FMA TEST bleibt unberührt.**
-  Für DEAM bleibt exaktes Artist/Title-Screening
-  nur teilweise train-overlap-mindernd,
-  nie der Nachweis unabhängiger Modell-Ground-Truth.
-- Benutzereigene Hörurteile nie aus
-  Modell-Scores, Musikdateinamen oder
-  Dataset-Annotationen „korrigieren“.
-  Nur zuvor vereinbarte, read-only
-  Auswertung der persönlichen Musikdateien.
-- Die Phasen sind **keine verbindlichen
-  Zeitprognosen**. Kein „fertig“, bis
-  der zugehörige Abnahmetest nachweislich
-  bestanden und dokumentiert wurde.
+- Modify only `feat/similarity-metric-evaluation` for PR #16;
+  keep the PR a draft. Do not merge to `main` or alter PR #13,
+  PR #17, upstream Bliss, or the production mixer.
+- Use GitHub Actions for Rust builds and cross-platform regression.
+  Keep the user's music files, track identities, LMS URLs, private
+  feature vectors and human judgments local. A new local study
+  must be read-only until its separate procedure is approved.
+- Selected MTT and FMA music caches are experimental and licensed;
+  **GitHub Actions caches are not private storage**. Cache presence
+  is not a redistribution authorization.
+- Keep **FMA official TEST untouched**, and do not claim DEAM
+  is provably independent of ONNX model training after an
+  artist/title catalog-only overlap screen.
+- Do not fabricate or edit human ratings from song names,
+  class scores or benchmark labels. Distinguish human
+  perceptual similarity from the quality of playlist transitions.
 
-## 6. Detaildokumente (bestehende Quellen)
+## 6. Further technical and historical documentation
 
-- [Repräsentationen A/B/C und bisherige Evidenz](similarity-three-representation-approaches-handover-2026-10-21.md)
-- [MTT/FMA/DEAM externe Evidenz und Einschränkungen](similarity-cross-dataset-evidence-2026-10-21.md)
-- [FMA gepaarter 80er Benchmark und Cache-Nachweis](similarity-fma-embedding-ab-2026-10-21.md)
-- [DEAM Benchmark, Hash-Fix und Datenquelle-Blocker](deam-similarity-benchmark.md)
-- [Lokaler Lyrion-Hörvergleich L0–L3](similarity-local-library-retest-plan-2026-10-21.md)
-- [Similarity-Metriken auf den vorhandenen Head-Vektoren](similarity-metric-evaluation.md)
-- [Bliss-/Feature-first-/Hybrid-Integrationsentscheid](lyrion-bliss-mood-genre-integration.md)
-- [Begrenzte wissenschaftliche Dataset-Roadmap](similarity-external-evidence-roadmap-2026-10-21.md)
-- [Chat-Handover und aktuelle Forschung](chat-handover.md)
+- [Three feature representation approaches A/B/C](similarity-three-representation-approaches-handover-2026-10-21.md)
+- [Scientific evidence and cross-dataset limits](similarity-cross-dataset-evidence-2026-10-21.md)
+- [FMA 80-track paired evaluation and cache evidence](similarity-fma-embedding-ab-2026-10-21.md)
+- [DEAM evaluation and official-host outage](deam-similarity-benchmark.md)
+- [Local bounded review plan L0–L3](similarity-local-library-retest-plan-2026-10-21.md)
+- [Head-vector similarity evaluation](similarity-metric-evaluation.md)
+- [Bliss / feature-first / hybrid decision record](lyrion-bliss-mood-genre-integration.md)
+- [External research data preflight and budget](similarity-external-evidence-roadmap-2026-10-21.md)
+- [Conversation handover and verified runs](chat-handover.md)
