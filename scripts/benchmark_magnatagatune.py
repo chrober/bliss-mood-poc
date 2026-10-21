@@ -31,6 +31,7 @@ from audit_magnatagatune_votes import read_clips, dict_reader, COMPARISON_FIELDS
 import evaluate_similarity as ev
 from mtt_local_archive import LocalMultipartRanges
 from mtt_parallel_workers import analyze_parallel
+from mtt_paired_evidence import paired_sensitivity
 
 BASE = "https://mirg.city.ac.uk/datasets/magnatagatune/"
 # Frozen from metadata-only run 39592331265, artifact 12342707931;
@@ -336,7 +337,8 @@ def run_inference(binary: Path, models_dir: Path, db: Path, selected: list,
     }
 
 
-def evaluate(db: Path, selected: list, triplets: dict) -> dict:
+def evaluate(db: Path, selected: list, triplets: dict,
+             clip_catalog: dict | None = None) -> dict:
     keys = {ident: f"MTT/{ident}.mp3"
             for group in selected for ident in group}
     with closing(ev.open_database(db)) as connection:
@@ -354,6 +356,7 @@ def evaluate(db: Path, selected: list, triplets: dict) -> dict:
         report = {}
         for head in ev.MODELS:
             scores = {}
+            paired_outcomes = {}
             for name, fn in ev.METRIC_FUNCS.items():
                 correct, pred = 0, 0
                 undefined, metric_ties, zero_overlap, human_ties = 0, 0, 0, 0
@@ -367,6 +370,8 @@ def evaluate(db: Path, selected: list, triplets: dict) -> dict:
                         human_ties += 1
                         continue
                     winner = max(votes, key=votes.get)
+                    if clip_catalog is not None:
+                        paired_outcomes.setdefault(triple, {})[name] = 0
                     pair_scores = [
                         fn(vectors[keys[x]][head], vectors[keys[y]][head])
                         for x, y in ((a, b), (a, c), (b, c))
@@ -384,6 +389,8 @@ def evaluate(db: Path, selected: list, triplets: dict) -> dict:
                     prediction = (c, b, a)[pair_scores.index(best)]
                     pred += 1
                     hit = int(prediction == winner)
+                    if clip_catalog is not None:
+                        paired_outcomes[triple][name] = hit
                     correct += hit
                     group = ("at_least_70pct" if majority_count /
                              triplets[triple]["total"] >= .7 else "under_70pct")
@@ -419,10 +426,22 @@ def evaluate(db: Path, selected: list, triplets: dict) -> dict:
                         for key, (hits, n) in consensus.items()
                     },
                 }
+            evidence = None
+            if clip_catalog is not None and len(selected) == 346:
+                rows = []
+                for triple, outcomes in sorted(paired_outcomes.items()):
+                    if set(outcomes) != set(ev.METRIC_FUNCS):
+                        raise ValueError("Incomplete paired MTT method coverage")
+                    artists = sorted(set(clip_catalog[ident]["artist"] for ident in triple))
+                    rows.append({"outcomes": outcomes, "artists": artists})
+                if len(rows) != 293:
+                    raise ValueError("Pinned MTT unique-majority reference count changed")
+                evidence = paired_sensitivity(rows, list(ev.METRIC_FUNCS))
             report[head] = {
                 "model_key": cohort[head]["model_key"],
                 "preprocessing_version": cohort[head]["preprocessing_version"],
                 "metrics": scores,
+                **({"paired_artist_sensitivity": evidence} if evidence else {}),
             }
     return report
 
@@ -539,7 +558,8 @@ def main() -> None:
         if cached:
             cached.close()
     score_begin = time.monotonic()
-    results = evaluate(args.db, selected, triplets)
+    results = evaluate(args.db, selected, triplets, clips
+                       if args.selection_mode == "all-exploratory" else None)
     result = {
         "schema": ("magnatagatune-all-exploratory-v1"
                    if args.selection_mode == "all-exploratory" else
