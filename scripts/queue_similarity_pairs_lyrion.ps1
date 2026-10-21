@@ -89,159 +89,121 @@
             throw 'CSV benoetigt die Spalten left und right.'
         }
 
-        # Exact suffix identity over URL-escaped LMS file paths. Lyrion
-        # songinfo url:... requires the FULL server URL, not the relative
-        # TracksV2.File key from the CSV. 'titles ... tags:u' returns id+URL.
-        # Never select by album/artist/title heuristics.
-        function Get-FileUrlPathVariants {
-            param([string]$RawUrl)
-            $variants = [System.Collections.Generic.List[string]]::new()
-            if (-not $RawUrl.StartsWith('file:', [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $variants.ToArray()
-            }
-            $value = $RawUrl
-            for ($decodeCount = 0; $decodeCount -le 2; $decodeCount++) {
-                if (-not $value.StartsWith('file:', [System.StringComparison]::OrdinalIgnoreCase)) {
-                    break
-                }
-                $valuePath = $value.Substring(5).Replace('\', '/')
-                if (-not $variants.Contains($valuePath)) {
-                    $variants.Add($valuePath)
-                }
-                $decoded = [System.Uri]::UnescapeDataString($value)
-                if ($decoded -ceq $value) { break }
-                $value = $decoded
-            }
-            return $variants.ToArray()
+        # Direct 1-song lookup from the actual Raspberry Pi music-root path.
+        # songinfo url: expects Lyrion's FULL file URL, not TracksV2.File.
+        $MusicRoot = [string]$env:LYRION_MUSIC_ROOT
+        if ([string]::IsNullOrWhiteSpace($MusicRoot)) {
+            throw 'LYRION_MUSIC_ROOT fehlt (Beispiel: /mnt/music).'
+        }
+        $MusicRoot = $MusicRoot.Replace('\', '/').TrimEnd('/')
+        if (-not $MusicRoot.StartsWith('/')) {
+            throw 'LYRION_MUSIC_ROOT muss ein absoluter Linux-Pfad sein.'
         }
 
-        Write-Host '=== LMS-SONGKATALOG LESEN (NUR LESEND) ==='
-        $uniqueKeys = [System.Collections.Generic.HashSet[string]]::new(
-            [System.StringComparer]::Ordinal
-        )
-        foreach ($pair in $pairs) {
-            foreach ($side in @('left', 'right')) {
-                $key = ([string]$pair.$side).Replace('\', '/')
-                if ([string]::IsNullOrWhiteSpace($key)) {
-                    throw "CSV enthaelt leeren Track-Key ($side)."
-                }
-                if ($key.StartsWith('/') -or $key -match '(^|/)\.\.(/|$)') {
-                    throw "Unerwarteter nicht-relativer CSV-Key: $key"
-                }
-                [void]$uniqueKeys.Add($key)
-            }
-        }
-
-        # Fast exact basename prefilter; always validate ALL path components.
-        $byFilename = [System.Collections.Generic.Dictionary[string,object]]::new(
-            [System.StringComparer]::Ordinal
-        )
-        $matchesByKey = [System.Collections.Generic.Dictionary[string,object]]::new(
-            [System.StringComparer]::Ordinal
-        )
-        foreach ($key in $uniqueKeys) {
-            $name = $key.Substring($key.LastIndexOf('/') + 1)
-            if (-not $byFilename.ContainsKey($name)) {
-                $byFilename.Add(
-                    $name, [System.Collections.Generic.List[string]]::new()
-                )
-            }
-            $byFilename[$name].Add($key)
-            $matchesByKey.Add(
-                $key, [System.Collections.Generic.HashSet[string]]::new(
-                    [System.StringComparer]::Ordinal
-                )
-            )
-        }
-
-        $batchSize = 500
-        $offset = 0
-        $total = $null
-        $seen = [System.Collections.Generic.HashSet[string]]::new(
-            [System.StringComparer]::Ordinal
-        )
-        while ($null -eq $total -or $offset -lt $total) {
-            $page = Invoke-Lyrion '0' @(
-                'titles', $offset, $batchSize, 'tags:u'
-            )
-            if ([string]$page.rescan -eq '1') {
-                throw 'Lyrion scannt gerade; Songkatalog nicht stabil. Queue unveraendert.'
-            }
-            if ([string]$page.count -notmatch '^[0-9]+$') {
-                throw 'Lyrion titles liefert keine gueltige Gesamtanzahl.'
-            }
-            $pageTotal = [int]$page.count
-            if ($pageTotal -gt 250000) {
-                throw 'Songkatalog groesser als das Sicherheitslimit von 250000 Eintraegen.'
-            }
-            if ($null -eq $total) {
-                $total = $pageTotal
-            }
-            elseif ($total -ne $pageTotal) {
-                throw 'Lyrion-Songkatalog hat sich waehrend der Abfrage geaendert.'
-            }
-
-            $rows = @($page.titles_loop | Where-Object { $null -ne $_ })
-            if ($rows.Count -eq 0 -and $offset -lt $total) {
-                throw "Lyrion liefert bei Offset $offset keine weiteren Songs."
-            }
-            foreach ($row in $rows) {
-                $id = [string]$row.id
-                $url = [string]$row.url
-                if ($id -notmatch '^[0-9]+$') { continue }
-                if ([string]::IsNullOrWhiteSpace($url)) { continue }
-                [void]$seen.Add($id)
-                foreach ($urlPath in @(Get-FileUrlPathVariants $url)) {
-                    $lastSlash = $urlPath.LastIndexOf('/')
-                    $filename = $urlPath.Substring($lastSlash + 1)
-                    if (-not $byFilename.ContainsKey($filename)) { continue }
-                    foreach ($key in $byFilename[$filename]) {
-                        if ($urlPath.Equals($key, [System.StringComparison]::Ordinal) -or
-                            $urlPath.EndsWith(
-                                '/' + $key, [System.StringComparison]::Ordinal
-                            )) {
-                            [void]$matchesByKey[$key].Add($id)
-                        }
+        function Test-ExactLyrionFileUrl {
+            param([string]$FoundUrl, [string]$ExpectedPath)
+            # CLI URLs can be encoded multiple times; do not compare by title.
+            $url = $FoundUrl
+            for ($depth = 0; $depth -lt 5; $depth++) {
+                if ($url.StartsWith('file:///', [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $path = $url.Substring(7)
+                    if ($path.Equals($ExpectedPath, [System.StringComparison]::Ordinal)) {
+                        return $true
                     }
                 }
+                $next = [System.Uri]::UnescapeDataString($url)
+                if ($next -ceq $url) { break }
+                $url = $next
             }
-            $offset += $rows.Count
-            if ($offset -ge $total -or (($offset % 5000) -lt $batchSize)) {
-                Write-Host "Katalog: $offset / $total Song-Eintraege gelesen"
-            }
+            return $false
         }
 
-        Write-Host '=== EINDEUTIGE LMS-TRACK-IDS PRUEFEN ==='
-        $idByKey = [System.Collections.Generic.Dictionary[string,string]]::new(
+        function Get-LyrionFileUrlCandidates {
+            param([string]$FullPath)
+            $escapedSegments = @(
+                $FullPath.Split('/') | ForEach-Object {
+                    [System.Uri]::EscapeDataString($_)
+                }
+            )
+            $encoded = 'file://' + ($escapedSegments -join '/')
+            $double = $encoded.Replace('%', '%25')
+            $raw = 'file://' + $FullPath
+            $urls = [System.Collections.Generic.List[string]]::new()
+            foreach ($u in @($encoded, $double, $raw)) {
+                if (-not $urls.Contains($u)) { $urls.Add($u) }
+            }
+            return $urls.ToArray()
+        }
+
+        Write-Host '=== GEZIELTE SONGINFO-ABFRAGEN (KEIN GESAMTKATALOGSCAN) ==='
+        Write-Host "Musikroot auf dem Pi: $MusicRoot"
+        $ids = [System.Collections.Generic.List[string]]::new()
+        $cache = [System.Collections.Generic.Dictionary[string,string]]::new(
             [System.StringComparer]::Ordinal
         )
-        foreach ($key in $uniqueKeys) {
-            $candidates = $matchesByKey[$key]
-            if ($candidates.Count -ne 1) {
-                throw (
-                    "Exakte Pfadzuordnung fuer '$key' ergibt " +
-                    "$($candidates.Count) LMS-Song-IDs (erwartet: 1). " +
-                    "Keine Queue-Aenderung. Bei 0: Musikroot/URL-Encoding " +
-                    "pruefen; bei >1: doppelte Dateipfade in Musikroots."
-                )
-            }
-            foreach ($foundId in $candidates) {
-                $idByKey.Add($key, [string]$foundId)
-            }
-        }
-
-        $ids = [System.Collections.Generic.List[string]]::new()
         $pairNumber = 0
         foreach ($pair in $pairs) {
             $pairNumber++
             Write-Host "Paar $($pairNumber):"
             foreach ($side in @('left', 'right')) {
                 $key = ([string]$pair.$side).Replace('\', '/')
-                $ids.Add($idByKey[$key])
-                Write-Host ("  {0}: ID {1} | {2}" -f $side, $idByKey[$key], $key)
+                if ([string]::IsNullOrWhiteSpace($key) -or
+                    $key.StartsWith('/') -or $key -match '(^|/)\.\.?(/|$)') {
+                    throw "Ungueltiger relativer CSV-Schluessel ($side): $key"
+                }
+                if (-not $cache.ContainsKey($key)) {
+                    $pathOnPi = $MusicRoot + '/' + $key
+                    $validIds = [System.Collections.Generic.HashSet[string]]::new(
+                        [System.StringComparer]::Ordinal
+                    )
+                    foreach ($candidateUrl in @(Get-LyrionFileUrlCandidates $pathOnPi)) {
+                        $info = Invoke-Lyrion '0' @(
+                            'songinfo', 0, 100, ('url:' + $candidateUrl), 'tags:u'
+                        )
+                        if ([string]$info.rescan -eq '1') {
+                            throw 'Lyrion scannt die Bibliothek; spaeter erneut versuchen.'
+                        }
+                        $responseIds = [System.Collections.Generic.List[string]]::new()
+                        $responseUrls = [System.Collections.Generic.List[string]]::new()
+                        if ($null -ne $info.id) { $responseIds.Add([string]$info.id) }
+                        if ($null -ne $info.url) { $responseUrls.Add([string]$info.url) }
+                        foreach ($entry in @($info.songinfo_loop)) {
+                            if ($null -ne $entry) {
+                                if ($null -ne $entry.id) { $responseIds.Add([string]$entry.id) }
+                                if ($null -ne $entry.url) { $responseUrls.Add([string]$entry.url) }
+                            }
+                        }
+                        $verified = $false
+                        foreach ($u in $responseUrls) {
+                            if (Test-ExactLyrionFileUrl $u $pathOnPi) {
+                                $verified = $true
+                                break
+                            }
+                        }
+                        if ($verified) {
+                            foreach ($songId in $responseIds) {
+                                if ($songId -match '^[0-9]+$') {
+                                    [void]$validIds.Add($songId)
+                                }
+                            }
+                        }
+                    }
+                    if ($validIds.Count -ne 1) {
+                        throw (
+                            "Fuer '$key' wurden $($validIds.Count) exakte " +
+                            "Lyrion-IDs gefunden (erwartet: 1). Queue unveraendert. " +
+                            "Musikroot/URL-Encoding mit der LMS-Konfiguration abgleichen."
+                        )
+                    }
+                    foreach ($songId in $validIds) {
+                        $cache.Add($key, $songId)
+                    }
+                }
+                $ids.Add($cache[$key])
+                Write-Host ("  {0}: ID {1} | {2}" -f $side, $cache[$key], $key)
             }
         }
-        Write-Host "Eindeutige Tracks: $($uniqueKeys.Count); gescannte Katalog-IDs: $($seen.Count)"
+        Write-Host "Eindeutig aufgeloeste Dateien: $($cache.Count)"
 
         $shuffle = Invoke-Lyrion $PlayerId @('playlist', 'shuffle', '?')
         if ($null -eq $shuffle._shuffle) {
