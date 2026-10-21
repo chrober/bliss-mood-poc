@@ -1,0 +1,132 @@
+name: DEAM similarity benchmark (experimental)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/deam-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Number of DEAM recordings to analyze (6..1802)'
+        required: true
+        default: '12'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deam-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deam:
+    name: Download, classify and evaluate licensed DEAM research audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      DEAM_LIMIT: ${{ inputs.limit || '12' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify only a bounded sample is requested
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          limit = int(os.environ["DEAM_LIMIT"])
+          if not 6 <= limit <= 1802:
+              raise SystemExit("DEAM_LIMIT must be between 6 and 1802")
+          print("Requested DEAM songs:", limit)
+          PY
+
+      - name: Install FFmpeg and build corrected Rust-v5 CLI
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          cargo build --release --locked
+          ./target/release/bliss-mood analyze-features --help
+
+      - name: Download Essentia model files (do not redistribute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          for head in mtg_jamendo_genre mtg_jamendo_moodtheme; do
+            fetch classification-heads/$head "$head-discogs-effnet-1.onnx"
+            fetch classification-heads/$head "$head-discogs-effnet-1.json"
+          done
+          test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
+          sha256sum models/*
+
+      - name: Download DEAM noncommercial research archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private
+          base=https://cvml.unige.ch/databases/DEAM
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2400 --silent --show-error \
+            "$base/DEAM_Annotations.zip" -o benchmark-private/annotations.zip
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 3600 --silent --show-error \
+            "$base/DEAM_audio.zip" -o benchmark-private/audio.zip
+          test "$(stat -c%s benchmark-private/annotations.zip)" -gt 100000
+          test "$(stat -c%s benchmark-private/audio.zip)" -gt 100000000
+          python3 - <<'PY'
+          import zipfile
+          for name in ("benchmark-private/annotations.zip", "benchmark-private/audio.zip"):
+              with zipfile.ZipFile(name) as archive:
+                  count = len(archive.infolist())
+                  if count < 8:
+                      raise SystemExit("DEAM archive unexpectedly small")
+                  print("Verified ZIP structure, members:", count)
+          PY
+
+      - name: Evaluate seven similarity metrics on Rust-v5 sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          python3 scripts/benchmark_deam.py \
+            --annotations-zip benchmark-private/annotations.zip \
+            --audio-zip benchmark-private/audio.zip \
+            --binary target/release/bliss-mood \
+            --models-dir models \
+            --db benchmark-private/deam-features.db \
+            --report results/deam-summary.json \
+            --limit "$DEAM_LIMIT" \
+            --seed 20261021
+          python3 - <<'PY'
+          import json
+          with open("results/deam-summary.json", encoding="utf-8") as f:
+              report = json.load(f)
+          print("DEAM tracks:", report["dataset"]["songs_evaluated"])
+          for head, metrics in report["per_head"].items():
+              print("Head:", head)
+              for name, result in metrics.items():
+                  x = result["axes"]["valence_arousal"]
+                  print(f"  {name}: query Spearman={x['mean_query_spearman']} "
+                        f"queries={x['query_count']}")
+          PY
+
+      - name: Upload only aggregate research results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deam-aggregate-similarity-report
+          path: results/deam-summary.json
+          if-no-files-found: error
+          retention-days: 14
