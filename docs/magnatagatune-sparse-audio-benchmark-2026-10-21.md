@@ -481,6 +481,39 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-ca
 Original TagATune research terms:
 https://tagatune.org/details.html
 
+## Real 1,019-clip curated cache: MISS confirmed, HIT being validated
+
+[Run 39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
+**PASS**: full publisher multipart archive temporarily downloaded, only
+the **1,019 required MP3s** repacked and CRC-verified into
+`mtt-required-1019-clips.zip`, raw publisher files immediately
+deleted. The resulting research package contains **119,689,247 bytes
+(114.14 MiB)**; verified extracted audio totals 119,460,969 bytes.
+Building the curated ZIP from the downloaded publisher parts took
+**1.18 seconds**, and a separate full 1,019-clip CRC verification took
+**0.59 seconds** on the GitHub runner. The GitHub cache action saved
+only this single package under the pinned MTT source key
+(`actions/cache` storage reports ~130,467,584 bytes).
+
+The *first seeded cache run* also independently processed all 1,019
+clips with two isolated Rust-v5 worker sidecars and reproduced the
+baseline Mood-Cosine majority accuracy **0.6552901024** on defined
+predictions. However, the analysis+merge portion took **244.677 s**
+rather than the original full-source run's **145.505 s**. This shows
+that run-to-run inference timing variability is material: an apparent
+overall difference must **not** be ascribed to caching or thread count
+without matched stage comparisons.
+
+[Run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
+then confirmed a **true GitHub cache HIT** at the workflow-step
+level: the original 2.77-GiB publisher download and curated ZIP
+rebuild were **SKIPPED**; all 1,019 cached files again passed
+publisher CRC verification before Rust compilation. The cached-run
+final metrics, end-to-end timings and all seven-metric scorecard need
+to be checked once GitHub Actions reaches a completed state. This
+is the required two-run MISS/HIT comparison, not merely a hypothetical
+cache benefit.
+
 ## Verified first complete 346-triplet, two-worker run
 
 [Actions run 39597229438](https://github.com/chrober/bliss-mood-poc/actions/runs/39597229438)
