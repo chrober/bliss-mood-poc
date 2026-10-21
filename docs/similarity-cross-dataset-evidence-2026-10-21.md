@@ -137,3 +137,38 @@ must remain descriptive. The filtered real
 needs a completed result before any updated Genre
 P@5/mAP/nDCG statements. Audit and reproducibility:
 [FMA-MTG metadata screen](fma-mtg-catalog-overlap-2026-10-21.md).
+
+## Second FMA VALIDATION reference: catalog-screened, independent TEST still reserved
+
+[Confirmed filtered FMA Validation benchmark
+39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
+**PASS**: 42 possible exact artist/title catalog matches
+with MTG-Jamendo (35/100 Hip-Hop candidates) were excluded
+from the 800-song validation pool before an
+80-artist-distinct, ten-per-genre selection.
+**Filtered FMA Genre P@5** RMS 0.3000, Cosine 0.3200,
+Centered Cosine **0.3225**, Weighted Jaccard 0.3000,
+old cutoff Top-K 0.3025, Ranked Top-6 0.3125,
+Ranked Top-12 0.3050. Filtered mAP@10 favored
+Centered Cosine **0.1781** narrowly, filtered
+nDCG@10 favored Ranked Top-6 **0.3048**
+compared to Centered 0.3043. Random balanced
+reference 0.113924.
+
+**Crucial design:** This is a second *development*
+reference on **different validation recordings**
+from the unfiltered 80-song FMA sample in the main
+table above, NOT a controlled paired causal
+comparison and NOT confirmed independence from the
+model's actual ONNX classifier/Discogs encoder
+training data. The original FMA TEST partition
+remains unused, and no MTT holdout remains.
+[FMA provenance and filtering details](fma-mtg-catalog-overlap-2026-10-21.md).
+
+The cross-dataset qualitative hypothesis remains
+that Cosine and Centered Cosine are consistent
+baseline/challenger methods; tiny shifts among
+several methods on 80 songs cannot identify a
+reliable production winner. Use separate Genre
+ground truth vs Mood VA vs general human-triplet
+judgments, never numerical averaging of these units.
