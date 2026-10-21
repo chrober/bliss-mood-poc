@@ -272,6 +272,7 @@ jobs:
               assert heads == target, "Worker-concurrent classification output differs"
           PY
           python3 scripts/check_song_embedding_smoke.py --directory research-smoke \
+            --require-process-workers \
             --summary research-smoke/smoke-check-summary.json
           cat research-smoke/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
 
