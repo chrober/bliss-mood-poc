@@ -1,5 +1,57 @@
 # Handover – Genre/Mood-Similarity-Hörtest auf korrigierten Rust-v5-Daten
 
+> **MTT PAIRED EVIDENCE AND RUST-V5 BINARY CACHE (21 OCT 2026):**
+> The confirmed full [curated-audio cache HIT run 39600498519](https://github.com/chrober/bliss-mood-poc/actions/runs/39600498519)
+> reported **346 unordered triplets; 53 human-majority ties; 293
+> common scorable questions**, 1,019 clips, two Rust-v5 subprocess
+> workers, 231.053 seconds inference + merge; complete GitHub run
+> 327 seconds. The 1,019-clip audio package was just **119,689,247
+> bytes**, CRC-verified against original publisher metadata, and
+> prevented the full 2.77-GiB download.
+>
+> Real scores on a COMMON 293-question denominator, with metric
+> abstentions counted as incorrect: **Genre** RMS 63.5%, Cosine
+> 65.2%, Centered Cosine 65.2%, Weighted Jaccard 63.8%,
+> old Top-K Weighted Jaccard 60.1%, Ranked Top-6 61.8%,
+> Ranked Top-12 64.5%. **Mood** respectively 54.6%, 65.5%,
+> 65.9%, 61.1%, **44.4% old Top-K with only 71.7% coverage**,
+> 62.5%, 64.8%. Cosine-Centered Mood difference ~0.4pp;
+> **NOT enough for a metric-winner claim**, same corpus and
+> no unseen holdout.
+>
+> [scripts/mtt_paired_evidence.py](../scripts/mtt_paired_evidence.py)
+> and [tests/test_mtt_paired_evidence.py](../tests/test_mtt_paired_evidence.py)
+> implement 21 paired contrasts/head (42 total) on the identical
+> 293 human-scorable questions, metric abstentions as zero,
+> deterministic 600x shared-triplet bootstrap intervals and
+> artist-weight dependency *sensitivity* intervals. These are
+> **not valid population CIs or a formal independent-cluster
+> bootstrap**: all 214 artists are connected. No per-song
+> ID, vector or answer is exported. Linux and Windows
+> [Python CI 39602141111](https://github.com/chrober/bliss-mood-poc/actions/runs/39602141111)
+> PASS. The first synthetic CI failure was a test wording assertion
+> only and was corrected without changing math.
+> Actual paired 2-worker benchmark
+> [39602475906](https://github.com/chrober/bliss-mood-poc/actions/runs/39602475906)
+> requires final PASS/artifact verification before quoting
+> numerical paired intervals.
+>
+> Workflow now also caches the pinned exact **Rust-v5 compiled
+> binary**, separate from licensed clip cache; verifies SHA256 and
+> CLI before use; a MISS builds with locked Cargo and saves it.
+> To A/B runtime, the next automatic
+> [39602865932](https://github.com/chrober/bliss-mood-poc/actions/runs/39602865932)
+> is configured with **four** isolated workers, ONNX 1 thread
+> each, vs previous **two** on the same 1,019-clip cohort.
+> Do NOT claim a 4-worker speedup or metric parity before
+> real run completion.
+> Full detailed [scientific/performance handover](magnatagatune-paired-analysis-2026-10-21.md).
+> Next: verify both runs, compare paired uncertainty and A/B
+> walltimes, cross-reference DEAM/FMA, seek independent perceptual
+> test, no production choice. PR #16 Draft; main, PR #13/#17,
+> private music unchanged.
+>
+
 > **CURATED CACHE REAL MISS→HIT VERIFIED (21 OCT 2026):**
 > [First curated run 39599548243](https://github.com/chrober/bliss-mood-poc/actions/runs/39599548243)
 > **PASS**: `scripts/mtt_selected_clip_cache.py` packed exactly
