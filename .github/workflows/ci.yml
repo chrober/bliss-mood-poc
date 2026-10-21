@@ -50,9 +50,9 @@ jobs:
               throw ($errors | ForEach-Object { $_.Message } | Out-String)
           }
           $source = Get-Content -LiteralPath $path -Raw
-          if ($source -notmatch '(?s)^\s*&\s*\{' -or $source -notmatch '\}\s*
-) {
-              throw 'Project PowerShell examples must be enclosed in a full & { ... } script block.'
+          $trimmed = $source.Trim()
+          if (-not $trimmed.StartsWith('& {') -or -not $trimmed.EndsWith('}')) {
+              throw 'Project PowerShell examples must be enclosed in a full script block.'
           }
           if ($source -notmatch '\$Apply\s*=\s*\$false') {
               throw 'Lyrion listening queue script must default to dry run.'
