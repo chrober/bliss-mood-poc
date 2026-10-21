@@ -23,6 +23,9 @@ import evaluate_similarity as ev
 from evaluate_mtt_embedding_ab import filename_for_key, validate_embedding
 
 PINNED_SOURCE = "2c3d44401436b3b41b6e067199016a1ed2335fbf"
+# The earlier Windows artifact omitted the permitted embedding-only track key path.
+# Freeze this repaired overlay revision, not merely its base Rust-v5 SHA.
+REQUIRED_OVERLAY_COMMIT = "a7e270d2878e7fd20fcb35d3d9d0fa9324418e2d"
 
 
 def file_sha256(path: Path) -> str:
@@ -88,8 +91,10 @@ def verify_local_binary(binary: Path) -> None:
     if not build.is_file() or not checksums.is_file():
         raise ValueError("Use the complete verified research Windows binary artifact")
     meta = build.read_text(encoding="utf-8-sig")
-    if f"Pinned Rust-v5 commit: {PINNED_SOURCE}" not in meta or "Research overlay commit:" not in meta:
+    if f"Pinned Rust-v5 commit: {PINNED_SOURCE}" not in meta:
         raise ValueError("Wrong research executable provenance; expected pinned Rust-v5 overlay")
+    if f"Research overlay commit: {REQUIRED_OVERLAY_COMMIT}" not in meta:
+        raise ValueError("Outdated research executable: requires the corrected track-key-without-db build")
     listed = checksums.read_text(encoding="ascii").splitlines()
     matching = [line.split()[0].lower() for line in listed
                 if len(line.split()) == 2 and line.split()[1] == "*bliss-mood.exe"]
@@ -173,7 +178,10 @@ def export(db: Path, audio_root: Path, models_dir: Path, binary: Path,
         "sample_count": len(items), "audio_sha_verified": len(items),
         "model_files_sha_verified": 3,
         "existing_valid": 0, "exported_and_verified": 0,
-        "failed": 0, "no_existing_sqlite_changes": True,
+        "failed": 0,
+        "failure_stages": {"cli_nonzero_exit": 0, "embedding_file_not_created": 0,
+                           "embedding_validation_failed": 0, "existing_embedding_invalid": 0},
+        "no_existing_sqlite_changes": True,
         "never_upload_private_audio_or_vectors": True,
     }
     if not execute:
@@ -187,6 +195,7 @@ def export(db: Path, audio_root: Path, models_dir: Path, binary: Path,
                 existing_embedding(target, key, audio_sha, patches, encoder_sha)
             except (ValueError, OSError, TypeError, KeyError):
                 summary["failed"] += 1
+                summary["failure_stages"]["existing_embedding_invalid"] += 1
             else:
                 summary["existing_valid"] += 1
             continue
@@ -197,13 +206,19 @@ def export(db: Path, audio_root: Path, models_dir: Path, binary: Path,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             check=False,
         )
-        if result.returncode != 0 or not target.is_file():
+        if result.returncode != 0:
             summary["failed"] += 1
+            summary["failure_stages"]["cli_nonzero_exit"] += 1
+            continue
+        if not target.is_file():
+            summary["failed"] += 1
+            summary["failure_stages"]["embedding_file_not_created"] += 1
             continue
         try:
             existing_embedding(target, key, audio_sha, patches, encoder_sha)
         except (ValueError, OSError, TypeError, KeyError):
             summary["failed"] += 1
+            summary["failure_stages"]["embedding_validation_failed"] += 1
         else:
             summary["exported_and_verified"] += 1
     summary["status"] = (
