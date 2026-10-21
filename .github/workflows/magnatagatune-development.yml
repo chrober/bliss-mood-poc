@@ -142,6 +142,8 @@ jobs:
           sha256sum models/*
           echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
+      # Retry after observed transient curl exit 28 at clip 22/92.
+      # Per-range retries stay strictly capped; no whole-archive downloads.
       - name: Analyze all artist-hash DEVELOPMENT triplets; holdout never fetched
         shell: bash
         run: |
