@@ -51,6 +51,9 @@ jobs:
               raise SystemExit("FMA_PER_GENRE must be 2..100")
           print("FMA validation only; tracks per genre:", per_genre)
           PY
+          # Synthetic metadata schema and retrieval/Top-K abstention gates:
+          # avoid a 7.2-GiB download if the evaluation semantics regress.
+          python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
           python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
 
       - name: Build genuine Rust-v5 analyzer and install FFmpeg
