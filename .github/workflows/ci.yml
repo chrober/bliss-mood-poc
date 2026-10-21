@@ -48,3 +48,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_verify_original_lossless_tracks.py'
       - name: Validate original Essentia Windows PE packaging and DLL licence safety
         run: python3 -m unittest discover -s tests -p 'test_package_essentia_worker_windows.py'
+      - name: Validate development-only native Windows kit integrity and provenance release blockers
+        run: python3 -m unittest discover -s tests -p 'test_audit_windows_native_release.py'
