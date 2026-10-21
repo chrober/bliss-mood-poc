@@ -1,174 +1,121 @@
-# DEAM 240: 1280D-Embedding versus 87D-/56D-Head-Vektoren
+# DEAM 240: 1280D audio embeddings versus 87D/56D classification heads
 
-**Stand 21.10.2026**, nur Draft PR #16
-(`feat/similarity-metric-evaluation`); keine Änderungen
-an `main`, PR #13, PR #17 oder dem Produktivmixer.
+**Status:** October 21, 2026. Draft PR #16, branch
+`feat/similarity-metric-evaluation` only. No changes to
+`main`, PR #13/#17, or the production playlist mixer.
 
-## Forschungshypothese
+## Research hypothesis
 
-Direkte 1280D-Discogs-EffNet-Cosine-Repräsentation
-gegen die Klassifikationsköpfe **auf denselben
-DEAM-Songs** und denselben menschlichen
-Song-Level-Valence/Arousal-Anmerkungen vergleichen.
-Ein höherer Zusammenhang mit VA-Nähe bedeutet
-*emotionale Ähnlichkeit in dieser Operationalisierung*,
-nicht gute Lyrion-Playlist-Übergänge oder unabhängige
-menschlich wahrgenommene Klangähnlichkeit.
+Compare direct 1280D Discogs-EffNet cosine with Genre/Mood classifier
+outputs on **exactly the same DEAM recordings and human song-level
+valence/arousal labels**. Higher rank association with VA proximity
+supports only *emotional proximity under this operational definition*;
+it is neither evidence of good Lyrion transitions nor an independent
+judgment of general perceived sonic similarity.
 
-### Eingefrorene Kohorte – früherer experimenteller Lauf
+### Frozen cohort from the preceding development experiment
 
-Vor neuer Embedding-Evaluation vorhandene
-[DEAM filtered-240 Run 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118),
-aggregiertes [Referenzartefakt 12335578980](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118/artifacts/12335578980).
+Reference: successful
+[screened 240-song DEAM run 39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118),
+[aggregate artifact 12335578980](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118/artifacts/12335578980).
 
-- `seed=20261021`, 240 Songs; 197 ältere Excerpts, 43 Full Songs (2015).
-- 75 mögliche Artist-/Track-Titel-Überschneidungen mit
-  MTG-Jamendo-Metadaten entfernt; 1727 eligible Audiodateien.
-  Das ist **kein Nachweis für unabhängige Trainingssamples**.
-- Verbindlicher Kohorten-SHA256
+- Seed `20261021`, **240 songs**: 197 older excerpts and 43 full
+  2015 recordings. A conservative MTG-Jamendo artist/title screen
+  removed **75 potential matches**, leaving 1,727 eligible audio
+  items. This **does not prove training-set independence**.
+- Frozen sample SHA256:
   `db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0`.
-- Original DEAM-Audio-ZIP SHA256
+- Publisher DEAM audio ZIP SHA256:
   `e2814325f573ade8caebc697f0efcfdf7207142b737d72558a416117ca591353`.
-  Annotationen
-  `809b0feb4ba6196c1eda9b2b7b33b892b11fa71457cfceb0d47e832ed1a5f15f`,
-  DEAM-Katalog
-  `3d1d5ab42e852803a770f2cfbd685c6b464e1ebe76f26b0e10954597902b90f8`;
-  MTG `bb1efa2876536cbe1a8b67db5dda15249ca144f0cff69e481b638803cbdc9aca`.
-- Vor Embedding-Einführung fixierte Mood-Cosine-Referenz
-  mittlere Query-Spearman VA (gemeinsame Kandidaten):
-  **0,286784551387186**, Valence **0,16424605171402107**,
-  Arousal **0,2726358463243648**.
-  Nur innerhalb älterer Ausschnitte VA
-  **0,3399893505844028**, innerhalb 2015 Full Songs
-  **0,18759773195542612**.
-  Referenzen je Achse und Subkohorte sind im Evaluator
-  vorregistriert. Ein Baseline-Mismatch lässt CI **FAIL**
-  laufen; keine Neuetikettierung.
+  Annotation ZIP:
+  `809b0feb4ba6196c1eda9b2b7b33b892b11fa71457cfceb0d47e832ed1a5f15f`.
+  DEAM metadata:
+  `3d1d5ab42e852803a770f2cfbd685c6b464e1ebe76f26b0e10954597902b90f8`.
+  MTG catalogue TSV:
+  `bb1efa2876536cbe1a8b67db5dda15249ca144f0cff69e481b638803cbdc9aca`.
+- Pre-embedding Mood Cosine reference: pooled VA mean-query
+  Spearman **0.286784551387186**, Valence **0.16424605171402107**,
+  Arousal **0.2726358463243648**.
+  Within the older-excerpt protocol, VA **0.3399893505844028**;
+  within 2015 full songs, **0.18759773195542612**.
+  The reference per axis and protocol is frozen in the evaluator.
+  Baseline mismatches fail CI; no new labels or redefinition.
 
-## Technische Umsetzung
+## Implemented paired evaluator
 
-- [`scripts/benchmark_deam.py`](../scripts/benchmark_deam.py):
-  optional `--embedding-dir`, **nur** bei
-  240 Songs, katalogbereinigtem `--stratify-cohorts`
-  und `seed=20261021`.
-  Ohne Flag bleibt die alte, bereits verwendete
-  DEAM-Benchmark-Pipeline unverändert.
-  Mit Flag produziert **derselbe Encoder-Patchlauf**
-  beide ONNX-Köpfe plus getrenntes raw-patchmean,
-  songweise L2-normiertes 1280D-Sidecar.
-- [`scripts/evaluate_deam_embedding_ab.py`](../scripts/evaluate_deam_embedding_ab.py)
-  prüft SQLite-v3-Genre/Mood-Patches, Audio-SHA256,
-  Song/Encoder-Fingerprint, validiertes
-  Embedding-Protokoll und SHA des Ursprungsaudios.
-  Pro Song identische **239 Kandidaten**;
-  innerhalb früherer bzw. 2015-Kohorte
-  auch eigene Rankings über **196** bzw.
-  **42 Kandidaten** (nicht mit Gesamtkohorte
-  verwechseln).
-- Methoden: 1280D Cosine; Mood 56D
-  Cosine und Centered Cosine; Genre 87D
-  Cosine und Centered Cosine als Cross-Task-Kontrolle.
-- Human VA-Proximity der Songs wird als
-  `−|ΔValence|`, `−|ΔArousal|` und
-  `−sqrt(ΔValence²+ΔArousal²)` gemessen;
-  für jede Query die **Spearman-Rangkorrelation**
-  zwischen Human-Proximity-Ranking und
-  Similarity-Ranking. Berichtet je Achse
-  den über **alle** Queries gemittelten Spearman.
-- Sobald eine Methode eine Query nicht auf
-  *allen* gemeinsamen Kandidaten bewerten kann,
-  Abstention für gesamte Query; fehlende
-  Vorhersage geht als **0** in die
-  240er-Makromittelung ein. Query-Abdeckung
-  separat publiziert; keine unbekannten
-  oder Null-Score-Fallback-Nachbarn erfinden.
-- Delta-Messung **Embedding minus jeweilige
-  Head-Methode** auf identischen Songqueries.
-  Gleiche deterministic resamples für alle
-  Verfahren, nach ursprünglichem DEAM-
-  Sammlungsprotokoll 197/43 stratifiziert
-  (800 ganze Kohorte, 400 bei Subkohorte).
-  Die 95%-Quantile sind wegen gemeinsamen
-  Kandidaten **beschreibende Sensitivitätsbereiche,
-  keine unabhängigen Populations-CIs**.
-- [`research-deam-embedding-ab.yml`](../.github/workflows/research-deam-embedding-ab.yml)
-  lädt nur offizielle Quellen auf einen ephemeral
-  GH-Runner, baut das gepinnte
-  `2c3d444...`-Rust-v5 mit dem
-  **separaten 1280D-Research-Overlay**;
-  exportiert nur aggregierte JSON-Reports.
-  Keine DEAM-Audiodateien, einzelnen Labelzeilen
-  oder 1280D-Songvektoren ins Repo oder in
-  Actions-Artefakte; diese DEAM-Dateien dürfen
-  nur nichtkommerziell gemäß dem ursprünglichen
-  Lizenztext genutzt werden.
-- Synthetischer Regressionstest
-  [`tests/test_evaluate_deam_embedding_ab.py`](../tests/test_evaluate_deam_embedding_ab.py)
-  läuft unter Linux und Windows.
+[`scripts/benchmark_deam.py`](../scripts/benchmark_deam.py)
+has an optional `--embedding-dir` limited to the screened, stratified,
+240-song cohort with seed `20261021`. Without that flag, the established
+DEAM benchmark remains unchanged. With it, the **same encoder patch
+pass** creates both classification heads and a separate 1280D
+patchwise-mean, songwise-L2-normalized embedding sidecar.
 
-Workflow: [DEAM paired-240 Research Actions](https://github.com/chrober/bliss-mood-poc/actions/workflows/research-deam-embedding-ab.yml).
-**Keine A/B-Zahlen behaupten, bis ein vollständig
-grüner echter Daten-Workflow einschließlich
-aller Provenienz-Gates abgeschlossen ist.**
+[`scripts/evaluate_deam_embedding_ab.py`](../scripts/evaluate_deam_embedding_ab.py)
+verifies compatible SQLite-v3 Genre/Mood vectors, patch counts,
+audio SHA256, encoder/pooling fingerprints and registered archive
+hashes. Each of the 240 anchors has the **same 239 candidates**.
+Protocol-separated rerankings use 196 older-excerpt or 42 full-song
+candidates per anchor, not pooled cross-protocol candidates.
 
-## Lyrion: getrennte lokale Hörtest-Stufe
+Methods: direct 1280D cosine; Mood 56D cosine and centered cosine;
+Genre 87D cosine and centered cosine (cross-task controls).
+Human proximity targets are `-|Δvalence|`, `-|Δarousal|`, and
+`-sqrt(Δvalence² + Δarousal²)`. Mean per-query
+Spearman correlation compares each similarity ranking with
+human VA-proximity rankings.
 
-Weder DEAM-VA noch FMA-Genre oder MTT-Odd-One-Out
-ist ein direkter Test, ob Übergänge in **der eigenen
-Bibliothek** als ähnlich bzw. passend empfunden werden.
-Nach DEAM einen *eigenständigen*, menschlich
-beurteilten lokalen A/B-Test durchführen.
+A method missing even one candidate score abstains for the
+**whole anchor query**, contributing zero on the common 240-song
+denominator; report coverage separately. Differences are
+**embedding minus each head baseline**, using the same
+deterministic protocol-stratified query resamples (800 pooled,
+400 within protocol). The 95% quantiles are **descriptive sensitivity
+ranges, not independent population confidence intervals**, because
+candidate songs are shared.
 
-Designvorschlag:
+[`research-deam-embedding-ab.yml`](../.github/workflows/research-deam-embedding-ab.yml)
+uses the pinned Rust-v5 commit with a research-only 1280D overlay.
+It keeps licensed original DEAM audio, labels and per-track
+features on the ephemeral runner; exports only aggregated JSON.
+Synthetic
+[`tests/test_evaluate_deam_embedding_ab.py`](../tests/test_evaluate_deam_embedding_ab.py)
+pass under Linux/Windows.
 
-1. Auf einer **fest eingefrorenen** lokalen,
-   vielfältigen Teilstichprobe von z.B. 150–300
-   Musikstücken beide Köpfe und 1280D
-   aus derselben korrigierten CLI/ONNX-Version
-   erzeugen; keine lokale Rust-Kompilierung
-   erzwingen, bevorzugt verifiziertes GH-Binary.
-2. Einmalig vorher definierte 24–40
-   Anchor-/Alternative-A-/Alternative-B-Trios:
-   A und B aus **demselben zulässigen Pool**,
-   besonders dort, wo Ranking durch rohe
-   Embeddings bzw. Mood-/Genre-Metrik stark
-   auseinanderläuft. Zufalls- und Kontrollpaare,
-   unterschiedliche Künstler, Genres,
-   Jahrzehnte/Qualitäten; identische
-   Kandidatenrestriktionen und genügend
-   Coverage. Kein Test auf privaten Daten in CI.
-3. Seiten A/B und Methoden **verblindet**
-   und ausbalanciert präsentieren. Hörer
-   bevorzugt Alternative A, B oder
-   „gleich/keine passt“ für (a) wahrgenommene
-   Klang-/Stimmungsnähe und (b) reale
-   Playlist-Übergangsqualität **getrennt**.
-   Gelegentliche blinde Wiederholungen für
-   Antwortstabilität, klare Evidenz bei
-   großen Methodendisagreements.
-4. Die bestehende
-   [`queue_similarity_pairs_lyrion.ps1`](../scripts/queue_similarity_pairs_lyrion.ps1)
-   bleibt zunächst **Dry-run** und wird für
-   echte Queue-Aktionen nur explizit lokal
-   freigeschaltet; keine Produktionsteuerung
-   über GitHub. Persönliche Dateipfade,
-   IP-Adressen, Spieler-ID und vollständige
-   lokale Sidecars **nie committen**.
-5. Nur anonymisierte Aggregationen und
-   gepaarte Präferenzzählungen auswerten,
-   Abstentions/Ties nicht verstecken,
-   Genre und Mood als Fragen getrennt,
-   mit blinden Nachtests und möglichst
-   neuer Session/personenunabhängiger
-   unabhängiger Stichprobe. Kein
-   vorheriges Anpassen und nachträgliches
-   Testen auf derselben Hörteststichprobe.
+**Current blocker:** Official DEAM host
+`cvml.unige.ch:443` did not accept HTTPS connections. The
+preceding run independently reproduced the old Mood baseline but
+was stopped by a sample-hash serialization mismatch, now fixed
+with green Linux/Windows tests. The new end-to-end A/B result is
+**not yet available**; the workflow now checks host connectivity
+before costly Rust compilation. Do not report numerical
+embedding-vs-Mood results until a full provenance-verified PASS.
+See [DEAM research status](deam-similarity-benchmark.md).
 
-**Interpretationsbarriere:** A/B/C ist die
-*Feature-Repräsentation* bzw. metrische Fusion.
-Davon unabhängig bleibt das Lyrion-Mix-Design
-Bliss-first / Mood-first / Hybrid. Zuerst
-bloße Similarity-Rankings **außerhalb
-des Produktivmixers** vergleichen; eine
-neue Candidate-Gating-/Queue-Strategie
-ist eine spätere isolierte Frage.
+## Separate local Lyrion listening evaluation
+
+FMA coarse Genre, DEAM VA, and MTT odd-one-out are different
+reference tasks, not direct verification of pleasant transitions
+in the user's library.
+
+The [bounded local listening plan](similarity-local-library-retest-plan-2026-10-21.md)
+is preferred to an immediate 150–300-song full reanalysis.
+Start with a read-only sample audit (L0), then a small ~12-contrast
+instrument pilot, then a new independently held review block.
+Only if appropriate, consider ~150–300 candidate songs for a
+later richer randomized study with controlled coverage.
+
+Future anchor/alternative-A/alternative-B comparisons should
+hold candidate eligibility constant, balance blind presentations,
+allow ties/neither, and separately rate (a) perceived mood/timbre
+and (b) playlist transition suitability. Include repeated
+controls for intra-rater stability, different artists/genres,
+and hard A/B disagreements. Existing
+[`queue_similarity_pairs_lyrion.ps1`](../scripts/queue_similarity_pairs_lyrion.ps1)
+remains dry-run until the user explicitly authorizes local queue
+changes; never upload local paths, addresses, player IDs or
+song-feature vectors to GitHub.
+
+Only compare **feature representation A/B/C** first.
+The independent **candidate strategy** decision
+(Bliss-first / feature-first / hybrid) comes later,
+with a Bliss-only reference and its own experiment.
