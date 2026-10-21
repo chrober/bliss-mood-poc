@@ -150,3 +150,86 @@ flowchart TD
 - [Feature-Provider-Architektur](feature-provider-architecture.md).
 
 **Handover-Status:** Die nächste Session beginnt **nicht** mit einer weiteren reinen Cosine-vs-Weighted-Jaccard-Diskussion. Sie beginnt mit einem **reproduzierbaren, optionalen 1.280D-Embedding-Export aus dem vorhandenen Rust-v5-EffNet-Pfad** und anschließender auf denselben Musiktiteln paarweise vergleichbarer A/B/C-Evaluation. Keine bereits existierenden qualitativen Ergebnisse auf den neuen Embedding-/Fusion-Ansätzen unterstellen.
+
+
+## Erste Forschungsimplementierung: versionierter Audio-Song-Vektor (21.10.2026)
+
+**Neue Dateien:** `research/song_embedding.rs`,
+`scripts/apply_rust_v5_embedding_export.py`,
+`scripts/check_song_embedding_smoke.py`,
+`scripts/evaluate_mtt_embedding_ab.py`,
+`tests/test_evaluate_mtt_embedding_ab.py` sowie die
+`research-song-embedding-smoke.yml`- und
+`research-mtt-embedding-ab.yml`-Workflows. Bestehender
+`mtt_parallel_workers.py` und `benchmark_magnatagatune.py`
+haben einen optionalen, standardmäßig **ausgeschalteten** Forschungs-Export.
+
+**Exakte Mathematik der ersten vorregistrierten Baseline B:**
+
+Für rohe EffNet-Vektoren `e_p ∈ ℝ^1280`, in deterministischer Patch-Reihenfolge:
+
+```text
+s_j = sum_{p=1..P} float64(float32(e[p,j]))
+m_j = s_j / P                     (float64)
+L   = sqrt(sum_j m_j*m_j)         (float64)
+v_j = float32(m_j / L)            (P > 0, L > 0, finite)
+S_B(x,y) = cosine(v_x, v_y)
+```
+
+**Kein per-Patch-L2**, keine Median-, PCA-, Whitening- oder
+Stundenabschnitt-Aggregation; diese Varianten bleiben separate
+Ablationen. Der Klassen-Score-Pfad wird nicht umparametrisiert.
+
+**Eigenständiges JSON-Sidecar v1:** `schema_version`,
+`kind=discogs_effnet_song_embedding`,
+`validation_status=experimental_unvalidated`,
+`dimension=1280`, `patches_analyzed`, `encoder_model`,
+`encoder_sha256`, `preprocessing_version`,
+`pooling_version=patch_f64_arithmetic_mean_v1`,
+`normalization_version=song_f64_l2_then_cast_f32_v1`,
+`representation_fingerprint`, `audio_sha256`,
+optional `track_file`, `vector_f32`. Der Fingerprint ist SHA256
+der kompakten UTF-8-JSON-Array-Serialisierung von
+`[1, encoder_model, encoder_sha256, preprocessing_version,
+pooling_version, normalization_version, 1280]`. Embedding-Ausgabe
+nur über `analyze-features --embedding-out <neue-datei>` im
+Runner-Overlay; vorhandene Datei wird nicht überschrieben.
+Unveränderte schema-v3-Tabellen bleiben ausschließlich für
+Genre/Mood/Voice-Klassifikationswerte.
+
+**Pinned Source:** das Overlay verweigert andere Git-Heads
+als `2c3d44401436b3b41b6e067199016a1ed2335fbf`.
+`src/features.rs` dieser Revision enthält bereits die
+Encoder-Ausgabe pro Patch, von der ein zusätzlicher optionaler
+f64-Summenvektor vor den unveränderten Klassifikations-Head-Aufrufen
+gebildet wird. Hauptbranch-Quellen und PR #17 werden nicht verändert.
+
+**Technisches Gate:** Rust-Unit-Tests zu Nullnorm, Dimensionsfehler,
+NaN/Inf, Skalierungs- und Reproduzierbarkeit;
+synthetische WAV-Analyse mit Flag off/on, bytegenaue
+Genre-/Mood-Klassifikation und schema-v3-SQLite-Zeilen, direkter
+Vergleich mit originalem `embedding-dump` und ONNX-Threadvariation.
+Erster Smoke-Build/Unit-Test erfolgreich, Audio-Gate zunächst
+wegen fehlendem `ffprobe` blockiert und Workflow korrigiert;
+endgültiges Resultat aus GitHub Actions ablesen. Die aktuelle
+Smoke-Orakelreferenz ist **dieselbe ONNX-Encoder-Familie**; eine
+vollständige TF/C++-Referenzparität über viele Songs ist
+**weiterhin offen**.
+
+**A/B-Definition:** genau die 1019 MTT-Clip-Sidecars aus derselben
+Analyse wie die 87D/56D-Werte; exakt 346 ungeordnete Tripel, davon
+293 mit eindeutiger menschlicher Mehrheit. Fünf Methoden
+(`embedding_cosine`, `genre_cosine`, `mood_cosine`,
+`genre_centered_cosine`, `mood_centered_cosine`);
+ein eindeutiger stärkster Ähnlichkeitspaar-Score bestimmt den
+Odd-One-Out; jeder Methoden-Abstention wird auf demselben
+293er-Nenner als falsch gewertet. `mtt_paired_evidence.py`
+liefert gepaarte Differenzen, naive Resampling- und
+Artist-Gewichtungs-**Sensitivität**, keine generalisierbaren
+Konfidenzintervalle. Output nur **aggregate** Ergebnisse; alle
+MTT-Fragen bereits gesehen, kein unabhängiger Holdout.
+
+**Nicht implementiert:** empirische Fusion C,
+separat kontrastive Discogs-Modelle,
+unabhängige zweite Ground-Truth für B und die endgültige
+Lyrion-Mixer-Entscheidung. Erst den neuen A/B-Run prüfen.
