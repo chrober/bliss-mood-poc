@@ -120,6 +120,28 @@ jobs:
           python3 scripts/check_song_embedding_smoke.py --directory research-output \
             --summary research-output/smoke-check-summary.json
           cat research-output/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify embedding-only --track-key WITHOUT --db (regression for local export)
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=validated-rust-v5/target/release/bliss-mood
+          "$exe" analyze-features smoke.wav --models-dir models --models moodtheme,genre \
+            --threads 1 --json --track-key smoke.wav \
+            --embedding-out research-output/embedding-only.json \
+            > research-output/embedding-only-report.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("research-output")
+          emb = json.loads((root / "embedding-only.json").read_text())
+          original = json.loads((root / "embedding.json").read_text())
+          assert emb["track_file"] == "smoke.wav"
+          assert emb["vector_f32"] == original["vector_f32"]
+          assert emb["audio_sha256"] == original["audio_sha256"]
+          assert emb["representation_fingerprint"] == original["representation_fingerprint"]
+          assert not (root / "embedding-only.db").exists()
+          print("PASS: --track-key + --embedding-out succeeds without writing any SQLite DB")
+          PY
       - name: Publish smoke assertions ONLY - no audio or embedding vectors
         if: success()
         uses: actions/upload-artifact@v4
