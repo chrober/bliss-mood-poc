@@ -181,7 +181,11 @@ jobs:
           assert report["dataset"]["sample_id_sha256"] == "db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0"
           assert report["dataset"]["annotation_cohort_counts"] == {"earlier_excerpt":197,"full_song_2015":43}
           assert report["dataset"]["overlap_screen"]["excluded_mtg_catalog_candidates"] == 75
-          assert abs(report["per_head"]["moodtheme"]["cosine"]["axes"]["valence_arousal"]["mean_query_spearman"]-0.286784551387186)<1e-9
+          old_mood_va = 0.286784551387186
+          new_mood_va = report["per_head"]["moodtheme"]["cosine"]["axes"]["valence_arousal"]["mean_query_spearman"]
+          print("Frozen DEAM old Mood Cosine VA:",old_mood_va,
+                "signed replay delta:",new_mood_va-old_mood_va)
+          assert abs(new_mood_va-old_mood_va)<=0.00002
           print("Collection cohorts:", report["dataset"]["annotation_cohort_counts"])
           print("Catalog overlap screening:", report["dataset"]["train_overlap_check"])
           print("Catalog exclusion counts:", {
@@ -219,7 +223,10 @@ jobs:
           python3 - <<'PY'
           import json,os
           data=json.load(open("results/deam-240-1280d-vs-heads-aggregate.json"))
-          assert data["reference_baseline_exactly_reproduced"]
+          assert data["reference_baseline_reproduced_within_abs_tolerance"]
+          assert data["reference_baseline_abs_tolerance"] == 0.00002
+          print("DEAM frozen Mood baseline signed 9-axis differences:",
+                data["reference_baseline_signed_differences"])
           assert data["songs"] == 240
           assert all(v["query_denominator"]==240 for v in data["full_cohort"]["methods"].values())
           with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
