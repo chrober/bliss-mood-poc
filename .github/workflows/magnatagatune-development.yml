@@ -94,6 +94,31 @@ jobs:
             --comparisons benchmark-private/comparisons_final.csv \
             --clips benchmark-private/clip_info_final.csv \
             --report results/mtt-directory-preflight.json
+          # Fail before the costly Rust build if the publisher changed
+          # any source CSV, frozen triplet membership or eligible count.
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from benchmark_magnatagatune import (
+              digest, triplets_by_vote, frozen_artist_development_selection,
+              REGISTERED_MTT_COMPARISONS_SHA256, REGISTERED_MTT_CLIPS_SHA256,
+              REGISTERED_MTT_DEVELOPMENT_SHA256, REGISTERED_MTT_HOLDOUT_SHA256,
+          )
+          comparisons=Path("benchmark-private/comparisons_final.csv")
+          clips=Path("benchmark-private/clip_info_final.csv")
+          assert digest(comparisons)==REGISTERED_MTT_COMPARISONS_SHA256
+          assert digest(clips)==REGISTERED_MTT_CLIPS_SHA256
+          triplets,catalog=triplets_by_vote(comparisons,clips)
+          selected,proof=frozen_artist_development_selection(triplets,catalog)
+          assert len(selected)==31, "Frozen development cardinality changed"
+          assert len({x for group in selected for x in group})==92
+          assert proof["development_partition_sha256"]==REGISTERED_MTT_DEVELOPMENT_SHA256
+          assert proof["holdout_partition_sha256"]==REGISTERED_MTT_HOLDOUT_SHA256
+          assert proof["holdout_triplets_never_scored"]==56
+          assert proof["mixed_triplets_excluded"]==259
+          print("Pinned MTT sources and partitions PASS, 31 dev questions, 92 unique clips; 56 holdout never fetched.")
+          PY
           echo "metadata_zip_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout pinned corrected Rust-v5 analyzer (without merging PR 17)
