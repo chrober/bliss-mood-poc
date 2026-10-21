@@ -205,6 +205,51 @@
         }
         Write-Host "Eindeutig aufgeloeste Dateien: $($cache.Count)"
 
+        # All URL/ID lookups above completed without changing the queue.
+        # The old single playlistcontrol track_id:1,2,2,3 request may
+        # collapse duplicate track IDs within ONE request (seen on real LMS).
+        # Append one numeric ID per request to preserve all CSV positions.
+        function Get-QueueTailIds {
+            param([int]$RequestedPositions)
+            $tracksResult = Invoke-Lyrion $PlayerId @('playlist', 'tracks', '?')
+            if ([string]$tracksResult._tracks -notmatch '^[0-9]+$') {
+                throw 'Lyrion liefert keine gueltige Queue-Laenge.'
+            }
+            $total = [int]$tracksResult._tracks
+            $length = [Math]::Min($total, $RequestedPositions)
+            if ($length -eq 0) {
+                return @{ total = 0; ids = @() }
+            }
+            $start = $total - $length
+            $status = Invoke-Lyrion $PlayerId @(
+                'status', $start, $length, 'tags:u'
+            )
+            $tail = @($status.playlist_loop | Where-Object { $null -ne $_ })
+            if ($tail.Count -ne $length) {
+                throw "Lyrion status lieferte $($tail.Count) statt $length Queue-Eintraege."
+            }
+            $readIds = [System.Collections.Generic.List[string]]::new()
+            foreach ($item in $tail) {
+                if ([string]$item.id -notmatch '^[0-9]+$') {
+                    throw 'Status ohne numerische Track-ID; sichere Queue-Pruefung nicht moeglich.'
+                }
+                $readIds.Add([string]$item.id)
+            }
+            return @{ total = $total; ids = $readIds.ToArray() }
+        }
+
+        function Test-QueueTailMatches {
+            param([string[]]$Actual, [string[]]$Expected)
+            if ($Expected.Count -gt $Actual.Count) { return $false }
+            $startIndex = $Actual.Count - $Expected.Count
+            for ($j = 0; $j -lt $Expected.Count; $j++) {
+                if ($Actual[$startIndex + $j] -cne $Expected[$j]) {
+                    return $false
+                }
+            }
+            return $true
+        }
+
         $shuffle = Invoke-Lyrion $PlayerId @('playlist', 'shuffle', '?')
         if ($null -eq $shuffle._shuffle) {
             throw 'Shuffle konnte nicht geprueft werden; keine Queue-Aenderung.'
@@ -212,31 +257,99 @@
         if ([string]$shuffle._shuffle -ne '0') {
             throw 'Shuffle ist aktiviert; bitte zuerst im Lyrion-Player ausschalten.'
         }
-        $queue = Invoke-Lyrion $PlayerId @('playlist', 'tracks', '?')
+
+        $expected = @($ids.ToArray())
+        $uniqueOrdered = [System.Collections.Generic.List[string]]::new()
+        $uniqueSeen = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::Ordinal
+        )
+        foreach ($songId in $expected) {
+            if ($uniqueSeen.Add($songId)) { $uniqueOrdered.Add($songId) }
+        }
+        $queueBefore = Get-QueueTailIds -RequestedPositions $expected.Count
         Write-Host '=== QUEUE-VORSCHAU ==='
-        Write-Host "Bestehende Eintraege: $($queue._tracks)"
+        Write-Host "Bestehende Eintraege: $($queueBefore.total)"
         Write-Host "Anzuhaengende Paare: $($pairs.Count)"
-        Write-Host "Anzuhaengende Tracks: $($ids.Count)"
+        Write-Host "Gewuenschte Queue-Positionen: $($expected.Count)"
+        Write-Host "Unterschiedliche Song-IDs: $($uniqueOrdered.Count)"
+        if ($expected.Count -ne $uniqueOrdered.Count) {
+            Write-Host 'Hinweis: Wiederholte Songs sind fuer die Paarreihenfolge beabsichtigt.'
+        }
 
         if (-not $Apply) {
             Write-Host '=== DRY RUN: NICHTS VERAENDERT ==='
-            Write-Host 'Alle IDs pruefen; danach $Apply = $true setzen.'
+            Write-Host 'Bestehende Queue bleibt unveraendert.'
+            Write-Host 'Erst nach vollstaendiger Pruefung LYRION_APPLY=true setzen.'
         }
         else {
-            # Single append preserves left/right order. Repeating this call
-            # adds duplicates: inspect queue before retrying after any error.
-            $result = Invoke-Lyrion $PlayerId @(
-                'playlistcontrol', 'cmd:add', ('track_id:' + ($ids -join ','))
-            )
-            if ($null -eq $result.count -or
-                [string]$result.count -notmatch '^[0-9]+$') {
-                throw 'Keine gueltige count-Bestaetigung; Queue vor Wiederholung pruefen.'
+            # Fail closed if a previous run already appended the desired
+            # 16-position sequence or an older bulk request added just the
+            # unique 15 IDs. IMPORTANT: never blindly retry on a thrown
+            # post-append validation error.
+            if (Test-QueueTailMatches -Actual $queueBefore.ids -Expected $expected) {
+                throw 'Hörtest-Sequenz liegt bereits am Queue-Ende; NICHT erneut anhaengen.'
             }
-            if ([int]$result.count -ne $ids.Count) {
-                throw "Nur $($result.count) von $($ids.Count) bestaetigt; Queue pruefen."
+            if ($uniqueOrdered.Count -lt $expected.Count -and
+                (Test-QueueTailMatches -Actual $queueBefore.ids -Expected $uniqueOrdered.ToArray())) {
+                throw (
+                    'Alte playlistcontrol-Sammelanfuegung ist bereits am Queue-Ende ' +
+                    '(Dubletten innerhalb des Aufrufs kollabiert). ' +
+                    'Keine zweite Kopie angehaengt. Die vorhandene Queue kann genutzt werden.'
+                )
             }
-            Write-Host "Erfolgreich $($result.count) Songs angehaengt."
-            Write-Host 'Bestehende Queue erhalten; Wiedergabe nicht gestartet.'
+            # Also guard likely partial appends from an interrupted per-ID
+            # attempt, to prevent duplicate replay from the beginning.
+            for ($prefixLength = $expected.Count - 1; $prefixLength -ge 2; $prefixLength--) {
+                $prefix = @($expected[0..($prefixLength - 1)])
+                if (Test-QueueTailMatches -Actual $queueBefore.ids -Expected $prefix) {
+                    throw (
+                        "Queue-Ende entspricht bereits den ersten $prefixLength " +
+                        'geplanten Eintraegen. Moegliche Teilanfuegung! ' +
+                        'Vor weiteren Writes Queue manuell pruefen.'
+                    )
+                }
+            }
+
+            Write-Host '=== QUEUE EINZELN UND IN PAARREIHENFOLGE ERWEITERN ==='
+            $previousLength = $queueBefore.total
+            $completed = 0
+            foreach ($songId in $expected) {
+                # A single ID per CLI command avoids SQL IN-style duplicate
+                # removal within one track_id:comma,list request.
+                $answer = Invoke-Lyrion $PlayerId @(
+                    'playlistcontrol', 'cmd:add', ('track_id:' + $songId)
+                )
+                if ([string]$answer.rescan -eq '1' -or
+                    [string]$answer.count -ne '1') {
+                    throw (
+                        "Unklare Serverbestaetigung nach $completed erfolgreichen " +
+                        "Anfuegungen; Queue inspizieren, KEINESFALLS blind wiederholen."
+                    )
+                }
+                $newLength = Invoke-Lyrion $PlayerId @('playlist', 'tracks', '?')
+                if ([string]$newLength._tracks -notmatch '^[0-9]+$' -or
+                    [int]$newLength._tracks -ne ($previousLength + 1)) {
+                    throw (
+                        "Queue-Laenge nach Anfuegung nicht wie erwartet. " +
+                        "Bisher $completed bestaetigt; vor erneutem Versuch Queue pruefen."
+                    )
+                }
+                $completed++
+                $previousLength++
+            }
+
+            # Read back the actual positions, not just playlistcontrol count.
+            $verified = Get-QueueTailIds -RequestedPositions $expected.Count
+            if ($verified.total -ne $previousLength -or
+                -not (Test-QueueTailMatches -Actual $verified.ids -Expected $expected)) {
+                throw (
+                    '16 Songs wurden angefuegt, aber Queue-Endreihenfolge weicht ' +
+                    'ab. NICHT wiederholen; Playlist pruefen.'
+                )
+            }
+            Write-Host "=== ERFOLG: $completed Queue-Positionen in Paarreihenfolge angehaengt ==="
+            Write-Host 'Auch wiederholte Songs werden mehrfach gespielt.'
+            Write-Host 'Bereits bestehende Songs unveraendert; keine Wiedergabe gestartet.'
         }
     }
     finally {
