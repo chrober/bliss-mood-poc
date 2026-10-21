@@ -97,6 +97,69 @@ additional separate human-perceptual-similarity dataset for final
 confirmation. Continue recording download/Cargo build/inference
 stage timings. PR #16 remains Draft, main and PR #13/#17 untouched.
 
+## LATEST: MTT sparse-audio E2E and artist-disjoint 48-question holdout
+
+**21 October 2026, Draft PR #16.** No changes to PR #13, PR #17,
+main, personal music, user labels, Lyrion playback or distribution.
+
+- Real multipart ZIP membership [Actions 39589694423](https://github.com/chrober/bliss-mood-poc/actions/runs/39589694423)
+  **PASS**: verified 25,863 ZIP MP3 entries via an **8-MiB**
+  ranged ZIP-tail request; **all 1,019** clip MP3 paths needed for
+  533 human comparison rows found without downloading audio.
+  The 533 rows correspond to only **346 distinct unordered triplets**.
+  Compressed member bytes required for all 1,019 clips: **116,910,845**;
+  entire source archive: **2,972,769,864 bytes**.
+- Sparse real-audio [Actions 39590801662](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662)
+  **PASS**: four high-consensus, artist-distinct development triplets,
+  12 real clips, actual source ZIP member extraction and CRC verification,
+  pinned genuine Rust-v5 in separate PR #17 checkout. All seven original
+  metrics, both model heads, schema-v3 read-only evaluation.
+  **1,385,735 audio bytes** transferred via bounded Range requests;
+  **14.477 s** for network+clip inference with **one worker,
+  `--threads 1`**, 0.019 s for scoring. Mood-Cosine selected
+  majority winner on 3/4 questions, **smoke only, NOT model validation**.
+  Aggregate-only artifact [12341406678](https://github.com/chrober/bliss-mood-poc/actions/runs/39590801662/artifacts/12341406678);
+  no audio or feature vectors uploaded.
+- Independent artist grouping **cannot** split the entire original MTT
+  corpus into multiple connected-component-disjoint partitions:
+  all 214 artist strings and 346 unique triplets form **one connected
+  component**. This is an important limitation of the dataset.
+- Metadata-only design audit [39592331265](https://github.com/chrober/bliss-mood-poc/actions/runs/39592331265)
+  **PASS**: candidate artist-hash holdout reserves at ~20%, ~33%,
+  50% produced development/holdout/mixed-excluded counts
+  **162/4/180**, **86/13/247**, and **31/56/259**, respectively.
+  A **fixed 50% artist-hash policy** was chosen using metadata and
+  artist coverage only, never similarity scores.
+  **Eight** of the 56 potential holdout triplets share an artist
+  with the previous four-triplet smoke; exclude them. Thus **48
+  not-previously-exposed holdout questions** remain, each artist
+  disjoint from the 31 development-only questions under the
+  normalized-name grouping. Tiny and distribution-shifted; not an
+  independent-discography/Discogs-encoder guarantee.
+  Audit speed: ~0.23 s and ~55 MiB peak RSS, no audio.
+- Regression tests Linux and Windows [39592264225](https://github.com/chrober/bliss-mood-poc/actions/runs/39592264225)
+  **PASS**. Earlier failed intermediate CI from synthetic low-consensus
+  fixture (5/3/1) was corrected to truly high-consensus synthetic votes
+  (8/1/1), not by reducing validation gates.
+- The earlier failed duplicate ZIP index workflow was removed; retain
+  only the successful bounded tail reader and its separate small
+  audio-development workflow to avoid duplicate expensive CI runs.
+
+**NEXT MUST-DO BEFORE MORE AUDIO:** The current MTT audio smoke selector
+predates the 50% artist partition. Explicitly enforce the frozen
+artist-hash development partition (and exclude the 48 unexposed
+holdout questions) in any expanded development-run code; test
+artist/sample disjointness. Pre-register consensus/tie/abstention
+policies, paired uncertainty and acceptable performance criteria
+before evaluating holdout **once**. For population-level evaluation
+the original dataset has strong connected-artist dependencies;
+seek a separate source of human similarity judgments for independent
+confirmation. Never pick production metric from four selected
+triplets or claim this 48-question holdout has strong statistical power.
+
+Full design and results:
+[MTT sparse-audio benchmark](magnatagatune-sparse-audio-benchmark-2026-10-21.md).
+
 ## COMPLETED: two official audio-free preflights (21.10.2026)
 
 **MTG-Jamendo**: [GitHub Actions 39586686845](https://github.com/chrober/bliss-mood-poc/actions/runs/39586686845)
