@@ -1,0 +1,55 @@
+name: MagnaTagATune human similarity metadata preflight
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/magnatagatune-metadata-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate parser against synthetic offline fixtures
+        run: python3 -m unittest discover -s tests -p 'test_inspect_magnatagatune_metadata.py'
+      - name: Download official comparisons and clip metadata ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          echo "runner_vcpu=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 240 --silent --show-error \
+            "$base/comparisons_final.csv" -o benchmark-private/comparisons_final.csv
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 240 --silent --show-error \
+            "$base/clip_info_final.csv" -o benchmark-private/clip_info_final.csv
+          test "$(stat -c%s benchmark-private/comparisons_final.csv)" -gt 10000
+          test "$(stat -c%s benchmark-private/clip_info_final.csv)" -gt 200000
+          echo "download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum benchmark-private/* | awk '{print $1"  "(++i)" files verified"}'
+      - name: Inventory released schema and vote/clip counts without audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -f 'metadata_parser_wall_seconds=%e peak_kib=%M' \
+            python3 scripts/inspect_magnatagatune_metadata.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --output results/mtt-metadata-preflight.json
+      - name: Upload only aggregate/schema inventory JSON
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnatagatune-metadata-audit-aggregate
+          path: results/mtt-metadata-preflight.json
+          if-no-files-found: error
+          retention-days: 14
