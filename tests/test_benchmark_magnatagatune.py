@@ -185,10 +185,13 @@ class SparseMttBenchmarkTests(unittest.TestCase):
 
         def ignored_range(argv, **kwargs):
             return SimpleNamespace(returncode=0, stdout="200", stderr="")
-        with patch.object(mtt.subprocess, "run", side_effect=ignored_range):
-            with self.assertRaisesRegex(RuntimeError, "HTTP range download failed"):
-                source._part_range(1, 12, 15)
+        with patch.object(mtt.time, "sleep") as delayed:
+            with patch.object(mtt.subprocess, "run", side_effect=ignored_range):
+                with self.assertRaisesRegex(RuntimeError, "HTTP range download failed"):
+                    source._part_range(1, 12, 15)
+            self.assertTrue(delayed.called)
         self.assertEqual(source.total_bytes, 4)
+        self.assertGreater(source.range_pacing_sleep_seconds, 0)
 
     def test_scoring_is_aggregate_only_and_read_only(self):
         groups, cat = mtt.triplets_by_vote(self.comparisons, self.clips)
