@@ -365,24 +365,23 @@ current roadmap or verified subsequent studies.
 > remain explicit. No metric winner, user-library scan, public music
 > artifacts, mixing decision, main merge or PR #13/#17 changes.
 >
-> **CURRENT HANDOVER (21 October 2026): Similarity-Metriken auf Rust-v5-Daten, Draft-PR #16.**
-> Das folgende Scanner-/Worker-Handover vom 19. Oktober ist historisch,
-> nicht die aktuelle Aufgabenliste. Maßgeblich ist das
-> [Similarity-Hörtest-Handover vom 21.10.2026](similarity-listening-review-handover-2026-10-21.md).
-> **Neuer Status: Die ersten acht menschlichen Hörurteile liegen vor; der
-> read-only Evaluator lief erfolgreich.** Genre: 0 positive und 8 negative
-> Paare (keine ROC-AUC definierbar); Mood/Theme: 4 positive, 4 negative
-> Paare, Cosine und Centered Cosine je AUC 0,5625, andere Metriken
-> 0,3125–0,5000. Historisches Mood-Top-K mit absolutem Cutoff liefert
-> für alle vier positiven Pilotpaare Null. Keine fehlenden Vektoren.
-> Dies sind **unsichere, selektiv ausgewählte Piloturteile**, keine
-> unabhängige Validierung und kein Nachweis für eine beste Metrik.
-> Nächsten Evaluations- bzw. Hörschritt **mit dem Benutzer vereinbaren**;
-> vorher keine eigenmächtigen Experimente oder Änderungen an Queue/Code.
-> Private CSV, JSON, Auswahl-Audit, Feature-DB und Audiodateien lokal
-> belassen. PR #13 und #17 bleiben separat und Draft, `main` unverändert.
-> Bei Bedarf ausschließlich vollständige PowerShell-`& { ... }`-Blöcke.
-
+> **Historical status (October 21, 2026): similarity evaluation on corrected Rust-v5, Draft PR #16.**
+> The scanner/worker handover from October 19 is historical,
+> not the current task list. Refer to the
+> [local listening-review handover](similarity-listening-review-handover-2026-10-21.md).
+> **The first eight human judgments were received and evaluated read-only.**
+> Genre had 0 positive and 8 negative pairs, so ROC-AUC was undefined;
+> Mood had 4 positives and 4 negatives, with cosine and centered cosine
+> each yielding AUC 0.5625. Other methods ranged from 0.3125 to 0.5000.
+> Historical fixed-cutoff Mood Top-K returned zero similarity
+> for all four positive pilot pairs. No feature vectors were missing.
+> These are uncertain, actively selected pilot ratings, **not independent
+> evidence of a best metric**. Plan subsequent diagnostics and listening
+> steps with the user; do not autonomously alter the queue,
+> private data, or production code. Keep reviewed CSV, JSON,
+> selection-audit, feature DB and audio local.
+> PR #13 and PR #17 remain separate; `main` is unchanged.
+> Any PowerShell commands must be complete `& { ... }` blocks.
 
 > **21.10.2026 – Current executable next step:** PR #16 now includes
 > a targeted read-only --pair-details-only option in
