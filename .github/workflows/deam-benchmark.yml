@@ -48,7 +48,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          cargo build --release --locked
+          cargo build --release
+          # A tracked Cargo.lock is not yet present on this research branch.
+          # The build uses Cargo's resolved lock in this ephemeral runner;
+          # pinning/committing a lock remains follow-up work.
           ./target/release/bliss-mood analyze-features --help
 
       - name: Download Essentia model files (do not redistribute)
