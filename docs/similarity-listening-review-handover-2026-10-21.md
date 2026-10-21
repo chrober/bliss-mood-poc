@@ -374,12 +374,15 @@ outdated interim priorities.
 >
 
 
-**Stand:** 21. Oktober 2026, Europe/Vienna.  
+**Historical snapshot date:** October 21, 2026, Europe/Vienna.  
 **Repository:** [chrober/bliss-mood-poc](https://github.com/chrober/bliss-mood-poc)  
-**Aktiver Branch:** `feat/similarity-metric-evaluation`  
-**Aktiver PR:** [#16 – Evaluate Genre and Mood similarity metrics on real feature sidecars](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, nicht gemergt**.  
-**Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
-
+**Branch:** `feat/similarity-metric-evaluation`  
+**Pull request:** [#16 — Evaluate Genre and Mood similarity metrics](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, not merged**.  
+**Original head revision when this historical snapshot was authored:**
+`b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`.
+Always check the current GitHub branch head before acting.
+The current research status is in the
+[central roadmap](similarity-lyrion-roadmap.md).
 
 ## FMA Genre benchmark corrected run CONFIRMED PASS
 
