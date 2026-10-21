@@ -45,11 +45,25 @@ jobs:
               --comparisons benchmark-private/comparisons_final.csv \
               --clips benchmark-private/clip_info_final.csv \
               --output results/mtt-metadata-preflight.json
+      - name: Verify vote parser on synthetic triplets
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+      - name: Audit official outlier votes and unique needed clips, no audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -f 'vote_audit_wall_seconds=%e peak_kib=%M' \
+            python3 scripts/audit_magnatagatune_votes.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --report results/mtt-human-triplet-votes.json
+
       - name: Upload only aggregate/schema inventory JSON
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: magnatagatune-metadata-audit-aggregate
-          path: results/mtt-metadata-preflight.json
+          path: |
+            results/mtt-metadata-preflight.json
+            results/mtt-human-triplet-votes.json
           if-no-files-found: error
           retention-days: 14
