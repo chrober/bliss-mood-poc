@@ -5,6 +5,28 @@ Experimental Rust CLI for capability-based music feature analysis using MTG/Esse
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
+## Windows real-audio parity checkpoint (2026-10-21)
+
+**Original Essentia C++ and corrected Rust-v5 feature scores agree within the
+unchanged 0.001 maximum per-class tolerance** on the already completed
+100-real-MP3-song cohort (14,500 scores, four and six Rust workers),
+controlled bit-identical decoded WAV24/FLAC, and two original independent
+lossless downloads (48 kHz/24-bit FLAC, 44.1 kHz/16-bit WAV).
+Those tests are finished; do not unnecessarily rescan private music.
+The CLI's original C++ frontend remains opt-in
+(`--audio-backend essentia --essentia-worker ...`); the previous Rust
+DSP remains available. Adaptive worker telemetry was exercised, but
+no actual dynamic worker increase/decrease occurred in the six-worker run.
+
+[Release qualification, including source evidence and the read-only
+Windows native dev-kit auditor](docs/release-qualification-gates.md) and
+[licensing/distribution strategy](docs/essentia-licensing-distribution-strategy.md)
+remain authoritative. **This is technical parity evidence, not permission
+to redistribute Essentia AGPL, FFmpeg native DLLs or third-party models.**
+The existing test kit deliberately declares
+`release_approved=false`; public/production distribution is blocked
+pending manual review. Draft PR #17 is separate from similarity PR #16.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with
