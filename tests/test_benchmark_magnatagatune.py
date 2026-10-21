@@ -131,6 +131,40 @@ class SparseMttBenchmarkTests(unittest.TestCase):
         with self.assertRaises((ValueError, zlib.error)):
             mtt.extract_mp3(mtt.member_lookup(members, "1.mp3"), getter)
 
+    def test_frozen_128_artist_partition_excludes_holdout_from_audio_selection(self):
+        import audit_magnatagatune_holdout as holdout
+
+        artists_dev = [f"FrozenDev {i}" for i in range(200)
+                       if holdout.artist_bucket(f"frozendev {i}") == "development"][:12]
+        artists_hold = [f"FrozenHold {i}" for i in range(200)
+                        if holdout.artist_bucket(f"frozenhold {i}") == "holdout"][:3]
+        self.assertEqual((len(artists_dev), len(artists_hold)), (12, 3))
+        with self.clips.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["clip_id", "track_number", "title", "artist", "album",
+                             "url", "segmentStart", "segmentEnd", "original_url", "mp3_path"])
+            for ident, artist in enumerate(artists_dev + artists_hold, 1):
+                writer.writerow([ident, ident, f"Track {ident}", artist, "Album",
+                                 "url", 0, 30, "orig", f"{ident}.mp3"])
+        with self.comparisons.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(mtt.COMPARISON_FIELDS)
+            for first in (1, 4, 7, 10, 13):
+                ids = [str(i) for i in (first, first + 1, first + 2)]
+                writer.writerow([*ids, 8, 1, 1, *(f"{ident}.mp3" for ident in ids)])
+
+        groups, catalog = mtt.triplets_by_vote(self.comparisons, self.clips)
+        selected, proof = mtt.frozen_artist_development_selection(groups, catalog)
+        self.assertEqual(len(selected), 4)
+        self.assertEqual(proof["holdout_triplets_never_scored"], 1)
+        self.assertEqual(proof["mixed_triplets_excluded"], 0)
+        self.assertNotIn(("13", "14", "15"), selected)
+        for triple in selected:
+            self.assertTrue(all(holdout.artist_bucket(catalog[i]["artist"], 128)
+                                == "development" for i in triple))
+        self.assertEqual(proof["development_partition_sha256"],
+                         holdout.digest_triplets(selected))
+
     def test_scoring_is_aggregate_only_and_read_only(self):
         groups, cat = mtt.triplets_by_vote(self.comparisons, self.clips)
         chosen = mtt.dev_selection(groups, cat, count=4, seed=20261021)
