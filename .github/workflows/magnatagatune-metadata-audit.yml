@@ -60,6 +60,8 @@ jobs:
 
       - name: Validate deterministic artist-disjoint holdout audit (offline)
         run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+      # Synthetic vote fixtures now meet the same strong-consensus
+      # precondition as the original four-triplet development smoke.
       # Freeze 50% reserve after metadata-only feasibility; additionally
       # exclude holdout questions sharing artists with the earlier smoke.
       # Compare 20%, 33%, and 50% artist-hash reserve designs using
