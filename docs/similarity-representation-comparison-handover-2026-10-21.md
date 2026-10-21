@@ -340,3 +340,61 @@ Das reproduzierbare, nur aggregierte
 [GitHub-Artefakt](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)
 enthält die Ergebnisberichte v1, v2 und
 das synthetische Paritätsprotokoll.
+
+## CI-Fehlerkorrektur und nächster Evidenzschritt (21.10.2026, nach A/B/C)
+
+Der [MTT-Run 39621028716, Job 119294123082](https://github.com/chrober/bliss-mood-poc/actions/runs/39621028716/job/119294123082)
+brach **beim erweiterten synthetischen Vierprozess-Paritätsgate** ab
+(`AssertionError: Expected all four independent process-level worker outputs`).
+Es ist ein **Fehler im Python-Test-Harness**, keine im Log nachgewiesene
+Rust-Inferenzabweichung: `glob("process-worker-*.json")` nahm sowohl die
+vier Embedding-Dateien `process-worker-1.json` … `-4.json` als
+auch die vier JSON-Klassifikationsberichte
+`process-worker-heads-1.json` … `-4.json` auf. Der Workflow
+hatte vorher bereits Rust-Unit-Tests, Release-Build, Downloads
+und vier parallele Prozesse erfolgreich abgeschlossen.
+
+**Korrektur ausschließlich in PR #16:**
+- `scripts/check_song_embedding_smoke.py` filtert exakt nummerierte
+  `process-worker-N.json`-Embedding-Dateien über `fullmatch`;
+  `--require-process-workers` zwingt vier vollständige Ausgaben
+  und kann nicht stillschweigend bei komplett fehlenden Dateien PASS liefern.
+- `.github/workflows/research-mtt-embedding-ab.yml` setzt das
+  zusätzliche Flag im neuen Concurrent-Worker-Gate.
+- `tests/test_check_song_embedding_smoke.py` bildet den
+  ursprünglichen Fehler nach (vier Embeddings plus vier Heads) und
+  überprüft fehlende, zusätzliche und insgesamt fehlende Worker;
+  `.github/workflows/python-checks.yml` führt diese Tests auf
+  Linux **und** Windows aus.
+
+Ein neuer Workflow wurde automatisch durch den
+Änderungscommit ausgelöst:
+[MTT-Forschungs-Workflow Run 39622530049](https://github.com/chrober/bliss-mood-poc/actions/runs/39622530049).
+Die endgültigen Results und den vierten
+Worker-Paritätsnachweis erst dann als PASS berichten,
+wenn der Run beendet ist. Die zuvor komplett
+erfolgreichen A/B/C-Resultate aus Run 39619708040
+bleiben unverändert. Ein bloßer Fehler des Testglobs
+widerlegt keine vorangegangene Messung.
+
+**Nächste Forschungspriorität – unabhängige, gleichgepaarte
+A-vs-B-Replikation, noch keine weitere MTT-Optimierung:**
+erst FMA-Small **katalogbereinigte VALIDATION** (80 Songs)
+mit unverändertem offiziellen TEST-Split,
+danach DEAM-development/validation (Valence/Arousal
+nur als Stimmung-Proxy).
+Für jeden Datensatz auf den **identischen** Clipausschnitten
+1280D-Cosine gegen vorhandene 87D/56D-Baselines,
+identische Grundgesamtheit, gültige Vorhersageabdeckung,
+katalog-/künstlerbewusste Abhängigkeitsanalyse und
+gepaarte Scores gegenüberstellen.
+Trainingskatalogüberschneidungen auch beim Encoder beachten.
+MTT (346 vollständig erforschte Tripel) ist **kein Holdout**.
+Unabhängige menschliche Klangähnlichkeits- und
+Playlist-Übergangsreferenzen bleiben das entscheidende
+separate Evidenzziel. Kontrastiv trainierte
+Discogs-Embedding-Modelle sind eine spätere **eigene
+Modellfamilie** mit eigenen Hashes/Provenienz.
+Keine Fusion-Gewichte an MTT nachoptimieren und keine
+Lyrion-Mixer-Änderung daraus ableiten. PR #16 Draft;
+PR #13, PR #17 und `main` unangetastet.
