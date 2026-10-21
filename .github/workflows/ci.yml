@@ -19,6 +19,8 @@ jobs:
 
       - name: Evaluate similarity metrics on read-only synthetic feature fixture
         run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Verify FMA-Small metadata split/parser on synthetic data
+        run: python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
       - name: Validate conservative DEAM vs MTG catalog screening (no external data)
         run: python3 -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
       - name: Validate DEAM metadata and offline similarity benchmark fixtures
@@ -39,6 +41,8 @@ jobs:
           python-version: '3.13'
       - name: Verify SQLite handles close before tempdir cleanup
         run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Verify FMA-Small metadata schema and artist split checks on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
       - name: Validate metadata-only DEAM/MTG overlap audit on Windows
         run: python -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
       - name: Validate DEAM archive matching, independent V/A retrieval and read-only reports
