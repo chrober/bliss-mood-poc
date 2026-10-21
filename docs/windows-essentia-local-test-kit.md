@@ -4,11 +4,34 @@ Purpose: Use the real Windows bliss-mood.exe scanner with the original Essentia
 C++ worker to generate experimental schema-v3 feature sidecars for the
 separate PR #16 similarity research. NOT PRODUCTION APPROVED.
 
+## Availability of this historical development ZIP (21 October 2026)
+
+**New public GitHub Actions uploads of the native 100-file EXE/DLL
+development ZIP are temporarily suspended** until native-source,
+AGPL/FFmpeg/MSYS2 license and model rights receive explicit review.
+The existing public repository is not a private internal binary
+distribution. Windows CI **still builds and tests** the original worker
+and generates safe license-evidence diagnostics, but it does not
+publish a fresh native ZIP as a public artifact. Historical artifacts
+may still be downloadable; their existing status is **not changed**
+by this branch. Do not automatically mirror/repackage them.
+
+If the kit was already downloaded for the private development parity
+and similarity research, continue using that *exact verified local kit*
+instead of relying on a fresh Actions artifact. Release strategy,
+user-installed prerequisites and source-build alternative are
+documented in
+[Essentia licensing and distribution strategy](essentia-licensing-distribution-strategy.md)
+and [release qualification](release-qualification-gates.md).
+**These documents do not grant permission to redistribute binaries.**
+
 ## Download and unpack
 
 Open https://github.com/chrober/bliss-mood-poc/actions/workflows/native-essentia-windows.yml
-Open the most recent successful run on draft PR #17 and download the artifact
-named bliss-mood-essentia-windows-x64-dev from its Artifacts section.
+**Historical method only:** Prior successful public PR #17 runs included
+an artifact named bliss-mood-essentia-windows-x64-dev. New public
+uploads are now disabled. Do not expect the latest CI run to contain
+this artifact or use this paragraph as permission for redistribution.
 Extract it to D:\LMS\essentia-cli-test or another local directory.
 
 The kit contains bliss-mood.exe; essentia-worker/bliss-essentia-worker.exe
