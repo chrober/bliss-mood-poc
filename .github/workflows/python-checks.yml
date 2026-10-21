@@ -1,13 +1,9 @@
 name: Python and PowerShell tests
 
 on:
+  # Execute exactly once for an in-repository push touching script/tests.
+  # Manual dispatch remains available for exceptional cases.
   push:
-    branches: [main]
-    paths:
-      - 'scripts/**'
-      - 'tests/**'
-      - '.github/workflows/python-checks.yml'
-  pull_request:
     paths:
       - 'scripts/**'
       - 'tests/**'
