@@ -1,9 +1,17 @@
 & {
     # Complete copy/paste script. Dry-run by default.
     $ErrorActionPreference = 'Stop'
-    $Server = 'http://192.168.1.111:9000/jsonrpc.js'
-    $PlayerId = 'aa:aa:26:69:17:61' # Kueche, independent of encoding
-    $Csv = 'D:\LMS\bliss-mood-poc\benchmark-similarity-v5-pilot-20261021-074316\listening-pairs-review-first8.csv'
+    # Set the following three environment variables in your local shell.
+    # Do not commit private LAN addresses, player IDs or audio paths.
+    $Server = [string]$env:LYRION_SERVER_URL
+    $PlayerId = [string]$env:LYRION_PLAYER_ID
+    $Csv = [string]$env:LYRION_LISTENING_CSV
+
+    if ([string]::IsNullOrWhiteSpace($Server) -or
+        [string]::IsNullOrWhiteSpace($PlayerId) -or
+        [string]::IsNullOrWhiteSpace($Csv)) {
+        throw 'Set LYRION_SERVER_URL, LYRION_PLAYER_ID and LYRION_LISTENING_CSV before running this script.'
+    }
     $Apply = $false  # Change to $true only after a complete successful preview.
 
     Add-Type -AssemblyName System.Net.Http
