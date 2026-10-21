@@ -153,6 +153,52 @@ class FmaGenreBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Too few valid|Too many anomalous"):
             fma.match_audio(self.audio, songs)
 
+    def test_catalog_exclusion_uses_only_official_validation_and_preserves_test(self):
+        audit_mtg = self.root / "mtg.meta.tsv"
+        sample_metadata = self.root / "full_metadata.zip"
+        archive_text = io.StringIO(newline="")
+        writer = csv.writer(archive_text)
+        writer.writerow(["", "set", "set", "track", "track", "artist", "artist"])
+        writer.writerow(["", "subset", "split", "genre_top", "title", "id", "name"])
+        mtg_rows = ["track_id\tartist_name\ttrack_name"]
+        expected = set()
+        for group, genre in enumerate(self.genres):
+            for i in range(100):
+                tid = 500000 + group * 100 + i
+                title = f"Example Song {tid}"
+                artist = f"Example Artist {tid}"
+                writer.writerow([tid, "small", "validation", genre,
+                                 title, tid, artist])
+                if (genre == "Hip-Hop" and i < 35) or (genre == "Folk" and i < 7):
+                    mtg_rows.append(f"{tid}\t{artist}\t{title}")
+                    expected.add(f"{tid:06d}")
+        # A TEST row with missing identity/label must never be
+        # interpreted or cause filtered-validation parsing to fail.
+        writer.writerow(["TEST", "small", "test", "", "", "", ""])
+        writer.writerow([499999,"small","training","Rock",
+                         "Training Example",499999,"Artist Training"])
+        with zipfile.ZipFile(sample_metadata, "w") as out:
+            out.writestr("fma_metadata/tracks.csv", archive_text.getvalue())
+        audit_mtg.write_text("\n".join(mtg_rows) + "\n", encoding="utf8")
+        songs = fma.load_fma_small(sample_metadata, include_artist_title=True)
+        self.assertNotIn("TEST", songs)
+        self.assertEqual(len(songs), 801)
+        flagged, stats = fma.screen_mtg_catalog_matches(songs, audit_mtg, "validation")
+        self.assertEqual(flagged, expected)
+        self.assertEqual(stats["possible_catalog_matches_excluded"], 42)
+        self.assertEqual(stats["validation_eligible_after_exclusion"], 758)
+        candidates = {tid:tid for tid,song in songs.items()
+                      if song["split"]=="validation" and tid not in flagged}
+        selected = fma.balanced_sample(songs, candidates,
+                                      "validation", 10, 20261021)
+        self.assertEqual(len(selected),80)
+        self.assertFalse(set(selected) & flagged)
+        self.assertEqual(len({songs[k]["artist"] for k in selected}),80)
+        self.assertNotIn("Example Artist",json.dumps(stats))
+        self.assertIn("NOT_verified",stats["status"])
+        with self.assertRaisesRegex(ValueError, "Only official FMA VALIDATION"):
+            fma.screen_mtg_catalog_matches(songs,audit_mtg,"training")
+
     def test_zero_overlap_is_not_invented_as_neighbor(self):
         p, ap, ndcg = fma._retrieval([False, False, True, True, False], 2, 5)
         self.assertEqual(p, .4)
