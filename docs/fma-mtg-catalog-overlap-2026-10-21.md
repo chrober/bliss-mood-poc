@@ -149,3 +149,57 @@ quality or benchmark speedup.
 
 No main merge, production similarity setting,
 Lyrion user-library scan, or changes to PR #13/#17.
+
+
+## Verified filtered 80-song FMA Genre retrieval run
+
+**PASS**: [GitHub Actions 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307),
+[aggregate-only artifact 12349595666](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307/artifacts/12349595666).
+Official FMA-Small audio archive/metadata and canonical ONNX
+encoder/Genre head were used. The early metadata screen confirmed
+the **42** exact artist/title catalog candidates among **800
+official VALIDATION songs**, leaving **758** possible candidates.
+After indexing FMA-Small audio, size checking and artist-distinct
+balanced seeded sampling, **80 distinct-artist VALIDATION
+recordings** (10 of each of eight top-level genres) were analyzed
+with the immutable verified Rust-v5 analyzer. Official TEST
+audio, genres, artists, titles and identifiers were NOT evaluated.
+
+| Metric | Previous unfiltered Validation P@5 | Filtered Validation P@5 | Filtered mAP@10 | Filtered nDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| RMS | 0.3175 | 0.3000 | 0.1624 | 0.2819 |
+| Cosine | 0.3500 | 0.3200 | 0.1749 | 0.2985 |
+| Centered Cosine | 0.3525 | **0.3225** | **0.1781** | 0.3043 |
+| Weighted Jaccard | 0.3550 | 0.3000 | 0.1719 | 0.2933 |
+| Historical cutoff Top-K | 0.3150 | 0.3025 | 0.1719 | 0.3014 |
+| Ranked Top-6 | 0.3150 | 0.3125 | 0.1752 | **0.3048** |
+| Ranked Top-12 | 0.3400 | 0.3050 | 0.1740 | 0.3000 |
+
+The balanced cohort's expected random P@5 baseline is
+**9/79 = 0.113924**. All seven FMA filtered retrieval
+metrics reported **80 queries**. These are **different
+validation samples**, not paired repeated-measures experiments.
+For example, the 0.3525 → 0.3225 Centered Cosine difference
+is NOT evidence that excluding training-overlap candidates
+reduced model quality or revealed a 3-percentage-point
+optimism bias. The source catalog match itself does not
+prove model training exposure.
+
+**Measured GH Actions evidence:** The Rust-v5 executable
+cache was a true HIT; the Rust toolchain and release build
+steps were skipped. The canonical FMA metadata was
+screened before downloading ~7.2-GiB original FMA-Small
+audio. The workflow logged the audio-archive completion
+around 13:22:48 UTC and the final metrics at 13:23:49 UTC.
+The full audio inference used serial `--threads 1`,
+not adaptive or multi-worker mode. No FMA audio
+was committed, uploaded or stored in a cache.
+
+Next: if additional effort on FMA is justified,
+use a **larger frozen, artist-aware validation cohort**
+and paired query-level metric comparisons, with genre
+stratification and explicit Top-K abstention coverage.
+Maintain the TEST embargo until evaluation rules
+are frozen. For stronger independence from classifier
+training data, audit the actual model training split
+and Discogs encoder corpus where possible.
