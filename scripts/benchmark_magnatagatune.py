@@ -29,6 +29,8 @@ import zipfile
 import audit_magnatagatune_archive as directory
 from audit_magnatagatune_votes import read_clips, dict_reader, COMPARISON_FIELDS
 import evaluate_similarity as ev
+from mtt_local_archive import LocalMultipartRanges
+from mtt_parallel_workers import analyze_parallel
 
 BASE = "https://mirg.city.ac.uk/datasets/magnatagatune/"
 # Frozen from metadata-only run 39592331265, artifact 12342707931;
@@ -402,8 +404,12 @@ def main() -> None:
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--part-sizes", type=int, nargs=3, required=True)
     p.add_argument("--development-triplets", type=int, default=4)
-    p.add_argument("--selection-mode", choices=("smoke", "frozen-development"),
+    p.add_argument("--selection-mode",
+                   choices=("smoke", "frozen-development", "all-exploratory"),
                    default="smoke")
+    p.add_argument("--workers", type=int, choices=(1, 2, 3, 4), default=1)
+    p.add_argument("--local-archive-parts", type=Path, nargs=3,
+                   help="Three complete and verified official ZIP parts, only runner-private")
     p.add_argument("--seed", type=int, default=20261021)
     args = p.parse_args()
     if args.db.exists() or args.report.exists():
@@ -413,12 +419,19 @@ def main() -> None:
             p.error(f"Missing required input {path}")
     if not args.models_dir.is_dir():
         p.error("Models directory missing")
-    if args.selection_mode == "frozen-development":
+    if args.selection_mode in ("frozen-development", "all-exploratory"):
         if (digest(args.comparisons) != REGISTERED_MTT_COMPARISONS_SHA256
                 or digest(args.clips) != REGISTERED_MTT_CLIPS_SHA256):
             raise ValueError("Frozen artist benchmark source CSV hashes changed")
     triplets, clips = triplets_by_vote(args.comparisons, args.clips)
-    if args.selection_mode == "frozen-development":
+    if args.selection_mode == "all-exploratory":
+        if args.seed != 20261021:
+            p.error("Full exploratory cohort must use pinned metadata and seed")
+        selected = sorted(triplets)
+        if len(selected) != 346 or len({k for group in selected for k in group}) != 1019:
+            raise ValueError("Pinned MTT all-triplet/clip cardinality mismatch")
+        partition_stats = None
+    elif args.selection_mode == "frozen-development":
         if args.development_triplets != 4 or args.seed != 20261021:
             p.error("Frozen-development mode uses the registered 128/256 split and seed")
         selected, partition_stats = frozen_artist_development_selection(triplets, clips)
@@ -433,24 +446,59 @@ def main() -> None:
     members, zipinfo = directory.zip_member_directory(args.tail, args.part_sizes)
     for ident in {c for triple in selected for c in triple}:
         member_lookup(members, clips[ident]["mp3_path"])
-    fetcher = RangeFetcher(args.part_sizes)
+    if args.local_archive_parts:
+        fetcher = LocalMultipartRanges(args.local_archive_parts, args.part_sizes)
+    else:
+        fetcher = RangeFetcher(args.part_sizes)
     start = time.monotonic()
-    diagnostic = run_inference(args.binary, args.models_dir, args.db,
-                               selected, clips, members, fetcher)
+    if args.workers > 1:
+        keys = sorted({ident for triple in selected for ident in triple})
+        def tasks():
+            for ident in keys:
+                info = member_lookup(members, clips[ident]["mp3_path"])
+                yield f"MTT/{ident}.mp3", extract_mp3(info, fetcher)
+        diagnostic = analyze_parallel(
+            args.binary, args.models_dir, args.db, tasks(),
+            {f"MTT/{ident}.mp3" for ident in keys}, args.workers
+        )
+        diagnostic.update({
+            "http_range_requests": fetcher.requests if not args.local_archive_parts else 0,
+            "downloaded_audio_zip_bytes": fetcher.total_bytes if not args.local_archive_parts else 0,
+            "local_zip_bytes_read": fetcher.total_bytes if args.local_archive_parts else 0,
+            "http_request_min_spacing_s": fetcher.min_request_spacing_seconds,
+            "http_range_pacing_sleep_seconds":
+                round(fetcher.range_pacing_sleep_seconds, 3),
+        })
+    else:
+        diagnostic = run_inference(args.binary, args.models_dir, args.db,
+                                   selected, clips, members, fetcher)
+        if args.local_archive_parts:
+            diagnostic["local_zip_bytes_read"] = fetcher.total_bytes
+            diagnostic["downloaded_audio_zip_bytes"] = 0
+            diagnostic["http_range_requests"] = 0
     score_begin = time.monotonic()
     results = evaluate(args.db, selected, triplets)
     result = {
-        "schema": ("magnatagatune-frozen-artist-development-v1"
+        "schema": ("magnatagatune-all-exploratory-v1"
+                   if args.selection_mode == "all-exploratory" else
+                   "magnatagatune-frozen-artist-development-v1"
                    if partition_stats else "magnatagatune-odd-one-out-development-smoke-v1"),
-        "status": ("frozen_128_256_artist_development_only_NOT_holdout"
+        "status": ("ALL_346_EXPLORATORY_NO_UNSEEN_MTT_HOLDOUT"
+                   if args.selection_mode == "all-exploratory" else
+                   "frozen_128_256_artist_development_only_NOT_holdout"
                    if partition_stats else "research_smoke_only_not_a_holdout_or_metric_selection"),
         "source": "https://mirg.city.ac.uk/datasets/magnatagatune/",
         "triplets_scored": len(selected),
         "unique_clip_ids": len({x for triple in selected for x in triple}),
         "seed": args.seed,
         "selection_consensus_minimum": None if partition_stats else 0.7,
-        "sampling_policy": ("all_frozen_development_triplets_no_consensus_selection"
-                            if partition_stats else "high_consensus_disjoint_artist_dev_only"),
+        "sampling_policy": (
+            "all_346_unique_unordered_triplets_including_former_holdout"
+            if args.selection_mode == "all-exploratory" else
+            "all_frozen_development_triplets_no_consensus_selection"
+            if partition_stats else "high_consensus_disjoint_artist_dev_only"),
+        "archive_transfer_policy": ("full_multipart_staged_locally_once"
+                                    if args.local_archive_parts else "sparse_http_206_per_clip"),
         "frozen_artist_partition": partition_stats,
         "selection_sha256": hashlib.sha256(
             "\n".join(",".join(t) for t in selected).encode("utf8")
@@ -468,7 +516,8 @@ def main() -> None:
         "limitations": [
             "Small same-corpus DEVELOPMENT study or 4-triplet technical smoke; not independent validation.",
             "Frozen development includes all eligible triplets regardless of human vote consensus; smoke selection is high-consensus biased.",
-            "The reserved 48 previously-unexposed artist-holdout triplets must NOT be scored until preregistration.",
+            "In full exploratory mode the original 48 reserved questions ARE analyzed: there is NO independent MTT holdout remaining.",
+            "In frozen development mode no artist holdout question is scored.",
             "Original corpus includes 533 ordered rows but fewer unique unordered triplets.",
             "All clip audio temporary; only grouped aggregate metrics published.",
             "Human voting represents general perceived similarity, not Genre/Mood ground truth.",
