@@ -180,207 +180,106 @@ The current seven metrics have been evaluated on already-pooled **87D Genre / 56
 The next controlled experiment explicitly compares **A: per-head classification similarity**, **B: pooled direct 1,280D embedding cosine**, and **C: calibrated/rank-based task-aware fusion**, using identical clips and reference questions with strict cohort provenance. See [the canonical new-session handover](similarity-representation-comparison-handover-2026-10-21.md) for definitions, 1280D export/pooling design, reproducibility/parity gates, external Essentia/cosine.club precedents, CI costs, ground-truth caveats and prioritized implementation. Do not confuse fusion of similarity signals with Lyrion's separate Bliss-first / Feature-first / Hybrid candidate-admission strategy choice. Official FMA TEST remains unexamined, full MTT is exploratory, and no production choice has been made.
 
 
-## Nachtrag: geplanter Repräsentations-A/B statt neue Evidenz (21.10.2026)
+## Representation A/B research: now measured on MTT and FMA (2026-10-21)
 
-Für bereits untersuchte Klassifikationsvektoren bleiben alle
-vorherigen FMA/DEAM/MTT-Zahlen unverändert. Der neue
-[MTT-Embedding-A/B-Workflow](../.github/workflows/research-mtt-embedding-ab.yml)
-und sein [gepaarter Evaluator](../scripts/evaluate_mtt_embedding_ab.py)
-führen `embedding_cosine` gegen vier Genre/Mood-Cosine-Varianten
-auf exakt denselben Audiodateien und 293 mehrheitsentscheidbaren
-menschlichen Tripeln aus. Aus dem Anlegen eines Workflows folgt
-**kein empirischer Qualitätssieg**. Ein gültiger A/B-Bericht setzt
-cache-verifizierte 1019 Clips, Encoder/Audio-Hash-Parität,
-genau 346 Fragen und ein vollständig bestandenes
-Research-Smoke-/Python-CI-Gate voraus. Weiterhin kein
-unberührter MTT-Holdout, offizieller FMA-TEST ungenutzt
-und keine bestätigte Unabhängigkeit vom Trainingskorpus.
+This update supersedes the historical plan above, which correctly
+described the state *before* embedding-export experiments.
+Subsequent pinned Rust-v5 research runs evaluated **direct 1280D
+Discogs-EffNet mean+L2 cosine** (approach B) against Genre/Mood
+classifier-head similarities (approach A), with the same audio
+and human/reference questions.
 
-## Verifiziert: erster vollständiger Embedding-A/B auf identischer MTT-Cohort (21.10.2026)
+### Human odd-one-out evidence: complete MTT research set
 
-**Achtung – ersetzt die oben noch als ausständig bezeichnete
-A/B-Messung.** [Run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
-ist **PASS**; 1019 Cache-Clips CRC-validiert, exakt 346
-explorative Menschenfragen, davon 293 mehrheitsentscheidbar.
-Auf denselben Aufnahmen lieferte **direkte 1280D-Cosine
-182/293 = 62,12 %**, Genre-Cosine **191/293 = 65,19 %**,
-Mood-Cosine **192/293 = 65,53 %** und
-Mood-Centered-Cosine **193/293 = 65,87 %**.
-Alle vier hatten wie das Embedding **100 % Abdeckung**.
-Das Embedding lag gegenüber Mood-Centered-Cosine um
-**−3,754 Prozentpunkte** zurück (nur Embedding korrekt 27,
-nur Mood-Centered korrekt 38). Naives gepaartes
-95-%-Tripel-Resampling für den Unterschied:
-**−9,215 bis +1,365 Prozentpunkte**; wegen
-Abhängigkeiten **kein unabhängiges Populations-CI**.
-Auch Künstlergewichts-Sensitivitäten sind kein valides
-Konfidenzintervall. Die Kausalinterpretation und
-Generalisierbarkeit bleiben offen.
+[MTT paired A/B run 39617159250](https://github.com/chrober/bliss-mood-poc/actions/runs/39617159250)
+PASS, with synthetic pooling/thread/SQLite regression
+[run 39618323154](https://github.com/chrober/bliss-mood-poc/actions/runs/39618323154)
+PASS. Of 346 unique unordered human questions, 293 have a
+unique majority outlier and 53 tie; all 1,019 referenced
+clips were covered. On the same 293 denominator:
 
-Der vorherige unabhängige synthetische Rust-Smoke
-[Run 39616222834](https://github.com/chrober/bliss-mood-poc/actions/runs/39616222834)
-bestand Rust-Unit-Tests und Release-Kompilierung,
-brach aber beim externen Modell-Download wegen
-`essentia.upf.edu`-Netzwerk-Timeout ab. Deshalb
-wurde ein **synthetisches off/on/Pooling/Threads-Paritätsgate
-vor den 1019er-Lauf** des neuen A/B-Workflows
-hinzugefügt; dessen nachfolgenden Run erst auf
-PASS prüfen, bevor dieses Gate als bestätigt gilt.
+| Representation | Correct / 293 | Agreement |
+| --- | ---: | ---: |
+| Direct 1280D cosine | 182 | 62.116% |
+| Genre cosine | 191 | 65.188% |
+| Mood cosine | 192 | 65.529% |
+| Genre centered cosine | 191 | 65.188% |
+| Mood centered cosine | **193** | **65.870%** |
 
-Vollständiger Studienbericht mit Methoden,
-Paar-Discordanzen, statistischer Unsicherheit,
-CI-Runs, Fingerprints, Limitierungen und nächstem
-Evidenz-Gate:
-[Audio-Embedding vs. Kopf-Baselines: MTT-A/B-Resultate](similarity-audio-embedding-ab-results-2026-10-21.md).
-**Keine Fusion-Kalibrierung, keine Produktionsentscheidung,
-kein erneuter MTT-Holdout, kein FMA-TEST, kein Merge.**
+The paired embedding-minus-Mood-centered difference is
+**−3.754 percentage points**. Naive paired query resampling
+sensitivity spans **−9.215 to +1.365 pp**, not an independent
+population CI. Training-catalog overlap and repeated artists/
+songs mean there is no fresh MTT holdout.
 
-## Verifiziert: vollständiger explorativer A/B/C-Durchgang (21.10.2026)
+Four additional **untrained equal-weight triplet-local midrank
+fusion** experiments also passed in
+[run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040).
+The best three-input fusion was **192/293** on the full
+common denominator with 283/293 coverage, versus
+193/293 and full coverage for Mood Centered Cosine.
+The two-head fusion variants made 52–63 tied
+abstentions. These are not globally calibrated
+per-pair similarity functions, nor independent
+estimates of fusion generalization. See the
+[rank-fusion report](similarity-fixed-rank-fusion-research-2026-10-21.md).
 
-Die vorab implementierten **vier untrainierten Equal-Midrank-Fusionen**
-wurden zusammen mit den fünf bisherigen A/B-Methoden
-im [Actions Run 39619708040](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040)
-vollständig erfolgreich auf **exakt denselben 1019
-MagnaTagATune-Clips und 293 mehrheitsentscheidbaren
-Tripelfragen** ausgewertet. Synthetisches 1280D
-Original-Patchpooling-/Head-Off-On-/SQLite-/Thread-
-Paritätsgate erneut **PASS**.
+### Independent *task* evidence, not an independent train holdout: FMA
 
-Die Fusions-Genauigkeit auf dem gemeinsamen 293er-Nenner
-(Abstentions als falsch): Audio+Genre **163/293 = 55,63 %**
-(Coverage 234/293), Audio+Mood **170/293 = 58,02 %**
-(241/293), Genre+Mood **167/293 = 57,00 %**
-(230/293), Audio+Genre+Mood **192/293 = 65,53 %**
-(283/293). Der bisherige Mood-Centered-Baselinewert
-bleibt **193/293 = 65,87 %** mit 100 % Abdeckung.
-Keine der vier einfachen, *tripellokalen* Rangfusionen
-verbessert diese Referenz. Die vielen Paargleichstände
-der Zweierkombinationen erklären den niedrigen
-Gesamtnenner-Erfolg; Quote auf nur vorhergesagten
-Fällen darf nicht isoliert verglichen werden.
+The
+[catalogue-screened, frozen 80-song official VALIDATION study](similarity-fma-embedding-ab-2026-10-21.md)
+was implemented and verified in
+[run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310).
+Each of the 80 artist-distinct anchors was compared against
+the same 79 candidates. Exact pre-embedding Genre cosine
+baseline replay passed.
 
-**Keine Kalibrierung/Optimierung aus diesen
-Ergebnissen.** Diese post-hoc MTT-Fusionsexperimente
-sind weder eine globale Song-Cosine-Kalibrierung
-noch eine unabhängige Validierung oder ein
-Lyrion-Übergangstest. Vollständige Rechenschritte,
-Gleichstands-/Coverageanalyse, Paardifferenzen,
-Caveats und Folgeexperimente:
-[Fixed-Rank Fusion Research Results](similarity-fixed-rank-fusion-research-2026-10-21.md).
-Das reproduzierbare, nur aggregierte
-[GitHub-Artefakt](https://github.com/chrober/bliss-mood-poc/actions/runs/39619708040/artifacts/12354537538)
-enthält die Ergebnisberichte v1, v2 und
-das synthetische Paritätsprotokoll.
+| Method | Genre P@5 | mAP@10 | nDCG@10 |
+| --- | ---: | ---: | ---: |
+| 1280D embedding cosine | 0.2800 | 0.163044 | 0.282363 |
+| 87D Genre cosine | 0.3200 | 0.174876 | 0.298533 |
+| 87D Genre centered cosine | **0.3225** | **0.178147** | **0.304271** |
+| 56D Mood cosine (cross-task control) | 0.2775 | 0.150394 | 0.266065 |
+| 56D Mood centered cosine (cross-task control) | 0.2675 | 0.152847 | 0.270372 |
 
-## FMA-Small katalogbereinigte VALIDATION: eigener Embedding-A/B-Transfer (21.10.2026)
+All methods had 80/80 query coverage.
+Embedding-minus-Genre-centered P@5 was
+**−4.25 pp**; genre-stratified shared-query
+95% sensitivity **−8.76 to +0.25 pp**.
+This is **coarse Genre retrieval**, not
+human similarity or playlist transition quality.
+FMA **official TEST was not accessed**.
+Potential MTG artist/title catalogue matches
+were excluded from VALIDATION, but this does
+not establish full model-training independence.
 
-**NEU:** Das nächste kontrollierte Forschungsgate für
-Repräsentation A gegen B ist implementiert:
-[`scripts/evaluate_fma_embedding_ab.py`](../scripts/evaluate_fma_embedding_ab.py),
-optional `--embedding-dir` im bestehenden
-[`scripts/benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py),
-[`research-fma-embedding-ab.yml`](../.github/workflows/research-fma-embedding-ab.yml),
-synthetische Linux-/Windows-
-[`tests/test_evaluate_fma_embedding_ab.py`](../tests/test_evaluate_fma_embedding_ab.py).
+### DEAM and real-library listening remain necessary
 
-Die vorherige **exakte** katalogbereinigte
-80-Song-VALIDATION-Kohorte wurde aus
-[FMA-Run 39606850307](https://github.com/chrober/bliss-mood-poc/actions/runs/39606850307)
-als SHA256 `f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509`
-übernommen. Ferner sind die drei
-Quellen-SHAs (FMA-Metadaten/Audiopaket, MTG-Katalog)
-und die früheren Genre-Cosine-Maße
-(P@5 0,3200; mAP@10 0,1748759921; nDCG@10
-0,2985332322) **als Regressions-Gate fixiert**.
-Die neu berechneten direkten 1280D- und
-87D/56D-Sidecars stammen im neuen Modus aus
-**demselben Encoder-Durchlauf** und werden nach
-Audio-SHA, Patchzahl und Modell-/Pooling-Fingerprint
-paarweise überprüft.
+DEAM's filtered 240-song Mood-Cosine mean-query
+VA Spearman reference is **0.286784551387186**.
+The new paired 1280D-vs-Mood/Genre workflow
+was created and its sample-hash regression corrected
+([Linux/Windows CI 39638092328](https://github.com/chrober/bliss-mood-poc/actions/runs/39638092328)),
+but the most recent end-to-end attempt was blocked
+by the original publisher host's failure to accept
+HTTPS/TCP connections. No new DEAM embedding
+difference has been measured. See
+[DEAM benchmark status](deam-similarity-benchmark.md).
 
-Jeder der 80 Künstler-distinkten Query-Tracks
-vergleicht sich mit exakt denselben 79 Kandidaten;
-9 pro Query haben die gleiche FMA-Obergenreklasse.
-Verglichen werden Embedding-Cosine, Genre-Cosine
-und Centered-Cosine sowie Mood-Cosine/Centered
-als **Cross-Task-Kontrolle**. P@5, mAP@10,
-nDCG@10, gemeinsame Abdeckung, Abstentions
-als 0, stratifizierte gepaarte
-Query-Sensitivitätsintervalle. Abhängige Kandidaten,
-nur acht Genres und mögliche nicht erkannte
-Trainingskatalogüberschneidungen bedeuten:
-**kein unabhängiger Holdout/Populations-CI**.
-Offizieller FMA-TEST bleibt strikt unberührt.
-Audio und Embedding-Sidecars bleiben runner-privat,
-Artefakte sind nur aggregierte Reports.
+Across different experimental tasks, the existing
+**raw mean-pooled EffNet cosine is not a demonstrated
+universal winner**. This does **not** show that all
+audio embeddings, contrastive models, other pooling
+or calibrated fusions are inferior. Moreover,
+Genre retrieval, Mood valence/arousal proximity,
+general human odd-one-out similarity, and
+**playlist transition quality** are distinct.
+The next decisive reference comes from a controlled
+local listening study using the same tracks and
+independently rated Genre, Mood, audible similarity,
+and next-song suitability. See the
+[phase 0–6 roadmap](similarity-lyrion-roadmap.md).
 
-Ausführlicher Studienvertrag:
-[Similarity FMA Embedding A/B](similarity-fma-embedding-ab-2026-10-21.md).
-Erster Workflow:
-[Research FMA 80 Validation A/B](https://github.com/chrober/bliss-mood-poc/actions/workflows/research-fma-embedding-ab.yml).
-Solange nicht vollständig `PASS`: **keine neuen
-numerischen Ähnlichkeitsresultate behaupten**.
-Original FMA-Workflow, Original-Rust-v5-Pin und
-PR #13/#17 sowie Mixer unverändert, PR #16 Draft.
-Nach FMA ist DEAM Development als nächster
-gepaarter Mood-Proxy vorgesehen. Noch keine
-Fusion auf FMA VALIDATION optimieren.
-
-## Verifiziert: FMA-80-Embedding A/B Transfer auf katalogbereinigter VALIDATION (21.10.2026)
-
-**NEUER EMPIRISCHER BEFUND – älteren Abschnitt mit
-`ausständig` damit überholt:**
-[GitHub Actions Run 39625087310](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310)
-**PASS**, [Aggregate-Artefakt 12355954718](https://github.com/chrober/bliss-mood-poc/actions/runs/39625087310/artifacts/12355954718).
-Identischer eingefrorener, bereits untersuchter
-FMA-Small VALIDATION-Sample-Fingerprint,
-**80 Künstler-distinkte Songs**, 8 Genres mit je
-10 Songs, pro Song dieselben 79 Kandidaten,
-Genre-Katalogscreening (42 mögliche MTG-Overlap-
-Treffer ausgeschlossen). Original FMA TEST nicht
-angetastet, keine Trainings-Disjointness behauptet.
-Die frühere Genre-Cosine-Referenz wurde
-**exakt** reproduziert (P@5 `0,3200`,
-mAP@10 `0,174876`, nDCG@10 `0,298533`).
-
-| Gepaarte Methode | P@5 | mAP@10 | nDCG@10 | Abdeckung |
-| --- | ---: | ---: | ---: | ---: |
-| EffNet 1280D Song-L2 + Cosine | **0,2800** | 0,163044 | 0,282363 | 80/80 |
-| Genre 87D Cosine | 0,3200 | 0,174876 | 0,298533 | 80/80 |
-| Genre 87D Centered Cosine | **0,3225** | **0,178147** | **0,304271** | 80/80 |
-| Mood/Theme 56D Cosine (Cross-Task) | 0,2775 | 0,150394 | 0,266065 | 80/80 |
-| Mood/Theme 56D Centered Cosine (Cross-Task) | 0,2675 | 0,152847 | 0,270372 | 80/80 |
-
-Embedding − Genre Centered P@5
-= **−4,25 Prozentpunkte**, explorativer
-95-%-genrestratifizierter gepaarter
-Query-Resampling-Sensitivitätsbereich
-**−8,76 bis +0,25 Prozentpunkte**;
-wegen gemeinsam verwendeter Kandidaten und
-bereits explorativ erforschter VALIDATION **kein
-independentes Konfidenzintervall/Signifikanzbeweis**.
-
-Damit ergibt sich eine **zweite andere
-Aufgaben-/Dataset-Indikation** neben MTT:
-das rohe nicht speziell kontrastive
-EffNet-Song-Mean-Embedding schlägt die
-aufgabenpassenden Genre-/Mood-Kopfvektoren
-hier nicht. MTT ist Menschen-Odd-One-Out,
-FMA ein **Genre-Label-Proxy**. Beide
-Zahlen dürfen nicht gepoolt und nicht
-als allgemeiner Produktionssieger gedeutet
-werden. Details, Protokoll, Paardifferenzen
-und Stage-Zeiten:
-[FMA-80-Embedding-A/B-Studie](similarity-fma-embedding-ab-2026-10-21.md).
-
-**Nächster Schritt:** DEAM-Entwicklungs-
-/Validierungsvergleich für Valence/Arousal
-bei identischen Clips und Modell-Provenienz
-als begrenztem Mood-Proxy, anschließend
-eigenständige Prüfung kontrastiver
-Discogs-Modelle und neue unabhängige
-menschliche Klang-/Playlist-Referenzen.
-Keine zusätzlichen Fusionsgewichte an
-MTT/FMA-VALIDATION optimieren.
-PR #16 bleibt Draft; `main`, PR #13,
-PR #17 und Lyrion-Produktivmixer unverändert.
+**No production metric, mixing strategy or tuned fusion has
+been selected.** Keep PR #16 Draft, official FMA TEST untouched,
+and PR #13/#17, `main` and production mixer unchanged.
