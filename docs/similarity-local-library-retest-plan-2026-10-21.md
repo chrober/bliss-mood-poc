@@ -1,5 +1,42 @@
 # Lyrion — next local song-representation listening comparison
 
+## Critical Windows research CLI correction (2026-10-21)
+
+**The original binary from [run 39661674510](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) is obsolete. DO NOT use it.**
+It accidentally retained Rust-v5's original `--db`/`--track-key` pairing restriction,
+so `analyze-features --track-key <key> --embedding-out <new-json>` without
+`--db` failed *before inference*. The user's local one-song attempt therefore
+reported `incomplete_do_not_use_for_scoring`, `failed=1`. Source audio,
+official models and exact fingerprints had already passed their preflight
+checks; the head SQLite database was unchanged.
+
+**Fixed:** [research-only overlay commit `a7e270d`](https://github.com/chrober/bliss-mood-poc/commit/a7e270d2878e7fd20fcb35d3d9d0fa9324418e2d).
+The patched CLI permits `--track-key` without `--db` **only if
+`--embedding-out` is also present**. Head persistence and other
+command rules are otherwise unchanged.
+
+**Replacement Windows artifact:** [run 39664316069](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069)
+**PASS**, artifact `research-song-embedding-windows-x64`.
+The actual synthetic-audio ONNX regression with
+`--track-key + --embedding-out` and no SQLite DB
+[passed in Linux run 39664440263](https://github.com/chrober/bliss-mood-poc/actions/runs/39664440263),
+including a bit-for-bit match of the new and existing song
+embedding vectors. The local exporter now **requires the exact
+fixed overlay commit** in the binary's `BUILD.txt` and reports
+only aggregate failure stage counts:
+`cli_nonzero_exit`, `embedding_file_not_created`,
+`embedding_validation_failed`, and `existing_embedding_invalid`.
+Do not print or upload Rust stderr with private song paths.
+
+**Retry only one song, not 100:** Download the replacement artifact
+into a **new** ignored `bin/` directory and use an unused
+`benchmark-*/` output directory; leave the failed folder untouched.
+Run the bounded exporter with `--limit 1 --seed 20261021 --execute`.
+The exporter independently revalidates audio/model/binary hashes
+and never passes `--db` to the research binary.
+Proceed to the remaining songs only if this complete real
+Windows one-song run verifies successfully.
+
 **Status:** October 21, 2026; planning document. **No new local test has started.**
 Work only on `feat/similarity-metric-evaluation` / Draft PR #16.
 Do not change `main`, PR #13/#17, the production mixer, or user audio.
@@ -193,13 +230,13 @@ this inventory is reviewed. This is **M1 only**, not the M2 listening pilot.
 
 ## M1 checkpoint: Windows experimental research binary and bounded local exporter
 
-**Build verified:** [Windows x64 research run 39661674510](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) PASSED, including the pinned Rust-v5 source check, song-embedding unit tests, executable startup and `--embedding-out` CLI option. The [`research-song-embedding-windows-x64` artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) contains only the experimental executable, available runtime DLLs, `BUILD.txt`, and `SHA256SUMS.txt`; it includes **no original audio, models or per-track features**. This does not certify complete real-song Windows/C++ parity.
+**Build verified:** [Windows x64 research run 39664316069](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069) PASSED, including the pinned Rust-v5 source check, song-embedding unit tests, executable startup and `--embedding-out` CLI option. The [`research-song-embedding-windows-x64` artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069) contains only the experimental executable, available runtime DLLs, `BUILD.txt`, and `SHA256SUMS.txt`; it includes **no original audio, models or per-track features**. This does not certify complete real-song Windows/C++ parity.
 
 **Local export helper:** [`scripts/export_local_song_embeddings.py`](../scripts/export_local_song_embeddings.py) uses the original compatible schema-v3 research head cohort and is **dry-run by default**. It validates the experimental binary and executable SHA, the local encoder and classifier ONNX SHA against the stored head metadata, FFmpeg/ffprobe availability and **each original audio SHA** before allowing any output. Its track selection is bounded to at most 100 songs. There are **no private track names, paths, or vectors in stdout**.
 
 Only explicit `--execute` enables inference, using `analyze-features --embedding-out` **without `--db`**. Outputs go to a **new local, Git-ignored `benchmark-*/` directory**, named by SHA256 of exact song keys. Existing JSON is never overwritten; an interrupted output directory can be used again only with explicit `--execute --resume`, after revalidating existing JSON. Existing head SQLite data stays read-only. The official model weights and FFmpeg/ffprobe must already exist on the user's machine.
 
-**First user action:** retrieve the [verified Windows artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) into an ignored `bin/` subdirectory, then perform only a **one-song preflight** on the existing local DB, with the correct local audio root. The PowerShell handoff can run `gh run download 39661674510 --repo chrober/bliss-mood-poc --name research-song-embedding-windows-x64 --dir <ignored-bin-folder>`; after that, run the helper with `--db`, `--audio-root`, `--models-dir`, `--binary`, `--out-dir`, `--limit 1`, and `--seed 20261021`, **without `--execute`**. A successful dry-run outputs `status=dry_run_verified_no_changes`, `sample_count=1`, `audio_sha_verified=1` and `model_files_sha_verified=3`. Verify this before exporting even one song. No music/audio files or local SQLite/embeddings are uploaded.
+**First user action:** retrieve the [verified Windows artifact](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069) into an ignored `bin/` subdirectory, then perform only a **one-song preflight** on the existing local DB, with the correct local audio root. The PowerShell handoff can run `gh run download 39664316069 --repo chrober/bliss-mood-poc --name research-song-embedding-windows-x64 --dir <ignored-bin-folder>`; after that, run the helper with `--db`, `--audio-root`, `--models-dir`, `--binary`, `--out-dir`, `--limit 1`, and `--seed 20261021`, **without `--execute`**. A successful dry-run outputs `status=dry_run_verified_no_changes`, `sample_count=1`, `audio_sha_verified=1` and `model_files_sha_verified=3`. Verify this before exporting even one song. No music/audio files or local SQLite/embeddings are uploaded.
 
 **Previous verified library baseline:** 100/100 correctly dimensioned and compatible 87D/56D v5 feature pairs, zero head provenance mismatches. Direct 1280D availability was **not assessed** (no embedding directory), so the initial report did not establish that those sidecars were absent.
 
