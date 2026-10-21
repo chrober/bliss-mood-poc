@@ -62,7 +62,9 @@ GROUPS = ("earlier_excerpt", "full_song_2015")
 
 
 def sample_hash(ids: list[str]) -> str:
-    return hashlib.sha256(("\n".join(ids) + "\n").encode("ascii")).hexdigest()
+    # Reproduce benchmark_deam.evaluate v1 verbatim: literal backslash+n,
+    # NOT a newline. Keep old registered sample hashes stable.
+    return hashlib.sha256((r"\n".join(ids) + r"\n").encode("ascii")).hexdigest()
 
 
 def validate_selected(ids: list[str], annotations: dict, expected: str) -> None:
