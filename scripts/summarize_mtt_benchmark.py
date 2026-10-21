@@ -50,6 +50,55 @@ def summarize(report):
                 f"{fmt(stats['majority_accuracy_with_metric_abstentions_as_incorrect'])} | "
                 f"{fmt(stats['human_vote_weighted_agreement'])} |"
             )
+    if all("paired_artist_sensitivity" in report["per_head"][head]
+           for head in ("genre", "moodtheme")):
+        result.extend([
+            "",
+            "### Paired exploratory contrasts on the same human-scorable questions",
+            "",
+            "| Head | A − B | Accuracy difference | Paired triplet resampling interval | Artist-weight sensitivity interval | Discordant (A only / B only) |",
+            "| --- | --- | ---: | --- | --- | ---: |",
+        ])
+        comparisons = [
+            ("cosine", "centered_cosine"),
+            ("cosine", "rms"),
+            ("centered_cosine", "topk12_ranked_jaccard"),
+            ("cosine", "topk_weighted_jaccard"),
+        ]
+        for head in ("genre", "moodtheme"):
+            data = report["per_head"][head]["paired_artist_sensitivity"]
+            if (data["schema"] != "mtt-paired-seven-method-artist-sensitivity-v1"
+                    or data["common_human_scorable_questions"] != 293
+                    or data["comparison_count"] != 21):
+                raise ValueError("Invalid paired MTT statistics")
+            lookup = {(p["metric_a"], p["metric_b"]): p
+                      for p in data["paired_comparisons"]}
+            for a, b in comparisons:
+                pair = lookup.get((a, b))
+                invert = False
+                if pair is None:
+                    pair = lookup.get((b, a))
+                    invert = True
+                if pair is None:
+                    raise ValueError("Missing preregistered descriptive paired contrast")
+                sign = -1 if invert else 1
+                def bounds(name):
+                    lo,hi = pair[name]
+                    return (f"{-hi:.1f} to {-lo:.1f}" if invert else
+                            f"{lo:.1f} to {hi:.1f}")
+                result.append(
+                    f"| {head} | {a} − {b} | {sign*pair['paired_accuracy_delta_pp']:.1f} pp | "
+                    f"{bounds('iid_question_bootstrap_95pct_delta_pp')} pp | "
+                    f"{bounds('artist_weight_sensitivity_95pct_delta_pp')} pp | "
+                    f"{pair['b_only_correct'] if invert else pair['a_only_correct']} / "
+                    f"{pair['a_only_correct'] if invert else pair['b_only_correct']} |"
+                )
+        result.extend([
+            "",
+            "**Uncertainty:** Both intervals are sensitivity descriptors, **not** valid population confidence intervals. "
+            "IID questions are dependent; the artist graph forms one connected component. "
+            "All 42 method-pair results across both heads are in aggregate JSON; no p-values or production metric winner.",
+        ])
     result.extend([
         "",
         "**Interpretation:** 1/3 is the random odd-one-out accuracy reference.",
