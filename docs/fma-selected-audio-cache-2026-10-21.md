@@ -1,174 +1,134 @@
-# FMA-Small: kleiner, prüfbarer Actions-Download-Cache
+# FMA-Small: bounded, verified GitHub Actions audio cache
 
-**Stand:** 21.10.2026, Forschungsbranch
-`feat/similarity-metric-evaluation` / Draft PR #16.
+**Status:** October 21, 2026, research branch
+`feat/similarity-metric-evaluation`, Draft PR #16.
 
-## Warum kein 7,2-GiB-Archiv im GitHub-Cache?
+## Why not cache the complete 7.2-GiB archive?
 
-Das offizielle `fma_small.zip` ist ca. 7,2 GiB.
-GitHub Actions Cache hat standardmäßig **10 GB
-Speichergrenze pro Repository** (konfigurierbar,
-oberhalb des freien Kontingents gegebenenfalls
-kostenpflichtig). Eine vollständige Kopie
-würde die vorhandenen Rust/Cargo- und Modell-
-Caches verdrängen bzw. Cache-Eviction/Mehrkosten
-verursachen. Der vorangegangene FMA-80-A/B-
-Lauf benötigte **243,87 s** nur für den Download.
+The official `fma_small.zip` is approximately 7.2 GiB.
+GitHub Actions' default per-repository cache limit is 10 GB
+(configurable, potentially billable above included capacity).
+Caching the entire original archive could evict existing
+Cargo/Rust and model caches, or generate additional costs.
+The previous FMA-80 paired A/B run spent **243.87 s**
+downloading the archive alone.
 
-Offizielle FMA-Publikation:
-https://github.com/mdeff/fma.
-Github-Cache-Dokumentation:
-https://docs.github.com/en/actions/reference/dependency-caching-reference.
+Official source: https://github.com/mdeff/fma.
+Cache documentation: https://docs.github.com/en/actions/reference/dependency-caching-reference.
 
-## Design: Source-pinned selected-song cache
+## Design: source-pinned selected-song cache
 
-[`scripts/fma_selected_audio_cache.py`](../scripts/fma_selected_audio_cache.py):
+Implementation:
+[`scripts/fma_selected_audio_cache.py`](../scripts/fma_selected_audio_cache.py).
 
-1. **Kalter Lauf:** Einmaliger originaler FMA-
-   Publisher-Download. Vollständigen
-   Publisher-Archive-SHA256
+1. **Cold run:** Download the publisher's original FMA archive once.
+   Verify the full source SHA256
    `f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c`
-   gegen den bereits im echten FMA-A/B-Lauf
-   festgeschriebenen Wert verifizieren.
-2. Alle `tracks.csv`-Informationen werden
-   nur für TRAINING/VALIDATION verwendet;
-   offizielle TEST-Zeilen bleiben unangetastet.
-   Identische geordnete Song-Selektion
-   `seed=20261021`, VALIDATION 8×10.
-   Im katalogbereinigten Test 42 exakte
-   mögliche MTG-Matches vorab ausschließen.
-   Sicherung der **bereits analysierten
-   Sample-ID-SHA256**, nicht Neu-Sampling
-   aus nur noch 80 Cache-MP3s.
-3. Als **private, branch-bounded Actions-Cache-
-   Daten** nur eine separate ZIP mit exakt
-   den 80 benötigten 30-Sekunden-MP3s
-   sowie eine geschützte Quellen-/Auswahl-
-   Manifest-JSON anlegen. Ausgewählte
-   Clipnamen/-IDs verbleiben im Cache und
-   dürfen NICHT als Artefakt, Git-Commit
-   oder öffentlicher Log hochgeladen werden.
-   Manifest speichert Original-Publisher-ZIP-
-   SHA, Metadaten-/MTG-Hash, Auswahl-SHA,
-   acht Genres, Seed, Filterstatus und
-   **individuelle SHA256 jeder MP3**.
-4. Unmittelbar nach erfolgreicher Vorbereitung
-   kann die 7,2-GiB-Original-ZIP vom
-   ephemeren Runner entfernt werden.
-   GitHub `actions/cache/save@v4`
-   speichert NUR `fma-private/fma-selected-cache`,
-   kein Verzeichnis mit dem Publisher-Gesamtarchiv.
-5. **Warmer Lauf:** `actions/cache/restore@v4`,
-   Quellhashes und ursprüngliche Kohorte
-   strikt verifizieren, einschließlich
-   der SHA jedes der 80 Clips, Künstler-
-   Einzigartigkeit, Genre-/Sample-
-   Fingerprint und erneutem
-   MTG-Katalogscreening. Bei Miss
-   bleibt der offizielle Download als
-   Ersatzpfad erhalten; bei fehlerhaftem
-   Hit wird FAIL-closed statt fehlerhaftes
-   Audio unbemerkt ausgetauscht.
-6. [`benchmark_fma_genre.py`](../scripts/benchmark_fma_genre.py)
-   und [`evaluate_fma_embedding_ab.py`](../scripts/evaluate_fma_embedding_ab.py)
-   akzeptieren optional
-   `--selected-cache-manifest`. Ohne
-   Manifest gilt unverändert der
-   originale Voll-ZIP-Pfad; mit Manifest
-   bleibt der **Original-FMA-Audio-SHA**
-   im Report erhalten, ergänzt um
-   den Cache-Bundle-SHA.
-   Bereits gemessene Genre-Baselines müssen
-   **exakt** reproduziert werden.
-7. Im Cache-Job die tatsächliche
-   `cache-hit`-Variable, Bundlegröße
-   sowie Download-/Analysezeiten
-   in `GITHUB_STEP_SUMMARY` erfassen.
-   **Laufzeitersparnisse erst nach kaltem
-   und anschließend warmem erfolgreichen
-   Workflow messen**; Cache-Wärme
-   nicht aus Code allein folgern.
+   against the value registered in the successful FMA A/B experiment.
+2. Use TRAINING/VALIDATION catalogue metadata only;
+   leave official FMA TEST rows untouched. Preserve the
+   deterministic ordered sample, `seed=20261021`,
+   eight Genres times ten VALIDATION tracks. Exclude 42
+   possible MTG-Jamendo artist/title catalogue matches in
+   the screened study. Preserve the **original analyzed
+   sample fingerprint** rather than resampling from
+   the 80 tracks remaining in the new archive.
+3. Create a **branch-scoped Actions cache** containing only
+   a selected-song ZIP with the required 80 MP3 excerpts
+   and a corresponding source/sample manifest.
+   The manifest stores original publisher ZIP SHA,
+   metadata/MTG hashes, selected IDs/sample digest,
+   Genres/seed/filter policy, and **SHA256 per MP3**.
+   Selected clip identifiers remain inside the cache
+   and must not appear in Git commits, uploaded
+   artifacts, or public logs.
+4. Remove the original 7.2-GiB ZIP from temporary runner
+   storage once packaging is complete.
+   `actions/cache/save@v4` saves only
+   `fma-private/fma-selected-cache`, never the full archive.
+5. **Warm run:** Restore with `actions/cache/restore@v4`.
+   Fail closed if source fingerprints, individual MP3s,
+   artist uniqueness, Genre distribution, frozen sample,
+   or repeated MTG catalogue screen do not match.
+   Cache misses fall back to the official publisher
+   download; corrupt hits never silently change the audio.
+6. `benchmark_fma_genre.py` and
+   `evaluate_fma_embedding_ab.py` accept an optional
+   `--selected-cache-manifest`. Without it, the original
+   full-ZIP execution remains available. With it,
+   the aggregate report still cites the **original
+   FMA audio archive SHA**, additionally recording
+   the selection ZIP SHA. Old Genre baselines must
+   reproduce exactly.
+7. Record real `cache-hit` state, selected ZIP size,
+   download and inference durations in
+   `GITHUB_STEP_SUMMARY`. Never claim performance
+   improvement before observing both a successful cold
+   run and a successful warm restore.
 
-Die ursprüngliche
-[`research-fma-embedding-ab.yml`](../.github/workflows/research-fma-embedding-ab.yml)
-nutzt den branch-spezifischen
-`fma-small-screened80-selected-v1-f923...`-Cache.
+The [paired FMA research workflow](../.github/workflows/research-fma-embedding-ab.yml)
+uses the branch-specific
+`fma-small-screened80-selected-v1-f923...` cache key.
 
-### Speicher, Zugriff und Lizenzen
+### Storage, access and licensing
 
-GitHub Actions **Cache ist kein geschütztes
-Lizenzarchiv**, sondern eine von vertrauenswürdigen
-Workflows nutzbare Infrastruktur; insbesondere
-öffentliche Repository-Caches besitzen
-Branch-/PR-Zugriffssemantik. Das ausgewählte
-Audio darf nicht in `actions/upload-artifact`,
-Git-LFS, Releases oder ein veröffentlichtes
-Distributionspaket gelangen. Nur offiziell
-angebotene FMA-Forschungsclips,
-kein einziges Audio aus der eigenen
-Musikbibliothek. Die individuellen
-Creative-Commons-Lizenzen der FMA-Titel
-sind weiterhin zu respektieren.
-Kein Zugriff für untrusted PR-Workflows,
-keine externe Weitergabe des Caches,
-die tatsächliche Verfügbarkeit wird durch
-Retention/Eviction begrenzt.
+A GitHub Actions **cache is not a confidential or
+licence-protected archive**. Public repositories,
+branch inheritance, and pull-request accessibility
+make original-recording rights important. Do not put
+selected audio into `actions/upload-artifact`,
+Git LFS, releases, or distribution packages.
+Only publicly offered research FMA clips may be
+used for the documented experiment; never include
+audio from the user's local music library.
+Respect the individual FMA Creative Commons licences.
+Do not expose audio to untrusted workflows or
+copy cache contents outside the research context.
+Retention and eviction are normal.
 
-Ein Vollarchiv-Cache wäre
-angesichts der 10-GB-Standardgrenze und
-möglichen Lizenz-/Zugriffsfragen keine
-sinnvolle Standardeinstellung.
-Ein anderer FMA-Sample/FMA-Seed erfordert
-eine **separate Cache-Key-/Kohorten-Version**;
-keine stillen historischen Vergleichswechsel.
+A full-archive cache is a poor default given
+the 10-GB quota and rights/access concerns.
+A different sample, seed, or screen policy must
+use a separate versioned cache key; never let
+a changed cohort silently appear as historical
+reproduction.
 
-### Prüfgates
+### Verification gates
 
 [`tests/test_fma_selected_audio_cache.py`](../tests/test_fma_selected_audio_cache.py)
-simuliert eine FMA-Struktur inklusive ungültiger
-TEST-Zeile; prüft kalten Cache-Pack,
-warm verifizierten Restore ohne Publisher-
-Gesamtarchiv, Sample-Fingerprint,
-gekippte Archiv- und MP3-Hashes,
-geänderte Metadaten und No-Overwrite.
-Gates laufen unter Linux und Windows.
+uses synthetic FMA-style ZIP fixtures including an
+invalid official TEST row. It tests cold packing,
+warm verified restoration without the full original
+source, sample fingerprints, ZIP/MP3 corruption,
+changed metadata, and no overwrite. Linux and
+Windows tests cover the cache code.
 
-## Empirische Verifikation: kalter Pack und warmer Restore
+## Measured evidence: cold creation and warm restore
 
-**Kalter Lauf PASS:**
-[GitHub Run 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381).
-Offizieller 7,2-GiB-Audio-Download **246,39 s**,
-danach deterministische Auswahl aus 7.197
-größenvaliden FMA-Entwicklungs-Audios (3
-Größenanomalien verworfen).
-Der gespeicherte, checksumgeprüfte
-`selected.zip` umfasst **76,51 MiB**
-Audio für exakt die eingefrorenen
-80 Songs; kein Originalarchiv im Cache.
-Vollständiger vorheriger Genre- und neuer
-1280D-A/B-Benchmark ebenfalls **PASS**,
-d.h. Originalkohorte und P@5 etc.
-unverändert.
+**Cold run PASS:**
+[GitHub Actions 39632517381](https://github.com/chrober/bliss-mood-poc/actions/runs/39632517381).
+The 7.2-GiB publisher download took **246.39 s**.
+The tool selected from 7,197 usable FMA development
+audio members (three size anomalies rejected).
+Its checksum-verified `selected.zip` contained
+**76.51 MiB** for the frozen set of 80 songs;
+the full publisher ZIP was not cached.
+The original Genre and new 1280D A/B evaluations
+also passed on the same sample.
 
-**Warmer Restore PASS:**
-[alter katalogbereinigter Genre-Workflow
-39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262).
-Im Runner explizit
-`Cache hit for: fma-small-screened80-selected-v1-f923...`;
-der originale
-`Download original FMA-Small 7.2 GiB ONLY on cache miss`
-wurde mit Status **skipped** protokolliert.
-ZIP und alle 80 MP3-SHA256 nach dem
-Restore geprüft; wieder **76,51 MiB**.
-Die alte Genre-Metrikberechnung
-blieb vollständig erfolgreich.
-Diese reproduzierbare Verbesserung
-eliminiert den großen **Publisher-
-Download** bei Cache-Hit; sie ist
-**keine** gemessene Gesamtlaufzeit
-eines identischen warmen/kalten
-Benchmark-Workflows (unterschiedliche
-Benchmark-Historie und Rust-Binary-
-Cachezustände). Bei Cache-Eviction
-fällt der Workflow korrekt auf den
-vollständigen Publisher-Download zurück.
+**Warm cross-workflow restore PASS:**
+[Screened Genre run 39633485262](https://github.com/chrober/bliss-mood-poc/actions/runs/39633485262).
+The log confirms `Cache hit for:
+fma-small-screened80-selected-v1-f923...`,
+and the step downloading the 7.2-GiB original
+was **skipped**. The restored ZIP and
+all 80 MP3 SHA256 values were verified;
+the bundle still measured **76.51 MiB**.
+Original Genre scoring passed unchanged.
+
+This eliminates the **publisher download cost on
+cache hits**, but is **not a directly controlled
+cold-vs-warm total-runtime comparison** because
+the workflows and Rust binary cache states differed.
+After cache eviction, the workflow correctly
+falls back to the publisher.
