@@ -167,6 +167,21 @@ A substitute source must be verified against source archive SHA256,
 contents, and applicable rights. If unavailable, proceed to phase 2,
 not another speculative benchmark.
 
+**Current M1 implementation checkpoint:** The read-only
+[`audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py)
+is available and its synthetic Linux/Windows tests
+[passed in CI run 39660242090](https://github.com/chrober/bliss-mood-poc/actions/runs/39660242090).
+It measures coherent 87D/56D head coverage,
+corrected Rust-v5 frontend/source provenance,
+and optionally exact same-song 1280D sidecar
+coverage on a bounded sample, without writing
+SQLite or accessing audio. **The user's local
+database has not yet been audited.** The next
+exit gate requires their actual aggregate
+feature-readiness result. See the
+[complete local PowerShell procedure](similarity-local-library-retest-plan-2026-10-21.md#first-local-execution-windows-powershell-no-queue-or-audio-changes).
+This engineering checkpoint does not complete phase 0.
+
 ### Phase 2: read-only local cohort audit
 
 1. Select a **small, bounded subset** already analyzed, using exact
