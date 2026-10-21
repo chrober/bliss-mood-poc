@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       cache_audio:
-        description: 'Opt-in licensed-audio caching (2.77 GiB; security/licensing review required)'
+        description: 'Research-only 1019-clip audio cache (~117 MB), not whole archive'
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -30,6 +30,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
           python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
           python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
           python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
 
@@ -121,26 +122,25 @@ jobs:
           PY
           echo "metadata_zip_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
-      # Cache is deliberately OPT-IN. GitHub caches are accessible to
-      # eligible PR workflows, so never enable without licensing review.
-      # Cache use may cost more runner time than downloading the originals.
-      - name: Restore licensed audio cache (manual opt-in only)
-        id: audio_cache
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.cache_audio == true }}
-        uses: actions/cache@v4
+      # Feature branch research cache: caches are NOT confidential and can
+      # be exposed to PR workflows targeting the cache-bearing branch.
+      - name: Restore only 1019 relevant MTT clips, never source archives
+        id: clip_cache
+        if: >-
+          ${{ github.repository == 'chrober/bliss-mood-poc' && }}
+          github.ref == 'refs/heads/feat/similarity-metric-evaluation' &&
+          (github.event_name == 'push' || inputs.cache_audio == true)
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            benchmark-private/mp3.zip.001
-            benchmark-private/mp3.zip.002
-            benchmark-private/mp3.zip.003
-          key: mtt-research-only-official-v1-1100000000-1100000000-772769864
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
 
-      - name: Stage multipart audio once on the ephemeral runner
-        if: steps.audio_cache.outputs.cache-hit != 'true'
+      - name: Download official multipart source only on curated-cache miss
+        if: steps.clip_cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          echo "audio_archive_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          echo "source_archive_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
           base=https://mirg.city.ac.uk/datasets/magnatagatune
           for index in 1 2 3; do
             name=$(printf 'mp3.zip.%03d' "$index")
@@ -149,24 +149,58 @@ jobs:
               --connect-timeout 25 --max-time 2100 --silent --show-error \
               "$base/$name" -o "benchmark-private/$name"
           done
-          echo "audio_archive_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          test "$(stat -c%s benchmark-private/mp3.zip.001)" = "$p1"
+          test "$(stat -c%s benchmark-private/mp3.zip.002)" = "$p2"
+          test "$(stat -c%s benchmark-private/mp3.zip.003)" = "$p3"
+          echo "source_archive_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify staged multipart lengths against independent HTTP preflight
+      - name: Build only selected 1019 MP3s into CRC-verified cache
+        if: steps.clip_cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
           read -r p1 p2 p3 < benchmark-private/parts.txt
-          actual1=$(stat -c%s benchmark-private/mp3.zip.001)
-          actual2=$(stat -c%s benchmark-private/mp3.zip.002)
-          actual3=$(stat -c%s benchmark-private/mp3.zip.003)
-          test "$actual1" = "$p1" && test "$actual2" = "$p2" && test "$actual3" = "$p3" || {
-            echo "::error::Cached/downloaded archive lengths differ from publisher preflight"
-            exit 1
-          }
-          echo "archive_source=${{ steps.audio_cache.outputs.cache-hit == 'true' && 'cache' || 'publisher-download' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "archive_staged_bytes=$((actual1+actual2+actual3))" >> "$GITHUB_STEP_SUMMARY"
-          # All selected members undergo CRC verification before inference.
-          # No archive or per-clip audio is uploaded as a workflow artifact.
+          echo "curated_cache_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'curated_cache_build_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode build --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --source-parts benchmark-private/mp3.zip.001 \
+                benchmark-private/mp3.zip.002 benchmark-private/mp3.zip.003
+          echo "curated_cache_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          rm -f benchmark-private/mp3.zip.001 benchmark-private/mp3.zip.002 benchmark-private/mp3.zip.003
+
+      - name: Verify all cached MP3 CRCs before expensive Rust-v5 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          /usr/bin/time -f 'curated_cache_verify_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode verify --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv
+          size=$(stat -c%s benchmark-private/mtt-required-1019-clips.zip)
+          test "$size" -lt 314572800
+          echo "clip_cache_hit=${{ steps.clip_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "curated_cache_bytes=$size" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cache ONLY the selected research clips, never full music archives
+        if: >-
+          ${{ steps.clip_cache.outputs.cache-hit != 'true' && }}
+          github.repository == 'chrober/bliss-mood-poc' &&
+          github.ref == 'refs/heads/feat/similarity-metric-evaluation' &&
+          (github.event_name == 'push' || inputs.cache_audio == true)
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
 
       - name: Checkout pinned corrected Rust-v5 analyzer (without merging PR 17)
         uses: actions/checkout@v4
@@ -227,10 +261,7 @@ jobs:
               --clips benchmark-private/clip_info_final.csv \
               --tail benchmark-private/zip-tail.bin \
               --part-sizes "$p1" "$p2" "$p3" \
-              --local-archive-parts \
-                benchmark-private/mp3.zip.001 \
-                benchmark-private/mp3.zip.002 \
-                benchmark-private/mp3.zip.003 \
+              --selected-clip-cache benchmark-private/mtt-required-1019-clips.zip \
               --binary validated-rust-v5/target/release/bliss-mood \
               --models-dir models \
               --db benchmark-private/mtt-all-exploratory-features.db \
