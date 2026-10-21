@@ -77,9 +77,14 @@ class RemoteZipTail(io.RawIOBase):
 
 
 def zip_path(value: str) -> str:
-    name = value.replace("\\", "/").lstrip("./")
+    raw = value.replace("\\", "/")
+    if raw.startswith("/") or ".." in raw.split("/"):
+        raise ValueError("Invalid relative clip archive path")
+    name = raw
+    while name.startswith("./"):
+        name = name[2:]
     sections = PurePosixPath(name).parts
-    if not sections or ".." in sections or name.startswith("/"):
+    if not sections or sections == (".",):
         raise ValueError("Invalid relative clip archive path")
     return "/".join(sections)
 
