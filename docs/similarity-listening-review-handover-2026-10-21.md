@@ -6,6 +6,67 @@
 **Aktiver PR:** [#16 – Evaluate Genre and Mood similarity metrics on real feature sidecars](https://github.com/chrober/bliss-mood-poc/pull/16), **Draft, nicht gemergt**.  
 **Referenz-Head beim Erstellen dieses Handovers:** `b5827a6b30c07c874f1570b2e8d9e6a7e1e9f12b`; GitHub beim Fortsetzen auf den dann aktuellen Stand prüfen.
 
+
+## CURRENT PRIORITY — externally validated DEAM and FMA evidence (21.10.2026)
+
+User explicitly requested to continue fully on GitHub Actions, without
+further subjective eight-song analysis. PR #16 Draft remains active,
+main and Draft PR #13/#17 unchanged, no private library scan/build.
+
+**DEAM**:
+- Real unfiltered 240-song research run
+  [39577605466](https://github.com/chrober/bliss-mood-poc/actions/runs/39577605466)
+  PASS: 192 earlier excerpts, 48 full songs from 2015.
+  Mood Head vs human Valence/Arousal proximity macro query Spearman:
+  RMS .2277, cosine .2421, centered cosine .2471, weighted Jaccard
+  .2507, cutoff-based Top-K .1558 on 218/240 valid queries,
+  ranked top-6 .2250, ranked top-12 .2351.
+- Metadata-only DEAM vs MTG-Jamendo catalog screen
+  [39579084649](https://github.com/chrober/bliss-mood-poc/actions/runs/39579084649)
+  PASS: 1,801/1,802 joinable DEAM artist/title records, 56,552 MTG
+  metadata records, 60 older + 15 full-song potential exact catalog
+  matches. Never confuse matching metadata with proven training-set
+  overlap or absence of matches with proven independence.
+- Filtered 240-song run
+  [39579552118](https://github.com/chrober/bliss-mood-poc/actions/runs/39579552118)
+  PASS: excluded 75 potential catalog matches, 1,727 candidate tracks,
+  sampled 197 older and 43 full-song examples.
+  Mood mean query Spearman: RMS .2711, cosine .2868,
+  centered cosine .2813, weighted Jaccard .2888,
+  historic cutoff Top-K .1903 on 216/240 queries,
+  ranked top-6 .2721, ranked top-12 .2745.
+  **Unfiltered and filtered samples are NOT paired or directly
+  causal-comparable; no metric winner.** Earlier cohort cosine .3400,
+  2015 full-song cohort cosine .1876.
+- Docs: docs/deam-similarity-benchmark.md, scripts/benchmark_deam.py,
+  scripts/audit_deam_mtg_overlap.py and dedicated GitHub workflows.
+
+**FMA Genre**:
+- Official FMA-Small metadata preflight
+  [39580107275](https://github.com/chrober/bliss-mood-poc/actions/runs/39580107275)
+  PASS: 8,000 tracks, eight genres with 1,000 each; 6,400 training,
+  800 validation, 800 test; **zero artist-ID overlap across splits**.
+- scripts/benchmark_fma_genre.py and its Linux/Windows synthetic
+  tests implement source-genre retrieval P@5, mAP@10, nDCG@10,
+  query coverage and abstention for all seven metrics on a balanced
+  artist-unique validation-only cohort.
+- First live 80-track FMA validation run
+  [39581435733](https://github.com/chrober/bliss-mood-poc/actions/runs/39581435733)
+  was started using original 7.2-GiB FMA-Small ZIP,
+  individual streamed extraction and pinned Rust-v5 from separate
+  commit 2c3d44401436b3b41b6e067199016a1ed2335fbf.
+  **Check actual run outcome/artifact before claiming success.**
+  The official FMA test split is untouched. Dataset provenance,
+  audio/metadata licenses and external validity must remain explicit.
+- Docs: docs/fma-genre-benchmark-plan.md.
+
+**Next:** Inspect FMA real-run result, repair only evidenced failures,
+document aggregate Genre Retrieval against random-class baseline.
+After validation-only exploratory checks, pre-register a candidate metric
+and verify once on artist-disjoint official FMA TEST data in a separate
+workflow/run. Do not optimize on the held-out test split or infer real
+playlist musical coherence from coarse genre labels alone.
+
 ## CONFIRMED CI MILESTONE — DEAM Rust-v5 E2E smoke PASSED
 
 GitHub Actions [run 39576010217](https://github.com/chrober/bliss-mood-poc/actions/runs/39576010217)
