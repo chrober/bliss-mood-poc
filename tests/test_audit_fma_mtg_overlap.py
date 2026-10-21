@@ -30,12 +30,12 @@ class FmaMtgTests(unittest.TestCase):
     def write_fma(self, items=None, missing_fields=False):
         if items is None:
             items=[
-                ("101","small","training","Rock","42","Björk","Héllo!"),
-                ("102","small","training","Rock","43","Artist Only","Nonmatch"),
-                ("103","small","validation","Folk","50","Artist X","A Song"),
-                ("104","small","validation","Folk","51","Unknown","Untitled"),
-                ("105","small","test","Rock","60","HIDDEN TEST","HIDDEN ANSWER"),
-                ("106","medium","test","Classical","70","Not In Study","Track"),
+                ("101","small","training","Rock","Héllo!","42","Björk"),
+                ("102","small","training","Rock","Nonmatch","43","Artist Only"),
+                ("103","small","validation","Folk","A Song","50","Artist X"),
+                ("104","small","validation","Folk","Untitled","51","Unknown"),
+                ("105","small","test","Rock","HIDDEN ANSWER","60","HIDDEN TEST"),
+                ("106","medium","test","Classical","Track","70","Not In Study"),
             ]
         s=io.StringIO(newline="")
         w=csv.writer(s)
