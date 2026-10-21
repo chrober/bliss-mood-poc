@@ -31,6 +31,12 @@ from audit_magnatagatune_votes import read_clips, dict_reader, COMPARISON_FIELDS
 import evaluate_similarity as ev
 
 BASE = "https://mirg.city.ac.uk/datasets/magnatagatune/"
+# Frozen from metadata-only run 39592331265, artifact 12342707931;
+# pin both the source CSVs and the artist-fold membership.
+REGISTERED_MTT_COMPARISONS_SHA256 = "cf210e087ed5b3f3f8b164626e1d2857cf0ba9ae66bd9229bafe042889107a98"
+REGISTERED_MTT_CLIPS_SHA256 = "cb6108a10d3a91f0bfd7d2fbec2382559d15f20c8d28093f14e12162a47a3e78"
+REGISTERED_MTT_DEVELOPMENT_SHA256 = "1b7e74bfd7f17c3ef6646f65a07d68ce86be1018ea1a87ff3c922875f4a1b28e"
+REGISTERED_MTT_HOLDOUT_SHA256 = "171f4c1da9cde13ce1a5ebabe27e40c3098ea69549193c6aa8c9942196d681ea"
 MAX_MEMBER_COMPRESSED = 8 * 1024 * 1024
 MAX_CLIP_RAW = 20 * 1024 * 1024
 
@@ -407,11 +413,20 @@ def main() -> None:
             p.error(f"Missing required input {path}")
     if not args.models_dir.is_dir():
         p.error("Models directory missing")
+    if args.selection_mode == "frozen-development":
+        if (digest(args.comparisons) != REGISTERED_MTT_COMPARISONS_SHA256
+                or digest(args.clips) != REGISTERED_MTT_CLIPS_SHA256):
+            raise ValueError("Frozen artist benchmark source CSV hashes changed")
     triplets, clips = triplets_by_vote(args.comparisons, args.clips)
     if args.selection_mode == "frozen-development":
         if args.development_triplets != 4 or args.seed != 20261021:
             p.error("Frozen-development mode uses the registered 128/256 split and seed")
         selected, partition_stats = frozen_artist_development_selection(triplets, clips)
+        if (partition_stats["development_partition_sha256"] !=
+                REGISTERED_MTT_DEVELOPMENT_SHA256 or
+            partition_stats["holdout_partition_sha256"] !=
+                REGISTERED_MTT_HOLDOUT_SHA256):
+            raise ValueError("Frozen MTT artist partition changed since preregistration")
     else:
         selected = dev_selection(triplets, clips, args.development_triplets, args.seed)
         partition_stats = None
