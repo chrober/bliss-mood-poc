@@ -12,7 +12,10 @@
         [string]::IsNullOrWhiteSpace($Csv)) {
         throw 'Set LYRION_SERVER_URL, LYRION_PLAYER_ID and LYRION_LISTENING_CSV before running this script.'
     }
-    $Apply = $false  # Change to $true only after a complete successful preview.
+    $Apply = $false  # Safe default.
+    if ([string]$env:LYRION_APPLY -ceq 'true') {
+        $Apply = $true
+    }
 
     Add-Type -AssemblyName System.Net.Http
     $client = [System.Net.Http.HttpClient]::new()
