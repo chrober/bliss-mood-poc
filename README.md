@@ -25,7 +25,17 @@ remain authoritative. **This is technical parity evidence, not permission
 to redistribute Essentia AGPL, FFmpeg native DLLs or third-party models.**
 The existing test kit deliberately declares
 `release_approved=false`; public/production distribution is blocked
-pending manual review. Draft PR #17 is separate from similarity PR #16.
+pending manual review. A **real kit audit** verified 100 native
+EXE/DLL files, 77 installed MSYS2 packages and 94 present license
+notice references; **17 packages lack installed notice files**.
+`scripts/triage_windows_native_license_gaps.py` creates a read-only
+exact-version review register, without inventing license grants.
+The **public native C++ Windows development ZIP upload is paused**
+while Windows CI continues building/testing and publishes metadata-only
+diagnostics. Existing locally verified test kits remain usable for
+development; this is not permission to redistribute their contents.
+See the [licensing scenarios A–D](docs/essentia-licensing-distribution-strategy.md).
+Draft PR #17 is separate from similarity PR #16.
 
 ## Development handover (2026-10-19)
 
