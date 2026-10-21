@@ -324,6 +324,40 @@ def evaluate(database: Path, identifiers: list[str], annotations: dict, seed: in
         return result
 
 
+def screen_catalog_overlaps(members: dict[str, str], annotations: dict,
+                            deam_metadata_zip: Path,
+                            mtg_metadata_tsv: Path) -> tuple[dict[str, str], dict]:
+    """Conservatively exclude DEAM IDs with catalog artist/title matches.
+
+    A filtered result is still NOT a proven training-independent cohort.
+    Return only aggregate counts in report; exact IDs stay runner-private.
+    """
+    deam_meta, _ = overlap_audit.load_deam_metadata(deam_metadata_zip)
+    mtg_names, mtg_rows = overlap_audit.load_mtg_metadata(mtg_metadata_tsv)
+    excluded = {
+        song_id for song_id in members
+        if song_id in deam_meta and deam_meta[song_id] in mtg_names
+    }
+    # Fail closed on material data loss/incomplete DEAM provenance.
+    if len(set(deam_meta) & set(annotations)) < len(members) * .95:
+        raise ValueError("DEAM metadata join coverage too low to screen overlaps")
+    filtered = {song_id: entry for song_id, entry in members.items()
+                if song_id not in excluded}
+    summary = {
+        "status": "partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness",
+        "excluded_mtg_catalog_candidates": len(excluded),
+        "eligible_after_exclusion": len(filtered),
+        "initial_matching_deam_audio_tracks": len(members),
+        "deam_metadata_coverage_count": len(set(deam_meta) & set(annotations)),
+        "mtg_catalog_metadata_rows": mtg_rows,
+        "deam_metadata_sha256": sha256_file(deam_metadata_zip),
+        "mtg_raw_metadata_sha256": sha256_file(mtg_metadata_tsv),
+        "warning": "Artist/title matches are not a training-split audit; "
+                   "non-matches may still overlap in audio or artist identity.",
+    }
+    return filtered, summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--annotations-zip", type=Path, required=True)
@@ -359,30 +393,9 @@ def main() -> None:
         for p in (args.deam_metadata_zip, args.mtg_metadata_tsv):
             if not p.is_file():
                 parser.error(f"Missing required metadata: {p}")
-        deam_meta, stats = overlap_audit.load_deam_metadata(args.deam_metadata_zip)
-        mtg_names, mtg_rows = overlap_audit.load_mtg_metadata(args.mtg_metadata_tsv)
-        excluded = {
-            song_id for song_id in members
-            if song_id in deam_meta and deam_meta[song_id] in mtg_names
-        }
-        # Fail closed on material data loss/incomplete DEAM provenance.
-        if len(deam_meta) < len(members) * .95:
-            raise ValueError("DEAM metadata join coverage too low to screen overlaps")
-        original_count = len(members)
-        members = {song_id: entry for song_id, entry in members.items()
-                   if song_id not in excluded}
-        screening = {
-            "status": "partial_catalog_exact_artist_title_exclusion_NOT_verified_training_disjointness",
-            "excluded_mtg_catalog_candidates": len(excluded),
-            "eligible_after_exclusion": len(members),
-            "initial_matching_deam_audio_tracks": original_count,
-            "deam_metadata_coverage_count": len(set(deam_meta) & set(annotations)),
-            "mtg_catalog_metadata_rows": mtg_rows,
-            "deam_metadata_sha256": sha256_file(args.deam_metadata_zip),
-            "mtg_raw_metadata_sha256": sha256_file(args.mtg_metadata_tsv),
-            "warning": "Artist/title matches are not a training-split audit; "
-                       "non-matches may still overlap in audio or artist identity.",
-        }
+        members, screening = screen_catalog_overlaps(
+            members, annotations, args.deam_metadata_zip, args.mtg_metadata_tsv
+        )
     ids = select_ids(annotations, members, args.limit, args.seed,
                      stratify_cohorts=args.stratify_cohorts)
     print(f"Matched {len(members)} annotated MP3s; using {len(ids)} (seed={args.seed}).")
