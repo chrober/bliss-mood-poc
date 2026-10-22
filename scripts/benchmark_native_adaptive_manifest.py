@@ -20,9 +20,56 @@ import time
 
 from benchmark_audio_backends import (
     checked_cohort, digest, load_feature_rows, model_fingerprints_by_head,
-    validate_report, validate_source_roots,
+    validate_report,
 )
 from verify_manifest_batch_smoke import stored_embeddings
+
+def normalize_manifest_key(key: str, library_root: str | None) -> str:
+    """Map a sampled TracksV2.File identity to a safe source-relative manifest key.
+
+    This is deliberate identity normalization. Scanner --tracks-file forbids
+    absolute paths and --library-root. Reject mismatched roots rather than
+    trying the full original Bliss database or searching the whole disk.
+    """
+    if library_root is not None:
+        prefix = library_root.rstrip("/\\")
+        if not prefix:
+            raise ValueError("--library-root must contain a nonempty absolute prefix")
+        if not key.startswith(prefix) or key[len(prefix):len(prefix) + 1] not in ("/", "\\"):
+            raise ValueError("A sample track does not have the specified --library-root prefix")
+        key = key[len(prefix) + 1:]
+    normalized = key.replace("\\", "/")
+    parts = normalized.split("/")
+    if (not normalized or normalized != normalized.strip()
+            or normalized.startswith("/") or ":" in normalized
+            or "\x00" in normalized or "\r" in normalized or "\n" in normalized
+            or any(not part or part in (".", "..") for part in parts)):
+        raise ValueError("A sample track is not a safe source-root-relative manifest identity")
+    return normalized
+
+
+def prepare_manifest_keys(keys: list[str], library_root: str | None) -> list[str]:
+    mapped = [normalize_manifest_key(key, library_root) for key in keys]
+    if len(set(mapped)) != len(mapped):
+        raise ValueError("Bliss paths collide after normalization to manifest identities")
+    return mapped
+
+
+def verify_music_paths(keys: list[str], source_root: Path) -> None:
+    """Read-only availability and root containment check before starting ONNX."""
+    if not source_root.is_dir():
+        raise ValueError("Missing --source-root directory")
+    actual_root = source_root.resolve(strict=True)
+    missing = 0
+    for key in keys:
+        path = source_root.joinpath(*key.split("/"))
+        if not path.is_file():
+            missing += 1
+            continue
+        if not path.resolve(strict=True).is_relative_to(actual_root):
+            raise ValueError("Selected music file resolves outside --source-root")
+    if missing:
+        raise ValueError(f"{missing}/{len(keys)} sample audio files are unavailable under --source-root")
 
 
 def schedule(repeats: int, seed: int) -> list[tuple[int, str]]:
@@ -50,7 +97,8 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     embedding_dir.mkdir()
     cmd = [
         str(args.analyzer), "scan-features",
-        "--bliss-db", str(args.cohort_db), "--db", str(db),
+        "--tracks-file", str(args.manifest_file), "--source-root", str(args.source_root),
+        "--db", str(db),
         "--embedding-dir", str(embedding_dir),
         "--models-dir", str(args.models_dir),
         "--models", args.models,
@@ -61,10 +109,6 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "--threads", "1",
         "--max-new", str(expected), "--max-errors", "1", "--json",
     ]
-    if args.source_root:
-        cmd.extend(["--source-root", str(args.source_root)])
-    if args.library_root:
-        cmd.extend(["--library-root", args.library_root])
     if is_adaptive:
         cmd.extend(["--adaptive-workers", "--min-workers", "1", "--max-workers", "6"])
     start = time.perf_counter()
@@ -156,12 +200,16 @@ def main() -> None:
         parser.error("--repeats must be 2 or 4 for balanced run order")
     if not 1 <= args.timeout_seconds <= 7200:
         parser.error("--timeout-seconds must be 1..7200")
-    if not args.models or len(set(args.models.split(","))) != len(args.models.split(",")):
-        parser.error("Duplicate/empty model names are not allowed")
+    heads = args.models.split(",")
+    if not heads or any(head not in ("moodtheme", "genre", "voice") for head in heads) or len(set(heads)) != len(heads):
+        parser.error("Models must be unique names from moodtheme,genre,voice")
+    if args.source_root is None:
+        parser.error("--source-root is required: embeddings require --tracks-file")
     try:
-        validate_source_roots(args.source_root, args.library_root)
         cohort = checked_cohort(args.cohort_db)
-    except ValueError as error:
+        mapped = prepare_manifest_keys(cohort, args.library_root)
+        verify_music_paths(mapped, args.source_root)
+    except (ValueError, OSError) as error:
         parser.error(str(error))
     if len(cohort) < 30:
         parser.error("Adaptive evaluation requires a deliberate 30..500-track cohort")
@@ -172,25 +220,42 @@ def main() -> None:
             parser.error(f"Missing executable: {item}")
     if not args.models_dir.is_dir():
         parser.error("Missing ONNX model directory")
+    # Forbid placement inside read-only music/model trees even in plan-only mode.
+    out_real = args.output_dir.resolve()
+    for protected in (args.source_root.resolve(), args.models_dir.resolve(),
+                      args.cohort_db.resolve()):
+        if out_real == protected or out_real.is_relative_to(protected):
+            parser.error("Benchmark output must be outside source audio, model, and cohort paths")
     plan = schedule(args.repeats, args.seed)
     print("Local, private, bounded experiment plan:")
     print(json.dumps({"tracks": len(cohort), "order": plan,
+                      "validated_audio_paths": len(mapped),
+                      "manifest": "generated locally from bounded TracksV2 cohort",
                       "note": "No music or private database contents uploaded"},
                      indent=2))
     if args.plan_only:
         return
-    args.cohort = cohort
+    args.cohort = mapped
+    args.manifest_file = args.output_dir / "selected-tracks.txt"
     args.analyzer = args.analyzer.resolve()
     args.essentia_worker = args.essentia_worker.resolve()
     args.cohort_db = args.cohort_db.resolve()
     args.models_dir = args.models_dir.resolve()
-    if args.source_root:
-        args.source_root = args.source_root.resolve()
+    args.source_root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    # UTF-8 manifest identity is the relative path, not the original absolute
+    # LMS File key. This guarantees all embedding outputs match our lookups.
+    args.manifest_file.write_text("\\n".join(mapped) + "\\n", encoding="utf-8")
     original_cohort_hash = digest(args.cohort_db)
     manifest = {
         "cohort_tracks": len(cohort),
         "cohort_database_sha256": original_cohort_hash,
+        "selected_track_manifest_sha256": digest(args.manifest_file),
+        "model_file_sha256": {
+            item.name: digest(item)
+            for item in sorted(args.models_dir.glob("*"))
+            if item.is_file() and item.suffix in (".onnx", ".json")
+        },
         "analyzer_sha256": digest(args.analyzer),
         "native_worker_sha256": digest(args.essentia_worker),
         "models": args.models,
@@ -223,6 +288,8 @@ def main() -> None:
               f"resizes={rec['adjustments']}", flush=True)
     if digest(args.cohort_db) != original_cohort_hash:
         raise AssertionError("Read-only input Bliss cohort DB unexpectedly changed")
+    if digest(args.manifest_file) != manifest["selected_track_manifest_sha256"]:
+        raise AssertionError("Local track manifest unexpectedly changed during the benchmark")
     with (args.output_dir / "runs.csv").open("w", newline="", encoding="utf-8") as csvout:
         writer = csv.DictWriter(csvout, fieldnames=list(records[0]))
         writer.writeheader()
