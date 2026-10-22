@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'src/**'
+      - 'scripts/verify_manifest_batch_smoke.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/model-smoke.yml'
@@ -52,3 +53,8 @@ jobs:
           assert result["validated_against_essentia"] is False
           print("ONNX end-to-end smoke test passed (numerical Essentia parity is NOT tested).")
           PY
+
+      - name: Compare serial, fixed 2-worker and adaptive 2-worker manifest analysis
+        run: |
+          python3 scripts/verify_manifest_batch_smoke.py \
+            --binary target/release/bliss-mood --models-dir models
