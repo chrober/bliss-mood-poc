@@ -1,7 +1,21 @@
 name: Rust checks
+
 on:
+  # Push-based checks avoid duplicate push/pull_request runs on an
+  # in-repository PR branch. Push path filters compare pushed commits,
+  # not the PR's cumulative diff: docs-only commits do no work.
   push:
-  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -16,6 +30,3 @@ jobs:
       - run: cargo fmt --all
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
-
-      - name: Validate read-only quality sampling
-        run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'

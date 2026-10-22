@@ -1,0 +1,161 @@
+name: Python and PowerShell tests
+
+on:
+  # Execute exactly once for an in-repository push touching script/tests.
+  # Manual dispatch remains available for exceptional cases.
+  push:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/python-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-linux:
+    name: Python tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate MTG-Jamendo model/split preflight schema (offline)
+        run: python3 -m unittest discover -s tests -p 'test_audit_mtg_jamendo_models.py'
+      - name: Validate MagnaTagATune official metadata schema (offline)
+        run: python3 -m unittest discover -s tests -p 'test_inspect_magnatagatune_metadata.py'
+      - name: Validate multipart ZIP directory reading (offline)
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+      - name: Verify two-worker isolated MTT sidecar merge and local multipart read (Linux)
+        run: python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+      - name: Validate 1019-clip-only audio cache integrity on Linux
+        run: python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+      - name: Validate four fixed, unfit equal-rank fusion ablations on Linux
+        run: python3 -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+      - name: Regress four-worker embedding versus classifier filename selection (Linux)
+        run: python3 -m unittest discover -s tests -p 'test_check_song_embedding_smoke.py'
+      - name: Validate research Embedding-vs-Genre/Mood pairing and fingerprint guard on Linux
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
+      - name: Validate paired MTT artist-sensitive outcomes on Linux
+        run: python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
+      - name: Validate 7-metric MTT result summary schema on Linux
+        run: python3 -m unittest discover -s tests -p 'test_summarize_mtt_benchmark.py'
+      - name: Validate sparse MTT MP3 extraction and human triplet scoring (offline)
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+      - name: Validate frozen artist-disjoint MagnaTagATune holdout on Linux
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+      - name: Validate MagnaTagATune odd-one-out votes and CSV dialects (offline)
+        run: python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+      - name: Evaluate similarity metrics on read-only synthetic feature fixture
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate selected-only FMA archive cache (source + per-MP3 checksums)
+        run: python3 -m unittest discover -s tests -p 'test_fma_selected_audio_cache.py'
+      - name: Validate blinded 12-pair local embedding A/B listening pilot (Linux, synthetic)
+        run: python3 -m unittest discover -s tests -p 'test_propose_local_embedding_ab_pilot.py'
+      - name: Validate safe local same-song 1280D exporter (Linux, synthetic)
+        run: python3 -m unittest discover -s tests -p 'test_export_local_song_embeddings.py'
+      - name: Audit bounded local experimental 87D/56D/1280D feature readiness (Linux, synthetic)
+        run: python3 -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py'
+      - name: Validate paired DEAM VA 1280D vs heads and cohort sensitivity
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_deam_embedding_ab.py'
+      - name: Validate paired 1280D FMA VALIDATION only (provenance, same 80-sample contract, paired queries)
+        run: python3 -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py'
+      - name: Validate FMA-Small Genre retrieval offline (artist/split/score coverage)
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+      - name: Verify FMA-Small metadata split/parser on synthetic data
+        run: python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+      - name: Validate FMA vs MTG metadata-only artist/title overlap on Linux
+        run: python3 -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
+      - name: Validate conservative DEAM vs MTG catalog screening (no external data)
+        run: python3 -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
+      - name: Validate DEAM metadata and offline similarity benchmark fixtures
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_deam.py'
+      - name: Generate deterministic unlabeled pilot listening pairs with strict Rust v5 fingerprint
+        run: python3 -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
+
+      - name: Validate read-only quality sampling
+        run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
+
+  similarity-windows:
+    name: Python similarity tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate MTG-Jamendo model/split metadata on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_mtg_jamendo_models.py'
+      - name: Validate MagnaTagATune metadata schema on Windows
+        run: python -m unittest discover -s tests -p 'test_inspect_magnatagatune_metadata.py'
+      - name: Validate multipart ZIP archive metadata on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+      - name: Verify parallel MTT sidecars and local ZIP on Windows
+        run: python -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+      - name: Validate curated research audio cache on Windows
+        run: python -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+      - name: Validate four fixed, unfit equal-rank fusion ablations on Windows
+        run: python -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+      - name: Regress four-worker embedding versus classifier filename selection (Windows)
+        run: python -m unittest discover -s tests -p 'test_check_song_embedding_smoke.py'
+      - name: Validate research Embedding-vs-Genre/Mood pairing and fingerprint guard on Windows
+        run: python -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
+      - name: Validate paired MTT dependence sensitivity on Windows
+        run: python -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
+      - name: Validate MTT result scorecard on Windows
+        run: python -m unittest discover -s tests -p 'test_summarize_mtt_benchmark.py'
+      - name: Validate sparse MTT audio CRC/votes on Windows
+        run: python -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+      - name: Validate artist-disjoint MagnaTagATune holdout on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+      - name: Validate MagnaTagATune vote parsing on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+      - name: Verify SQLite handles close before tempdir cleanup
+        run: python -m unittest discover -s tests -p 'test_evaluate_similarity.py'
+      - name: Validate selected-only FMA ZIP cache provenance on Windows
+        run: python -m unittest discover -s tests -p 'test_fma_selected_audio_cache.py'
+      - name: Validate blinded 12-pair local embedding A/B listening pilot (Windows, synthetic)
+        run: python -m unittest discover -s tests -p 'test_propose_local_embedding_ab_pilot.py'
+      - name: Validate safe local same-song 1280D exporter (Windows, synthetic)
+        run: python -m unittest discover -s tests -p 'test_export_local_song_embeddings.py'
+      - name: Audit bounded local experimental 87D/56D/1280D feature readiness (Windows, synthetic)
+        run: python -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py'
+      - name: Validate paired DEAM VA embedding A-B on Windows
+        run: python -m unittest discover -s tests -p 'test_evaluate_deam_embedding_ab.py'
+      - name: Validate paired 1280D FMA VALIDATION and no-TEST contract on Windows
+        run: python -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py'
+      - name: Validate FMA-Small Genre retrieval and SQLite on Windows
+        run: python -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+      - name: Verify FMA-Small metadata schema and artist split checks on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+      - name: Validate FMA vs MTG provenance and untouched TEST on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
+      - name: Validate metadata-only DEAM/MTG overlap audit on Windows
+        run: python -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
+      - name: Validate DEAM archive matching, independent V/A retrieval and read-only reports
+        run: python -m unittest discover -s tests -p 'test_benchmark_deam.py'
+      - name: Verify SQLite, UTF-8 filenames and read-only hearing set generation
+        run: python -m unittest discover -s tests -p 'test_propose_similarity_listening_pairs.py'
+      - name: Validate Lyrion song URL mapping and safe append against mock JSON-RPC server
+        run: python -m unittest discover -s tests -p 'test_queue_similarity_pairs_lyrion.py'
+      - name: Validate full-block PowerShell Lyrion queue script syntax (do NOT execute against user server)
+        shell: pwsh
+        run: |
+          $path = 'scripts/queue_similarity_pairs_lyrion.ps1'
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path).Path, [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+              throw ($errors | ForEach-Object { $_.Message } | Out-String)
+          }
+          $source = Get-Content -LiteralPath $path -Raw
+          $trimmed = $source.Trim()
+          if (-not $trimmed.StartsWith('& {') -or -not $trimmed.EndsWith('}')) {
+              throw 'Project PowerShell examples must be enclosed in a full script block.'
+          }
+          if ($source -notmatch '\$Apply\s*=\s*\$false') {
+              throw 'Lyrion listening queue script must default to dry run.'
+          }
+
+

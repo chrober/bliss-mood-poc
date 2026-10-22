@@ -1,0 +1,334 @@
+name: MagnaTagATune 346 triplet exploratory benchmark (parallel)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/magnatagatune-all-exploratory.yml'
+  workflow_dispatch:
+    inputs:
+      cache_audio:
+        description: 'Research-only 1019-clip audio cache (~117 MB), not whole archive'
+        type: boolean
+        default: true
+      workers:
+        description: 'Number of isolated Rust-v5 clip workers (one ONNX thread each)'
+        type: choice
+        options: ['1', '2', '4']
+        default: '4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: magnatagatune-all-exploratory-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic preflight before network or Rust
+        run: |
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+
+      - name: Fetch official research metadata and only 8 MiB of ZIP directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          echo "runner_vcpu=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "metadata_zip_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for name in comparisons_final.csv clip_info_final.csv; do
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 240 --silent --show-error \
+              "$base/$name" -o "benchmark-private/$name"
+          done
+          test "$(stat -c%s benchmark-private/comparisons_final.csv)" -gt 10000
+          test "$(stat -c%s benchmark-private/clip_info_final.csv)" -gt 200000
+          for n in 1 2 3; do
+            file=$(printf 'mp3.zip.%03d' "$n")
+            http=$(curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 150 --max-filesize 100000 \
+              --silent --show-error --header 'Accept-Encoding: identity' \
+              --range 0-0 --dump-header "benchmark-private/probe_$n.headers" \
+              --output "benchmark-private/probe_$n.bin" \
+              --write-out '%{http_code}' "$base/$file")
+            test "$http" = 206 || { echo "::error::No 206 Partial Content; abort before GB download"; exit 1; }
+          done
+          http=$(curl --fail --location --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 --max-filesize 9500000 \
+            --silent --show-error --header 'Accept-Encoding: identity' \
+            --range -8388608 --dump-header benchmark-private/tail.headers \
+            --output benchmark-private/zip-tail.bin \
+            --write-out '%{http_code}' "$base/mp3.zip.003")
+          test "$http" = 206 || { echo "::error::No ZIP suffix range support"; exit 1; }
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def parse(name):
+              raw = Path(name).read_text(encoding="iso-8859-1")
+              m = re.findall(
+                  r"(?im)^content-range:\s*bytes\s+(\d+)-(\d+)/(\d+)\s*$",
+                  raw
+              )
+              if not m:
+                  raise SystemExit("Missing HTTP Content-Range: "+name)
+              return tuple(map(int, m[-1]))
+          sizes = []
+          for n in range(1,4):
+              start, end, length = parse(f"benchmark-private/probe_{n}.headers")
+              if (start, end) != (0, 0):
+                  raise SystemExit("Invalid probe range response")
+              sizes.append(length)
+          start, end, length = parse("benchmark-private/tail.headers")
+          if (length != sizes[2] or end != length-1
+                  or start != length-8388608
+                  or Path("benchmark-private/zip-tail.bin").stat().st_size != 8388608):
+              raise SystemExit("Wrong or incomplete ZIP suffix")
+          Path("benchmark-private/parts.txt").write_text(
+              " ".join(map(str, sizes)) + "\n", encoding="ascii"
+          )
+          print("Confirmed multipart ZIP sizes in bytes:", sizes)
+          PY
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          python3 scripts/audit_magnatagatune_archive.py \
+            --last-part-tail benchmark-private/zip-tail.bin \
+            --part-sizes "$p1" "$p2" "$p3" \
+            --comparisons benchmark-private/comparisons_final.csv \
+            --clips benchmark-private/clip_info_final.csv \
+            --report results/mtt-directory-preflight.json
+          # Freeze publisher metadata and verify the exact 346/1019 research scope.
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from benchmark_magnatagatune import (
+              digest, triplets_by_vote, REGISTERED_MTT_COMPARISONS_SHA256,
+              REGISTERED_MTT_CLIPS_SHA256
+          )
+          a=Path("benchmark-private/comparisons_final.csv")
+          b=Path("benchmark-private/clip_info_final.csv")
+          assert digest(a)==REGISTERED_MTT_COMPARISONS_SHA256
+          assert digest(b)==REGISTERED_MTT_CLIPS_SHA256
+          triplets,catalog=triplets_by_vote(a,b)
+          assert len(triplets)==346
+          assert len({clip for triple in triplets for clip in triple})==1019
+          print("Registered MTT data PASS: 346 unordered human questions, 1019 clips.")
+          print("This experiment includes formerly reserved holdout; no independent MTT holdout remains.")
+          PY
+          echo "metadata_zip_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      # Feature branch research cache: caches are NOT confidential and can
+      # be exposed to PR workflows targeting the cache-bearing branch.
+      - name: Restore only 1019 relevant MTT clips, never source archives
+        id: clip_cache
+        if: ${{ github.repository == 'chrober/bliss-mood-poc' && github.ref == 'refs/heads/feat/similarity-metric-evaluation' && (github.event_name == 'push' || inputs.cache_audio == true) }}
+        uses: actions/cache/restore@v4
+        with:
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
+
+      - name: Download official multipart source only on curated-cache miss
+        if: steps.clip_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "source_archive_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for index in 1 2 3; do
+            name=$(printf 'mp3.zip.%03d' "$index")
+            curl --fail --location --retry 5 --retry-all-errors \
+              --retry-delay 4 --retry-max-time 2100 \
+              --connect-timeout 25 --max-time 2100 --silent --show-error \
+              "$base/$name" -o "benchmark-private/$name"
+          done
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          test "$(stat -c%s benchmark-private/mp3.zip.001)" = "$p1"
+          test "$(stat -c%s benchmark-private/mp3.zip.002)" = "$p2"
+          test "$(stat -c%s benchmark-private/mp3.zip.003)" = "$p3"
+          echo "source_archive_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build only selected 1019 MP3s into CRC-verified cache
+        if: steps.clip_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          echo "curated_cache_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'curated_cache_build_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode build --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --source-parts benchmark-private/mp3.zip.001 \
+                benchmark-private/mp3.zip.002 benchmark-private/mp3.zip.003
+          echo "curated_cache_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          rm -f benchmark-private/mp3.zip.001 benchmark-private/mp3.zip.002 benchmark-private/mp3.zip.003
+
+      - name: Verify all cached MP3 CRCs before expensive Rust-v5 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          /usr/bin/time -f 'curated_cache_verify_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode verify --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv
+          size=$(stat -c%s benchmark-private/mtt-required-1019-clips.zip)
+          test "$size" -lt 314572800
+          echo "clip_cache_hit=${{ steps.clip_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "curated_cache_bytes=$size" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cache ONLY the selected research clips, never full music archives
+        if: ${{ steps.clip_cache.outputs.cache-hit != 'true' && github.repository == 'chrober/bliss-mood-poc' && github.ref == 'refs/heads/feat/similarity-metric-evaluation' && (github.event_name == 'push' || inputs.cache_audio == true) }}
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
+
+      - name: Checkout pinned corrected Rust-v5 analyzer (without merging PR 17)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      # Trusted branch, pinned PR #17 source revision + locked Cargo.lock.
+      # The release binary is smaller to restore than the Cargo target cache.
+      - name: Restore prebuilt pinned Linux Rust-v5 executable
+        id: binary_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
+
+      - name: Ensure ffmpeg decoding prerequisite available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+
+      - name: Build Rust-v5 CLI from locked dependencies on binary-cache miss
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "cargo_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ( cd validated-rust-v5/target/release && sha256sum bliss-mood > bliss-mood.sha256 )
+          echo "cargo_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify pinned Rust-v5 binary against build cache integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s validated-rust-v5/target/release/bliss-mood
+          ( cd validated-rust-v5/target/release && sha256sum --check bliss-mood.sha256 )
+          test -x validated-rust-v5/target/release/bliss-mood
+          validated-rust-v5/target/release/bliss-mood analyze-features --help
+          echo "rust_binary_cache_hit=${{ steps.binary_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "rust_binary_bytes=$(stat -c%s validated-rust-v5/target/release/bliss-mood)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save verified pinned Rust-v5 executable for later trusted runs
+        if: steps.binary_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            validated-rust-v5/target/release/bliss-mood
+            validated-rust-v5/target/release/bliss-mood.sha256
+          key: rust-v5-cli-ubuntu2404-x64-2c3d44401436b3b41b6e067199016a1ed2335fbf-v1
+
+      - name: Download pinned upstream Essentia encoder and both heads
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "model_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          for head in mtg_jamendo_genre mtg_jamendo_moodtheme; do
+            fetch classification-heads/$head "$head-discogs-effnet-1.onnx"
+            fetch classification-heads/$head "$head-discogs-effnet-1.json"
+          done
+          sha256sum models/*
+          echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Analyze 1019 clips with selected isolated bliss-mood workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          echo "parallel_analysis_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          MTT_WORKERS="${{ inputs.workers || '4' }}"
+          echo "runner_vcpus=$(nproc) workers=$MTT_WORKERS onnx_threads_per_worker=1" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'parallel_audio_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/benchmark_magnatagatune.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --selected-clip-cache benchmark-private/mtt-required-1019-clips.zip \
+              --binary validated-rust-v5/target/release/bliss-mood \
+              --models-dir models \
+              --db benchmark-private/mtt-all-exploratory-features.db \
+              --report results/mtt-all-exploratory-aggregate.json \
+              --selection-mode all-exploratory --workers "$MTT_WORKERS" \
+              --seed 20261021
+          echo "parallel_analysis_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summarize all 14 metric/head combinations with coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/summarize_mtt_benchmark.py \
+            --report results/mtt-all-exploratory-aggregate.json \
+            --out results/mtt-seven-metric-scorecard.md
+          cat results/mtt-seven-metric-scorecard.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish only aggregate research results (never audio/features/votes)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnatagatune-all-exploratory-aggregate
+          path: |
+            results/mtt-directory-preflight.json
+            results/mtt-all-exploratory-aggregate.json
+            results/mtt-seven-metric-scorecard.md
+          if-no-files-found: error
+          retention-days: 14

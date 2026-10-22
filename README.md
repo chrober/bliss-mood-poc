@@ -5,6 +5,30 @@ Experimental Rust CLI for capability-based music feature analysis using MTG/Esse
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
 
+## Current roadmap: From song features to Lyrion integration (2026-10-21)
+
+The [end-to-end research and integration roadmap](docs/similarity-lyrion-roadmap.md)
+covers **phases 0–6**, acceptance gates, independently verifiable work packages,
+and **four Mermaid diagrams**: offline features, research evidence and model
+selection, and Bliss-first/feature-first/hybrid playlist strategies. It tracks
+the currently blocked DEAM source, verified MTT/FMA results, and the planned
+local listening study.
+
+**Important status correction:** Phase **0 is implemented for experimental
+research, but is NOT completed or production-validated**. Corrected Rust-v5
+preprocessing, model parity, broad representative real-world validation,
+distribution/licensing, and operational release checks remain separate gates.
+Phase **2** inventories and, where necessary, completes compatible 87D Genre,
+56D Mood, and optional 1280D audio embeddings **for the same local tracks**.
+A fully maintained production-library feature set belongs to **phase 6**,
+only after the release gates. No ONNX inference runs inside the playlist mixer.
+
+**Documentation policy:** All README and `docs/*.md` prose must be in
+**English**, including handover notes and Mermaid labels. The
+[English-only documentation CI](.github/workflows/docs-english.yml)
+runs on documentation changes; source-code snippets, model names and
+historical file identifiers remain unchanged.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with
@@ -356,6 +380,68 @@ extension: an explicit, reproducible TF-to-ONNX conversion, numerical parity
 check and model provenance verification would be required first. The current
 Mood, Genre and Voice ONNX pipeline must not silently try to load a
 non-existent official Discogs400 ONNX file.
+
+## Offline Mood/Genre similarity metric benchmark
+
+Before activating a Mood/Genre guidance weight, compare RMS, cosine,
+centered cosine, weighted Jaccard and sparse top-K weighted Jaccard
+**separately for the 87D Genre and 56D Mood heads**. The new
+[read-only similarity evaluator](docs/similarity-metric-evaluation.md)
+runs with Python's standard library against the existing schema-v3
+feature database, with a deterministic sample, optional human-judged
+positive/negative pairs, and no audio/ONNX work. It deliberately
+**does not choose a winner or calibrate scores without real listening
+judgments**. Current model outputs remain experimental.
+
+The [listening-pair pilot generator](scripts/propose_similarity_listening_pairs.py)
+can prepare a small deterministic **unlabeled** CSV with separate Genre/Mood
+judgments, and a sealed private audit that must not be inspected before
+listening. It can use the numerically checked Rust-v5 real-MP3 schema-v3
+sidecar **directly** without merging experimental native Essentia C++
+PR #17, running ONNX, rescanning music or modifying SQLite. The sampling
+deliberately includes head/metric disagreements, low Mood activations and
+random controls. Its curated pairs are **not** an unbiased held-out
+benchmark or proof of a metric winner. See
+[exact Windows command and methodology](docs/similarity-metric-evaluation.md#21-october-2026--restart-on-numerically-checked-rust-v5-vectors-pr-17-not-required).
+
+## Reproducible PowerShell snippets and local Lyrion listening queue
+
+Project PowerShell examples must always be **complete single copy/paste
+blocks enclosed in `& { ... }`**, including fixes. The convention is
+documented in [docs/powershell-script-conventions.md](docs/powershell-script-conventions.md).
+
+For the PR #16 eight-pair listening pilot, run
+[`scripts/queue_similarity_pairs_lyrion.ps1`](scripts/queue_similarity_pairs_lyrion.ps1).
+It defaults to **dry run**, uses the exact local CSV keys and a
+configured stable Lyrion player ID, and explicitly decodes Lyrion
+JSON-RPC bytes as UTF-8. Configure locally via
+`LYRION_SERVER_URL`, `LYRION_PLAYER_ID`,
+`LYRION_LISTENING_CSV`, and the **absolute Pi music folder**
+`LYRION_MUSIC_ROOT` (for example `/mnt/music`).
+Only opt in to writing with `LYRION_APPLY=true` after reviewing a
+complete dry run. It **appends** the tracks in pairwise order, without
+replacing the existing queue or starting playback. The script keeps
+LAN addresses, private player IDs and audio paths out of the public
+source tree. Relative `TracksV2.File` keys are joined to the
+configured Pi music folder and resolved with **direct, bounded
+`songinfo url:file:///...`** queries. The returned ID and fully
+decoded absolute URL must match exactly; no expensive 77k-song
+catalog scan or unsafe title search is performed. See
+[exact-key mapping and listening queue safety](docs/similarity-metric-evaluation.md#lyrion-listening-pilot-exact-tracksv2file--lms-song-url-mapping). Never rerun the apply mode blindly: it would append
+duplicates.
+
+**Queue duplicates:** Real Lyrion accepted only 15 of 16 items
+when a single `playlistcontrol cmd:add track_id:id1,id2,...`
+request repeated one ID from two adjacent listening pairs. The
+original command **had already changed the queue** when its returned
+count was rejected. The corrected script appends **one ID per
+request**, confirms each queue-size increment, and then checks the
+actual ordered playlist tail. It also prevents accidental retries
+when the old 15-ID sequence or a complete 16-position sequence
+already sits at the end. A multi-request append is **not atomic**:
+after any reported failure, inspect the queue rather than retrying
+Apply mode blindly. The previously appended 15 tracks need not be
+re-added for the current pilot.
 
 ## Local files and Git hygiene
 

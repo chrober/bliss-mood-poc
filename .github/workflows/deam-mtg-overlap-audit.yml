@@ -1,0 +1,74 @@
+name: DEAM / MTG metadata overlap screen (research)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/deam-mtg-overlap-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch official metadata only (NO audio, models, features)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-private audit-results
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 600 --silent --show-error \
+            https://cvml.unige.ch/databases/DEAM/metadata.zip \
+            -o audit-private/deam-metadata.zip
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 900 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o audit-private/mtg-raw.meta.tsv
+          test "$(stat -c%s audit-private/deam-metadata.zip)" -gt 1000
+          test "$(stat -c%s audit-private/mtg-raw.meta.tsv)" -gt 10000
+          python3 - <<'PY'
+          import csv
+          import zipfile
+          with zipfile.ZipFile("audit-private/deam-metadata.zip") as archive:
+              names = [n for n in archive.namelist() if n.lower().endswith(".csv")]
+              print("DEAM metadata CSV count:", len(names))
+              for name in names:
+                  with archive.open(name) as src:
+                      header = src.readline(8192).decode("utf-8-sig").strip()
+                  print("CSV header only:", name, header[:250])
+          with open("audit-private/mtg-raw.meta.tsv", encoding="utf-8-sig") as src:
+              print("MTG metadata TSV HEADER ONLY:", src.readline(8192).strip()[:500])
+          PY
+
+      - name: Screen exact artist-title catalog overlaps, aggregates only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/audit_deam_mtg_overlap.py \
+            --deam-metadata-zip audit-private/deam-metadata.zip \
+            --mtg-metadata-tsv audit-private/mtg-raw.meta.tsv \
+            --output audit-results/deam-mtg-overlap-summary.json
+          python3 - <<'PY'
+          import json
+          with open("audit-results/deam-mtg-overlap-summary.json", encoding="utf8") as src:
+              report = json.load(src)
+          assert report["status"].startswith("partial_metadata_screen_only")
+          assert report["coverage"]["deam_rows_with_valid_artist_title"] > 0
+          print("Research screening status:", report["status"])
+          for group, counts in report["by_cohort"].items():
+              print("Cohort", group, counts)
+          PY
+
+      - name: Upload ONLY aggregate screening report (no metadata)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deam-mtg-aggregate-catalog-overlap-screen
+          path: audit-results/deam-mtg-overlap-summary.json
+          if-no-files-found: error
+          retention-days: 14

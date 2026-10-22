@@ -1,0 +1,184 @@
+name: DEAM similarity benchmark (experimental)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/deam-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'DEAM songs (12..1802; default 240), cohort-stratified'
+        required: true
+        default: '240'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deam-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deam:
+    name: Download, classify and evaluate licensed DEAM research audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      DEAM_LIMIT: ${{ inputs.limit || '240' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned numerically verified Rust-v5 analyzer (separate tree)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+
+      - name: Verify only a bounded sample is requested
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          limit = int(os.environ["DEAM_LIMIT"])
+          if not 12 <= limit <= 1802:
+              raise SystemExit("DEAM_LIMIT must be between 12 and 1802")
+          print("Requested DEAM songs:", limit)
+          PY
+
+      - name: Install FFmpeg and build corrected Rust-v5 CLI
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          # Build the pinned original v5 implementation from its own
+          # branch commit. No files are merged into PR #16.
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ./validated-rust-v5/target/release/bliss-mood analyze-features --help
+
+      - name: Download Essentia model files (do not redistribute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          for head in mtg_jamendo_genre mtg_jamendo_moodtheme; do
+            fetch classification-heads/$head "$head-discogs-effnet-1.onnx"
+            fetch classification-heads/$head "$head-discogs-effnet-1.json"
+          done
+          test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
+          sha256sum models/*
+
+      - name: Download DEAM noncommercial research archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private
+          base=https://cvml.unige.ch/databases/DEAM
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2400 --silent --show-error \
+            "$base/DEAM_Annotations.zip" -o benchmark-private/annotations.zip
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 3600 --silent --show-error \
+            "$base/DEAM_audio.zip" -o benchmark-private/audio.zip
+          test "$(stat -c%s benchmark-private/annotations.zip)" -gt 100000
+          test "$(stat -c%s benchmark-private/audio.zip)" -gt 100000000
+          # Private metadata inventory for later MTG-Jamendo overlap matching.
+          # Only CSV header names are printed; never artist names/track rows.
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 --silent --show-error \
+            "$base/metadata.zip" -o benchmark-private/metadata.zip
+          # Conservative MTG catalog screen; do not publish raw metadata.
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 900 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o benchmark-private/mtg-raw.meta.tsv
+          test "$(stat -c%s benchmark-private/mtg-raw.meta.tsv)" -gt 10000
+          python3 - <<'PY'
+          import zipfile
+          import csv, io
+          for name in ("benchmark-private/annotations.zip",
+                       "benchmark-private/audio.zip",
+                       "benchmark-private/metadata.zip"):
+              with zipfile.ZipFile(name) as archive:
+                  count = len(archive.infolist())
+                  if count < 1:
+                      raise SystemExit("DEAM archive unexpectedly empty")
+                  print("Verified ZIP structure:", name, "members:", count)
+                  if name.endswith("metadata.zip"):
+                      for entry in archive.namelist():
+                          if not entry.lower().endswith(".csv"):
+                              continue
+                          with archive.open(entry) as source:
+                              line = source.readline(8192).decode("utf-8-sig").strip()
+                          print("Metadata CSV:", entry, "header:", line[:350])
+          
+          PY
+
+      - name: Evaluate seven similarity metrics on Rust-v5 sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          python3 scripts/benchmark_deam.py \
+            --annotations-zip benchmark-private/annotations.zip \
+            --audio-zip benchmark-private/audio.zip \
+            --binary validated-rust-v5/target/release/bliss-mood \
+            --models-dir models \
+            --db benchmark-private/deam-features.db \
+            --report results/deam-summary.json \
+            --limit "$DEAM_LIMIT" \
+            --seed 20261021 \
+            --stratify-cohorts \
+            --deam-metadata-zip benchmark-private/metadata.zip \
+            --mtg-metadata-tsv benchmark-private/mtg-raw.meta.tsv \
+            --exclude-mtg-catalog-matches
+          python3 - <<'PY'
+          import json
+          with open("results/deam-summary.json", encoding="utf-8") as f:
+              report = json.load(f)
+          print("DEAM tracks:", report["dataset"]["songs_evaluated"])
+          print("Collection cohorts:", report["dataset"]["annotation_cohort_counts"])
+          print("Catalog overlap screening:", report["dataset"]["train_overlap_check"])
+          print("Catalog exclusion counts:", {
+              key: value for key, value in report["dataset"]["overlap_screen"].items()
+              if key in ("excluded_mtg_catalog_candidates", "eligible_after_exclusion",
+                         "deam_metadata_coverage_count")
+          })
+          for name, group in report.get("subcohorts", {}).items():
+              print("Within-collection:", name, "songs:", group["songs_evaluated"])
+              print("  Mood cosine VA Spearman:",
+                    group["per_head"]["moodtheme"]["cosine"]["axes"]["valence_arousal"]
+                    ["mean_query_spearman"])
+          for head, metrics in report["per_head"].items():
+              print("Head:", head)
+              for name, result in metrics.items():
+                  x = result["axes"]["valence_arousal"]
+                  print(f"  {name}: query Spearman={x['mean_query_spearman']} "
+                        f"queries={x['query_count']}")
+          PY
+
+      - name: Upload only aggregate research results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deam-aggregate-similarity-report
+          path: results/deam-summary.json
+          if-no-files-found: error
+          retention-days: 14

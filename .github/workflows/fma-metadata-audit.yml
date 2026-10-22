@@ -1,0 +1,56 @@
+name: FMA-Small genre benchmark metadata preflight
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/fma-metadata-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fma-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify metadata parser against synthetic fixtures (offline)
+        run: python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+
+      - name: Download canonical FMA metadata ZIP (no music)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private fma-reports
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2700 --silent --show-error \
+            https://os.unil.cloud.switch.ch/fma/fma_metadata.zip \
+            -o fma-private/fma_metadata.zip
+          test "$(stat -c%s fma-private/fma_metadata.zip)" -gt 100000000
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("fma-private/fma_metadata.zip") as f:
+              members = {n.rsplit("/", 1)[-1] for n in f.namelist()}
+          assert "tracks.csv" in members
+          print("Canonical FMA metadata ZIP verified (no audio downloaded).")
+          PY
+
+      - name: Audit official FMA-Small labels, train-test splits, artist overlap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/audit_fma_metadata.py \
+            --metadata-zip fma-private/fma_metadata.zip \
+            --output fma-reports/fma-small-metadata-summary.json
+
+      - name: Upload ONLY aggregate FMA metadata/split statistics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fma-small-metadata-audit-aggregate
+          path: fma-reports/fma-small-metadata-summary.json
+          if-no-files-found: error
+          retention-days: 14
