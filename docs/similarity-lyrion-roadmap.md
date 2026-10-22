@@ -1,6 +1,6 @@
 # Roadmap: From song features to validated similarity and Lyrion playlist integration
 
-**Updated:** October 21, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
+**Updated:** October 22, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
 **Repository:** `chrober/bliss-mood-poc` · **Branch:** `feat/similarity-metric-evaluation` ·
 **Pull request:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16)
 
@@ -9,6 +9,38 @@
 > transitions. Genre proximity, mood/energy, general timbral similarity, and
 > suitability as the next track are **distinct targets**. A similarity score is not
 > automatically a calibrated probability of a good playlist transition.
+
+## Binding architecture decision (October 22, 2026): general-first plus optional personal learning
+
+The **original, primary research goal stays intact**: select and independently
+evaluate a strong **general-purpose song similarity metric**, useful
+**without user training data**. A/B/C representation studies,
+uncertainty, cross-dataset evidence and the 12-pair local listening
+pilot continue; **no general metric or fusion weights have been
+selected for production**.
+
+The extension is an **optional per-user learned metric** derived from
+human relative/odd-one-out triplets, inspired by the existing
+[`bliss-learner`](https://github.com/chrober/bliss-learner) and
+[`lms-blissmixer-lab`](https://github.com/chrober/lms-blissmixer-lab).
+A **0–100% personalization slider** sets personal influence.
+**Without a usable, compatible personal model, the effective
+personalization is 0% and 100% of the GENERAL metric is used**
+regardless of stored slider position. With a valid model,
+0% means entirely general and 100% entirely personal.
+Blending requires calibrated comparable score scales;
+raw cosines, learned distances and question-local midranks
+are not directly interchangeable.
+
+General multi-representation **fusion (approach C)**,
+**general/personal blending**, and **candidate sourcing**
+(Bliss-first/feature-first/hybrid) remain **three distinct
+decisions**. Existing BlissMixerLab `learned_blend` affects
+its 23D Bliss-learning integration; this new general/personal
+slider **does not yet exist in its production code**.
+
+**Canonical specification:**
+[General-first similarity with optional per-user learning and 0–100% blend](similarity-general-personal-blending-architecture.md).
 
 ## 1. Executive summary and corrected phase-0 status
 
@@ -46,13 +78,16 @@ flowchart TD
     P1["Phase 1 — External evidence<br/>MTT and FMA complete for specified studies<br/>Paired DEAM blocked by source outage"]
     P2["Phase 2 — Local research cohort<br/>100/100 matched 87D, 56D, 1280D<br/>Verified for bounded study"]
     P3["Phase 3 — Controlled listening judgments<br/>Blinded 12-pair selector prepared<br/>Human labels not yet collected"]
-    P4["Phase 4 — Select representation + metric<br/>A vs B vs C, disjoint validation<br/>Not decided"]
+    P4["Phase 4 — Select GENERAL representation + metric<br/>A vs B vs C, disjoint validation<br/>Not decided"]
     P5["Phase 5 — Compare Lyrion strategies<br/>Bliss-only, Bliss-first, feature-first, hybrid<br/>Architecture only"]
+    PPERSONAL["Optional parallel research branch<br/>Per-user triplets + 0–100% personal blend<br/>Architecture only; general baseline mandatory"]
     P6["Phase 6 — Productization and release<br/>Performance, rights, maintenance, fallback<br/>Not authorized"]
     P0 --> P1
     P0 --> P2
     P1 -. "Adds external evidence" .-> P4
     P2 --> P3 --> P4 --> P5 --> P6
+    P4 -. "general baseline independent of user ratings" .-> PPERSONAL
+    PPERSONAL -. "optional validated integration" .-> P6
     P0 -. "Remaining extraction gates" .-> P6
 ```
 
@@ -276,6 +311,13 @@ artist/genre robustness, uncertainty and computational cost.
 Avoid selecting a complicated method when the evidence does
 not establish a meaningful advantage over a simpler baseline.
 
+**The mandatory output of this phase is a stand-alone general
+scorer**, not a scorer that requires personal training.
+Optional user-specific optimization must be evaluated separately
+against this frozen general baseline. See
+[general/personal architecture](similarity-general-personal-blending-architecture.md).
+
+
 ### Phase 5: separate choice of *playlist candidate strategy*
 
 **A/B/C are representations and similarity functions.
@@ -319,6 +361,38 @@ calibration, drift and common eligibility requirements. No model
 or strategy is the current product winner. Always include
 **Bliss-only** as a listening and performance control.
 
+### Optional parallel research track: personal metric and user blend
+
+This **extends, never replaces or blocks** phases 3–5.
+The general metric must work at 0% personal influence
+and for new users with no triplets.
+
+- Adapt the existing
+  [BlissMixerLab survey](https://github.com/chrober/lms-blissmixer-lab)
+  and [bliss-learner](https://github.com/chrober/bliss-learner)
+  as **references**. Existing learned Bliss 23D matrices and Lab
+  `learned_blend` are **not** the new learned 87D/56D/1280D option.
+- Study informative disagreements, near neighbors, model-chosen
+  presumed controls, random/diverse probes and repeated triplets.
+  A control pair inferred by a model is **not an objectively
+  correct pair**; skip/uncertainty must be supported.
+- Begin with strongly regularized few-parameter personal weights
+  over pre-calibrated Bliss/Genre/Mood/Audio evidence; **do not fit
+  a full unrestricted 1,423D Mahalanobis matrix** to sparse votes.
+- Measure held-out triplet accuracy, log-loss, consistency,
+  learning curves and real playlist quality relative to
+  **unpersonalized general** and fixed baselines.
+- Blend `S_eff=(1-alpha)S_general + alpha*S_personal`
+  **only after calibration** on a common score scale.
+  With no valid, compatible personal model,
+  **`alpha_effective=0`** irrespective of the saved 0–100%
+  personal preference; preserve the preference and surface
+  the fallback reason.
+
+**Current status: design only, no user-model training or
+Lyrion implementation.** Detailed contract:
+[general/personal architecture](similarity-general-personal-blending-architecture.md).
+
 ### Phase 6: operational integration and release gates
 
 Only after phase-4/5 decisions and the outstanding phase-0
@@ -343,6 +417,9 @@ correctness gates:
   reversible rollout, upgrade/rollback/backup plan; edit
   separate Lyrion-related repositories **only after
   explicit authorization**.
+- **Optional per-user metric:** isolation of learner profiles,
+  evidence-gated activation, calibrated blend, preserved slider
+  preference and deterministic complete general-only fallback.
 
 ## 4. Immediate sequence with stop/go decisions
 
@@ -355,6 +432,7 @@ correctness gates:
 | **N5. New evaluation block** | N4 and predeclared method | Fresh artist-/album-aware observations with paired, untuned A/B/C evaluation | Remain exploratory |
 | **N6. Playlist strategy test** | N5 and review | Bliss-only comparison, transition quality and safe candidate constraints | Keep experimental code opt-in |
 | **N7. Production release** | N6 plus remaining phase-0 gates | Correctness, rights, platform budgets, feature lifecycle and rollback | No production integration |
+| **N8. Optional personal metric and blend (parallel)** | Frozen general baseline, independent triplet protocol | Held-out individual improvement and tested 0–100% calibrated blend, cold-start fallback | Keep general scorer at 100%; never block N4–N7 |
 
 **Work discipline:** One narrow change, one measurable acceptance
 check, a short CI/result update, and only then the next change.
@@ -379,6 +457,19 @@ or downloading licensed audio.
 - Do not fabricate or edit human ratings from song names,
   class scores or benchmark labels. Distinguish human
   perceptual similarity from the quality of playlist transitions.
+
+## Next current research action (October 22, 2026)
+
+The user's final independent read-only audit verified **100/100**
+coherent matching 87D/56D/1280D features and zero missing/invalid
+song sidecars. The local blinded 12-pair instrument was
+**generated** (`BLINDED_REVIEW_READY`): 24 distinct tracks,
+blank human labels, and **0 earlier reviewed pairs excluded**,
+which is *not* proof of no overlap. Next prioritize actual
+human judgments and evaluation of the **general** metrics on
+the frozen evidence. An independent optional learner/triplet
+protocol can be designed in parallel, without touching the
+existing `bliss-learner`, `lms-blissmixer-lab` or upstream mixer.
 
 ## 6. Further technical and historical documentation
 
