@@ -360,7 +360,7 @@ workers; `adjustments=[]` was expected below the 24-song gate.
 
 A distinct extended integration test,
 `scripts/verify_native_essentia_adaptive_long.py`, now runs **36 distinct
-synthetic 120-second WAVs** twice against official Mood/EffNet ONNX weights
+synthetic 300-second WAVs** twice against official Mood/EffNet ONNX weights
 and the actual original Essentia C++ subprocesses: fixed 2 workers vs
 adaptive 2 workers with bounds 1–3. It compares the resulting SQLite score
 bytes and complete 1280D song embeddings for exact parity. The report
@@ -377,6 +377,27 @@ If a real resize occurs, the test checks its direction, legal worker
 bounds, completed-song threshold, counter consistency and terminal cap.
 Performance claims still require the separate, balanced local NAS/music
 cohort benchmark.
+
+### First extended-run observation and corrected sampling contract
+
+The first 36 × 120-second native long-run attempt
+([workflow 39790454912](https://github.com/chrober/bliss-mood-poc/actions/runs/39790454912))
+completed both native fixed-2 and adaptive-2 analyses with **36 tracks
+each in 13.77 and 13.67 seconds**, respectively. It then failed a
+**test-harness assertion**, not the scanner or numerical comparison:
+the test incorrectly required 24 CPU resource samples, assuming one
+per completed song. In reality `ResourceMonitor::sample()` emits a
+valid CPU delta only when enough time has elapsed; **six valid system
+load samples** were collected. Four were before the 24-song gate and
+two during the 20-second cooldown, so zero adjustments were expected.
+
+The corrected gate now checks coherent sample counters and at least
+one valid observation on each side of the real 24-song threshold. It
+does **not** equate sampling count to completed song count. Audio was
+lengthened from **120 to 300 seconds per track** to provide a real
+wall-clock opportunity for the unchanged 20-second cooldown to elapse.
+This is still a live shared-runner observation, not a deterministic
+expectation of resizing. Numeric parity remains exact.
 
 ## Branch boundaries
 
