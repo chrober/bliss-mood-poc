@@ -690,7 +690,7 @@ fn read_track_manifest(path: &Path) -> Result<Vec<String>> {
     for (index, raw) in content.lines().enumerate() {
         let key = raw.strip_suffix('\r').unwrap_or(raw);
         if key.is_empty() { continue; }
-        if key.trim() != key || key.contains(['\\', ':', '\0'])
+        if key.trim() != key || key.chars().any(|c| matches!(c, '\\' | ':' | '\0'))
             || key.starts_with('/')
             || key.split('/').any(|part| part.is_empty() || part == "." || part == "..")
         {
