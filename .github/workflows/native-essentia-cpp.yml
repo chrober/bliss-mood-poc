@@ -63,7 +63,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/essentia-source
           # No restore-keys: native FFTW/FFmpeg/ABI changes must rebuild.
-          key: original-essentia-waf-ubuntu2404-v2-dc91e47e-${{ hashFiles('build/ubuntu-native-packages.txt') }}
+          key: original-essentia-waf-ubuntu2404-v3-82853264-${{ hashFiles('build/ubuntu-native-packages.txt') }}
       - name: Build pinned original MTG/essentia C++ library (not essentia-rs)
         shell: bash
         run: |
@@ -74,10 +74,10 @@ jobs:
           else
             test ! -e "$source"
             git clone --quiet https://github.com/MTG/essentia.git "$source"
-            git -C "$source" checkout --quiet dc91e47ed634e0b152d3d0229ec86751bb315473
+            git -C "$source" checkout --quiet 828532642f987c5c83f7686347bf9634dd3b821d
           fi
           # Cache contents are untrusted: insist on the exact pinned upstream tree.
-          test "$(git -C "$source" rev-parse HEAD)" = dc91e47ed634e0b152d3d0229ec86751bb315473
+          test "$(git -C "$source" rev-parse HEAD)" = 828532642f987c5c83f7686347bf9634dd3b821d
           test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
           test -z "$(git -C "$source" status --porcelain --untracked-files=no)"
           echo "Using pinned upstream MTG/essentia $(git -C "$source" rev-parse HEAD) on Ubuntu 24.04 with FFmpeg $(pkg-config --modversion libavcodec)"

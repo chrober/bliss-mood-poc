@@ -210,6 +210,25 @@ Any resulting CI failures will be easier to triage than silent 20-30-minute
 stalls. The new runner/cache change remains **unqualified until its own
 workflow completes**.
 
+The next [native workflow run 39775819256](https://github.com/chrober/bliss-mood-poc/actions/runs/39775819256)
+at `2da0c016` also failed during Essentia compilation on Ubuntu 24.04.
+The October 2026 Essentia upstream pin had progressed **beyond** the
+available Ubuntu 24.04 FFmpeg version and referenced
+`avcodec_get_supported_config` / `AV_CODEC_CONFIG_SAMPLE_FORMAT`,
+which are not available there. This is independent of the glibc error
+and of any parallel scheduler change.
+
+The follow-up pins the unmodified **10 December 2025-era upstream commit
+`828532642f987c5c83f7686347bf9634dd3b821d`**, which already uses
+the post-FFmpeg-5 encoding API while retaining the FFmpeg-6-compatible
+`AVCodec.sample_fmts` query. The Essentia C++ cache key is independently
+bumped again. This compatibility choice is **hypothesized from upstream
+source inspection, not yet CI-qualified**. The full original C++ vs Rust
+Mel/codec/model parity checks remain strict; the subsequent scanner
+1/2/4-worker test must still run and pass. Do not treat the earlier
+2023 or October 2026 upstream versions' parity results as direct evidence
+for the new pin.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
