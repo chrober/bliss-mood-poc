@@ -1102,6 +1102,70 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     #[test]
+    fn manifest_selection_reuses_scan_options_and_filters_exact_identity() {
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-cohort-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Artist")).unwrap();
+        std::fs::write(music.join("Artist").join("one.flac"), b"synthetic").unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "Artist/one.flac\nArtist/missing.flac\n").unwrap();
+        let mut options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre",
+            source_root: Some(music.as_path()), library_root: None,
+            only_track: None, max_new: None, max_errors: 5,
+            threads: 1, workers: 2, adaptive_workers: false,
+            min_workers: 1, max_workers: 3, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        // Missing audio is a scanner-stage error, not silently lost in the manifest.
+        assert_eq!(selected_tracks(&options).unwrap(),
+            vec!["Artist/one.flac", "Artist/missing.flac"]);
+        options.only_track = Some("Artist/one.flac");
+        assert_eq!(selected_tracks(&options).unwrap(), vec!["Artist/one.flac"]);
+        options.only_track = Some("Artist/not-selected.flac");
+        assert!(selected_tracks(&options).is_err());
+        options.only_track = None;
+        options.library_root = Some("/wrong");
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_rejects_existing_symlink_outside_source_root() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-symlink-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let outside = dir.join("outside.wav");
+        std::fs::write(&outside, b"synthetic").unwrap();
+        symlink(&outside, music.join("linked.wav")).unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "linked.wav\n").unwrap();
+        let options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre", source_root: Some(music.as_path()),
+            library_root: None, only_track: None, max_new: None,
+            max_errors: 5, threads: 1, workers: 2, adaptive_workers: false,
+            min_workers: 1, max_workers: 3, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn manifest_preserves_order_and_rejects_aliases_or_duplicates() {
         let file = std::env::temp_dir().join(format!(
             "bliss-mood-manifest-{}-{}.txt", std::process::id(),
