@@ -42,6 +42,38 @@ explicit research export; it does not
 automatically appear in an existing local
 feature database.
 
+### Binding extension: default GENERAL metric first, user learning optional (2026-10-22)
+
+The A/B/C comparison still chooses a **general-purpose similarity
+representation and function independently of user-specific training**.
+The resulting default must work with **no triplet history**.
+A separately learned per-user metric may later contribute 0–100%
+of the calibrated pairwise score; without a compatible, validated
+personal model the effective blend is **100% general**, independent
+of the stored slider setting.
+
+`S_eff=(1-alpha)*S_general+alpha*S_personal`, with
+`alpha=personal_blend/100` only for a usable per-user model
+and explicitly commensurate score scales; otherwise
+`alpha_effective=0`. Do not interpret the previous
+MTT *triplet-local rank* fusion as a globally blended
+Lyrion score. General fusion (C), personal blending,
+and candidate-source strategies are **three distinct
+layers**. The existing Lab `learned_blend` refers
+to its 23D Bliss adaptation, not this new feature.
+
+**Current measured local status:** the 100 original songs
+have 100/100 compatible 87D, 56D and 1280D feature
+representations with no invalid/missing sidecars. The
+local blinded 12-pair instrument has been **generated**
+but no new human votes/rating cells were submitted.
+Thus neither general winner nor personalized lift
+has been measured from it.
+
+[Canonical general/personal decision](similarity-general-personal-blending-architecture.md).
+The historical A/B/C results and numerical comparisons below
+remain unchanged and unpersonalized.
+
 ## 1. Technical design of A vs B
 
 The corrected Rust-v5 research checkout is
