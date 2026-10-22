@@ -1151,7 +1151,7 @@ fn scan_parallel(
             }
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
-            while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+            while !adaptive.as_ref().map_or(in_flight < pool_size, |a| a.permits_dispatch(in_flight)) {
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
