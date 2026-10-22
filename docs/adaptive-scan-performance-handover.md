@@ -8,6 +8,16 @@ This document records *reported experiments*, code-verified control rules, and
 hypotheses separately. Re-read current code before implementing a change.
 See [chat-handover.md](chat-handover.md) for the full project handover.
 
+> **22 October 2026 addendum:** The parallel scanner's additional
+> `--tracks-file` source and optional `--embedding-dir` pooled 1280D
+> export are being developed in [Draft PR #18](https://github.com/chrober/bliss-mood-poc/pull/18),
+> stacked on the original Essentia-C++ backend Draft PR #17 without
+> modifying either PR #17 or the separate similarity experiment PR #16.
+> See [manifest-batch-adaptive-analysis.md](manifest-batch-adaptive-analysis.md)
+> for the new implementation, verified synthetic ONNX results, and its
+> distinct *unmeasured* production performance questions. Historical
+> 2026-10-19 scanner timing figures below refer to other experiments.
+>
 ## Objective
 
 Make offline three-head music analysis fast, correct, incremental, and
