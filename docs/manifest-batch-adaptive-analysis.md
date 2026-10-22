@@ -6,7 +6,7 @@
 
 Research and dataset utilities have historically spawned a new `analyze-features` process for every track. `--threads 1` prevents intra-track ONNX oversubscription, but does not parallelize tracks or reuse ONNX sessions across separate processes. The existing `scan-features` scheduler already has reusable per-worker ONNX sessions, bounded in-flight dispatch, one transactional SQLite coordinator and an optional resource-guard controller.
 
-The new `--tracks-file` source allows an **explicit cohort** to enter that existing scheduler **without manufacturing a Bliss database**. It persists genre/mood/voice classification features in a separate schema-v3 SQLite sidecar. It does **not** yet produce 1280D per-patch Embeddings; that requires a separate output contract and new parity evidence. No change to `analyze-features`, existing `--bliss-db` scans or the original Bliss DB.
+The new `--tracks-file` source allows an **explicit cohort** to enter that existing scheduler **without manufacturing a Bliss database**. It persists genre/mood/voice classification features in a separate schema-v3 SQLite sidecar. With explicit `--embedding-dir` it also exports **one pooled, L2-normalized 1280D Discogs-EffNet embedding per song**. This reuses the f64 pooling and fingerprint contract of PR #16's research overlay; it does not dump all per-patch vectors. End-to-end official-model parity of this *new batch path* remains to be measured. No change to `analyze-features`, existing `--bliss-db` scans or the original Bliss DB.
 
 ### Source manifest
 
@@ -15,6 +15,8 @@ The new `--tracks-file` source allows an **explicit cohort** to enter that exist
 - Existing symlink targets are checked against the canonical source root before work starts. Missing files are subsequently counted by the scan's normal error/limit mechanism. Source audio is read-only.
 - Maximum 100,000 selected keys to avoid unbounded input. Use modest samples first. Manifest filenames can be private; never commit a real cohort or track-specific logs.
 - `--tracks-file` requires `--source-root` and is mutually exclusive with `--bliss-db`; `--library-root` is Bliss-only. `--only-track` and `--max-new` remain supported.
+- `--embedding-dir` requires a manifest and a pre-existing private output directory outside music and model roots. It is forbidden in dry-run. SHA256(track key) names the JSON file, so filenames do not disclose track identities.
+- Each embedding JSON includes the original track identity **inside** the private file, audio SHA256, 1280 dimensions, patch count, exact encoder SHA256, preprocessing version, pooling/normalization algorithms and reproducible representation fingerprint. This output is experimental, not a validated musical metric.
 
 Example manifest, using **synthetic filenames only**:
 
@@ -35,13 +37,17 @@ Use the verified binary for the selected commit after successful GitHub Actions 
     $sourceRoot = 'C:\private\test-audio'
     $sidecar = 'C:\private\manifest-features-new.db'
     $models = 'C:\private\official-models'
+    $embeddingDir = 'C:\private\private-song-embeddings'
     foreach ($p in @($exe, $manifest, $sourceRoot, $models)) {
         if (-not (Test-Path -LiteralPath $p)) { throw "Missing prerequisite: $p" }
     }
     if (Test-Path -LiteralPath $sidecar) { throw 'Refusing to overwrite an existing sidecar' }
+    if (-not (Test-Path -LiteralPath $embeddingDir)) {
+        New-Item -ItemType Directory -Path $embeddingDir -ErrorAction Stop | Out-Null
+    }
 
     & $exe scan-features --tracks-file $manifest --source-root $sourceRoot `
-        --db $sidecar --models-dir $models --models moodtheme,genre,voice `
+        --db $sidecar --embedding-dir $embeddingDir --models-dir $models --models moodtheme,genre,voice `
         --threads 1 --workers 4 --max-new 100 --max-errors 5 --json
     if ($LASTEXITCODE -ne 0) { throw "Analysis failed with exit code $LASTEXITCODE" }
 }
@@ -49,7 +55,13 @@ Use the verified binary for the selected commit after successful GitHub Actions 
 
 For optional resource-aware adjustment add `--adaptive-workers --min-workers 2 --max-workers 4` while starting at `--workers 3`. Adaptive mode is **not** a measured throughput optimizer. Start with fixed 1, 2 and 4 worker runs on independently copied sidecars; use identical manifest/model/audio SHA hashes. Do not use 8+ workers uncritically on hosted CI machines.
 
-For a dry-run (no ONNX inference or SQLite writes), append `--dry-run` and omit `--adaptive-workers`. Dry-run still validates the selected catalog and source mapping.
+For a dry-run (no ONNX inference or SQLite writes), append `--dry-run` and omit both `--adaptive-workers` **and** `--embedding-dir`. Dry-run still validates the selected catalog and source mapping.
+
+### Embedding correctness and resume
+
+Opt-in song embedding accumulation is per worker and uses a single 1280-element f64 vector, not an in-memory list of every patch. The same encoder vectors are simultaneously classified by Mood/Genre/Voice; the existing head aggregation is unchanged.
+
+A track is up-to-date only when its SQLite state/model identity matches and, if enabled, its JSON embedding is present and has matching SHA/preprocessing/fingerprint/patch count plus a finite, unit-length 1280D vector. Missing JSON triggers reanalysis. Corrupt or incompatible existing JSON fails closed: no existing output is overwritten. Reanalysis matching a previous complete file reuses that file. The output write happens before the SQLite feature transaction, so an interruption may leave a valid embedding without a refreshed sidecar; the next run re-verifies it. Output creation is currently create-new and fail-closed, **not guaranteed atomic against interruption**. A partial JSON must be repaired explicitly, never silently overwritten.
 
 ### Implementation and invariants
 
@@ -61,6 +73,7 @@ flowchart LR
   Q --> W[Reusable ONNX and optional native Essentia workers]
   W --> C[Single coordinator and resource samples]
   C --> D[Schema-v3 SQLite sidecar]
+  C --> E[Optional private 1280D song JSON exports]
   C --> G[Existing optional adaptive CPU/RAM controller]
   G --> Q
 ```
@@ -72,9 +85,9 @@ The classification calculations, native-backend preprocessing fingerprint, model
 ## Validation and next work
 
 1. Rust unit test: accepted order, duplicates, traversal, absolute paths and backslashes. Run `cargo test --locked`, `cargo clippy --locked --all-targets -- -D warnings` and `cargo fmt --check` in CI.
-2. CI integration test: generate synthetic audio plus official verified models, compare fixed 1 vs fixed 2 vs adaptive results and inspect schema-v3 cohorts independent of completion order (pending).
+2. CI integration test: generate synthetic audio plus official verified models, compare fixed 1 vs fixed 2 vs adaptive results, embedding JSON fingerprints and normalized vectors, and inspect schema-v3 cohorts independent of completion order (pending).
 3. Use the same controlled public dataset cohort for sequential/fixed/adaptive AB/BA benchmarking; split cold/warm cache and model load/decode/preprocess/inference timing. Do not conflate synthetic CI smoke times with production performance (pending).
-4. Expose optional 1280D per-patch embedding export through a single-process batch output interface with capped memory, atomic files, per-track provenance, verified resume and a compatibility test with the local PR #16 research validator (pending).
+4. Validate new pooled 1280D song exports against PR #16's independent validator on the same public cohort, improve crash-safe atomic output creation, and integrate with the currently pinned per-song research exporter only in a separate coordinated change (pending).
 5. Integrate the reviewed changes into the relevant long-term branch only after PR #17's license/distribution release gates are separately resolved.
 
 ## Branch boundaries

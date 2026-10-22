@@ -39,7 +39,7 @@ Draft PR #17 is separate from similarity PR #16.
 
 ## Explicit manifest batch analysis (experimental)
 
-In the separate [adaptive manifest batch development branch](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis), `scan-features --tracks-file` is being introduced as a Bliss-DB-independent entry point for the **existing** bounded parallel/adaptive Rust scanner. It supports track-specific Genre/Mood/Voice classification sidecars, not 1280D per-patch embedding exports. See [manifest batch architecture and safety](docs/manifest-batch-adaptive-analysis.md). The work is stacked on PR #17 and does not modify the PR #16 similarity workstream. Build and numerical integration checks are pending.
+In the separate [adaptive manifest batch development branch](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis), `scan-features --tracks-file` is being introduced as a Bliss-DB-independent entry point for the **existing** bounded parallel/adaptive Rust scanner. It supports track-specific Genre/Mood/Voice classification sidecars and opt-in pooled 1280D song embedding JSON exports; it does not dump per-patch vectors. See [manifest batch architecture and safety](docs/manifest-batch-adaptive-analysis.md). The work is stacked on PR #17 and does not modify the PR #16 similarity workstream. Build and numerical integration checks are pending.
 
 ## Development handover (2026-10-19)
 

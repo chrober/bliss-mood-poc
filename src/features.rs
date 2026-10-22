@@ -825,11 +825,9 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             bail!("--embedding-dir must be an existing private directory");
         }
         let out_real = std::fs::canonicalize(out)?;
-        for protected in [options.source_root, Some(options.models_dir)] {
-            if let Some(protected) = protected {
-                if out_real.starts_with(std::fs::canonicalize(protected)?) {
-                    bail!("Embedding output directory must be outside audio and model roots");
-                }
+        for protected in [options.source_root, Some(options.models_dir)].into_iter().flatten() {
+            if out_real.starts_with(std::fs::canonicalize(protected)?) {
+                bail!("Embedding output directory must be outside audio and model roots");
             }
         }
     }
@@ -956,6 +954,12 @@ type FeatureCompletion = (
     Result<(FeatureReport, Option<crate::song_embedding::SongEmbedding>)>,
 );
 
+#[derive(Clone, Copy)]
+struct CompletionPolicy<'a> {
+    expected: Option<usize>,
+    embedding_dir: Option<&'a Path>,
+}
+
 fn save_completion(
     rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
     conn: &mut Connection,
@@ -963,18 +967,17 @@ fn save_completion(
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
-    expected: Option<usize>,
-    embedding_dir: Option<&Path>,
+    policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
     match result {
         Ok((report, embedding)) => match persist_scan_output(
-            conn, &job.track, job.state, &report, embedding, embedding_dir,
+            conn, &job.track, job.state, &report, embedding, policy.embedding_dir,
         ) {
             Ok(()) => {
                 diagnostics.add(&report);
                 summary.analyzed += 1;
-                if let Some(max) = expected {
+                if let Some(max) = policy.expected {
                     eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, max);
                 } else {
                     eprintln!("ANALYZED {} (completed={}, attempted={})",
@@ -1144,7 +1147,7 @@ fn scan_parallel(
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                    &mut monitor, &mut adaptive, options.max_new, options.embedding_dir,
+                    &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -1154,7 +1157,7 @@ fn scan_parallel(
                     while in_flight > 0 {
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                            &mut monitor, &mut adaptive, options.max_new, options.embedding_dir,
+                            &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                         )?;
                         in_flight -= 1;
                     }
@@ -1179,7 +1182,7 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                &mut monitor, &mut adaptive, options.max_new, options.embedding_dir,
+                &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
             )?;
             in_flight -= 1;
         }
