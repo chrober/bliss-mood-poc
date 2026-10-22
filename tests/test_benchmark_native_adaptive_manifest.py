@@ -97,6 +97,50 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
             self.assertIn("--adaptive-workers", arguments)
             self.assertEqual(arguments[arguments.index("--max-new") + 1], "100")
 
+    def test_exact_feature_rows_include_all_three_heads_not_just_last(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "features.sqlite"
+            keys = ["Artist/one.mp3", "Artist/two.mp3"]
+            heads = ["moodtheme", "genre", "voice"]
+            conn = sqlite3.connect(db)
+            conn.execute(
+                "CREATE TABLE feature_tracks (track_file TEXT, model_id TEXT, "
+                "model_key TEXT, audio_sha256 TEXT, patches_analyzed INTEGER, "
+                "scores_f32_le BLOB)"
+            )
+            dims = {"moodtheme": 56, "genre": 87, "voice": 2}
+            for key in keys:
+                for head in heads:
+                    values = bytes(dims[head] * 4)
+                    conn.execute(
+                        "INSERT INTO feature_tracks VALUES (?,?,?,?,?,?)",
+                        (key, head, "stable-model-fingerprint", "a" * 64, 4, values),
+                    )
+            conn.commit()
+            conn.close()
+            all_rows = bench.exact_feature_rows(db, keys, heads)
+            self.assertEqual(len(all_rows), 6)
+            self.assertEqual(
+                set(all_rows), {(track, head) for track in keys for head in heads},
+            )
+            with sqlite3.connect(db) as changed:
+                changed.execute(
+                    "UPDATE feature_tracks SET scores_f32_le=? "
+                    "WHERE track_file=? AND model_id=?",
+                    (bytes([1]) + bytes(dims["moodtheme"] * 4 - 1), keys[0], "moodtheme"),
+                )
+            self.assertNotEqual(
+                bench.exact_feature_rows(db, keys, heads), all_rows,
+                "Changing only mood must not be hidden by a last-head-wins map",
+            )
+            with sqlite3.connect(db) as deleted:
+                deleted.execute(
+                    "DELETE FROM feature_tracks WHERE track_file=? AND model_id=?",
+                    (keys[1], "genre"),
+                )
+            with self.assertRaisesRegex(AssertionError, "coverage"):
+                bench.exact_feature_rows(db, keys, heads)
+
     def test_plan_only_on_exact_local_30_track_sqlite_cohort(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
