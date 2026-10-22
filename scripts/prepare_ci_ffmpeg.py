@@ -40,7 +40,7 @@ def bundled_ffprobe_for_linux_x64(destination: Path) -> Path:
         with path.open("rb") as handle:
             header = handle.read(20)
         # Require a 64-bit little-endian Linux x86-64 ELF executable.
-        if (len(header) == 20 and header[:4] == b"\\x7fELF"
+        if (len(header) == 20 and header[:4] == bytes((0x7F, 0x45, 0x4C, 0x46))
                 and header[4] == 2 and header[5] == 1
                 and int.from_bytes(header[18:20], "little") == 62):
             options.append(path)
