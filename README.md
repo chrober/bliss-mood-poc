@@ -37,6 +37,10 @@ development; this is not permission to redistribute their contents.
 See the [licensing scenarios A–D](docs/essentia-licensing-distribution-strategy.md).
 Draft PR #17 is separate from similarity PR #16.
 
+## Explicit manifest batch analysis (experimental)
+
+In the separate [adaptive manifest batch development branch](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis), `scan-features --tracks-file` is being introduced as a Bliss-DB-independent entry point for the **existing** bounded parallel/adaptive Rust scanner. It supports track-specific Genre/Mood/Voice classification sidecars and opt-in pooled 1280D song embedding JSON exports; it does not dump per-patch vectors. See [manifest batch architecture and safety](docs/manifest-batch-adaptive-analysis.md). The work is stacked on PR #17 and does not modify the PR #16 similarity workstream. Rust compile/test/clippy and a [three-WAV official-model integration run](https://github.com/chrober/bliss-mood-poc/actions/runs/39757431757) have passed: exact serial/fixed/adaptive output parity, skip/resume and corrupted-output fail-closed behavior. Those short synthetic scans are not representative throughput benchmarks, and the new atomic file publishing change must also pass CI.
+
 ## Development handover (2026-10-19)
 
 For ongoing scanner performance work, start with

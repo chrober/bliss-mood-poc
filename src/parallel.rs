@@ -79,7 +79,21 @@ impl AdaptiveWorkers {
         })
     }
 
+    /// Admission uses the same cap as the production scan coordinator.
+    pub fn permits_dispatch(&self, in_flight: usize) -> bool {
+        in_flight < self.active
+    }
+
     pub fn observe(&mut self, completed: usize, sample: crate::resources::LoadSample) {
+        self.observe_at(completed, sample, std::time::Instant::now());
+    }
+
+    // Explicit time source enables deterministic tests of the real gate and
+    // cooldown without sleeping; production observes the monotonic clock.
+    fn observe_at(
+        &mut self, completed: usize, sample: crate::resources::LoadSample,
+        now: std::time::Instant,
+    ) {
         let high = sample.system_ram_percent >= 88.0
             || sample.system_cpu_percent >= 90.0;
         let low = sample.system_ram_percent <= 79.0
@@ -96,7 +110,7 @@ impl AdaptiveWorkers {
             self.decisions.minimum_song_gate_holds += 1;
             return;
         }
-        if self.last_change.elapsed().as_secs() < 20 {
+        if now.duration_since(self.last_change).as_secs() < 20 {
             self.decisions.cooldown_holds += 1;
             return;
         }
@@ -113,7 +127,7 @@ impl AdaptiveWorkers {
             self.decisions.policy_holds += 1;
             return;
         };
-        self.last_change = std::time::Instant::now();
+        self.last_change = now;
         self.consecutive_high = 0;
         self.consecutive_low = 0;
         eprintln!(
@@ -216,6 +230,41 @@ mod tests {
         assert_eq!(ctl.active, 6);
         assert_eq!(ctl.decisions.neutral_load_samples, 10);
         assert_eq!(ctl.decisions.policy_holds, 10);
+    }
+
+    #[test]
+    fn admission_cap_changes_after_real_policy_adjustments() {
+        use std::time::{Duration, Instant};
+        let mut ctl = AdaptiveWorkers::new(2, 1, 3).unwrap();
+        let low = crate::resources::LoadSample {
+            system_cpu_percent: 40.0, system_ram_percent: 60.0,
+        };
+        let high = crate::resources::LoadSample {
+            system_cpu_percent: 92.0, system_ram_percent: 70.0,
+        };
+        let t = Instant::now() + Duration::from_secs(21);
+
+        assert!(ctl.permits_dispatch(1));
+        assert!(!ctl.permits_dispatch(2));
+        // At 23 completed songs the minimum-song gate forbids changes.
+        ctl.observe_at(23, low, t);
+        assert_eq!(ctl.active, 2);
+        ctl.observe_at(24, low, t + Duration::from_millis(1));
+        assert_eq!(ctl.active, 2);
+        ctl.observe_at(25, low, t + Duration::from_millis(2));
+        assert_eq!(ctl.active, 3);
+        assert!(ctl.permits_dispatch(2)); // New third task admitted.
+        assert!(!ctl.permits_dispatch(3));
+
+        // Sustained pressure within cooldown cannot reduce capacity.
+        ctl.observe_at(26, high, t + Duration::from_secs(1));
+        assert_eq!(ctl.active, 3);
+        ctl.observe_at(27, high, t + Duration::from_secs(22));
+        assert_eq!(ctl.active, 2);
+        assert!(!ctl.permits_dispatch(2)); // Coordinator drains to below cap.
+        assert!(ctl.permits_dispatch(1));
+        assert_eq!(ctl.adjustments.len(), 2);
+        assert_eq!((ctl.decisions.increases, ctl.decisions.decreases), (1, 1));
     }
 
     #[test]

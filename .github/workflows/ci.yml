@@ -28,6 +28,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_native_cpp_end_to_end.py'
       - name: Validate paired Rust/native C++ benchmark safety and score comparison
         run: python3 -m unittest discover -s tests -p 'test_benchmark_audio_backends.py'
+      - name: Validate bounded native fixed/adaptive manifest benchmark and safe local setup
+        run: python3 -m unittest discover -s tests -p 'test_benchmark_native_adaptive_manifest.py'
       - name: Validate existing real-song sidecar audit without rescan
         run: python3 -m unittest discover -s tests -p 'test_verify_existing_backend_sidecars.py'
       - name: Validate real-song model and codec drift diagnostics

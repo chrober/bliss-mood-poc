@@ -10,6 +10,19 @@
 > `55b35dab1a873c3e61ecd639b7430caf0b09034c` (PR #5 merged), before the
 > documentation-only handover PR. Do not assume that SHA is still the latest.
 
+> **22 October 2026 addendum — active adaptive batch workstream:** This document is a
+> historical account of main / PR #5. The current implementation branch is
+> [feat/manifest-batch-adaptive-worker-analysis](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis),
+> tracked in [Draft PR #18](https://github.com/chrober/bliss-mood-poc/pull/18),
+> **stacked on PR #17 rather than main**. It adds a manifest-based batch
+> scanner and opt-in pooled 1280D song embedding export using the original
+> bounded parallel/adaptive Rust worker scheduler. Read
+> [manifest-batch-adaptive-analysis.md](manifest-batch-adaptive-analysis.md)
+> for architecture, CLI examples, synthetic ONNX parity/Resume CI and open
+> performance, atomic-file and licensing restrictions. The independent PR #16
+> similarity workstream is unchanged. Do not treat the new experimental CLI
+> as a released production interface.
+>
 ## Project and boundaries
 
 Repository: [chrober/bliss-mood-poc](https://github.com/chrober/bliss-mood-poc).

@@ -9,40 +9,103 @@ on:
       - "src/preprocess.rs"
       - "scripts/test_native_essentia_protocol.py"
       - "scripts/compare_native_cpp_end_to_end.py"
+      - "scripts/verify_native_essentia_worker_concurrency.py"
+      - "scripts/verify_native_essentia_adaptive_long.py"
+      - "scripts/verify_manifest_batch_smoke.py"
+      - "src/essentia_worker.rs"
+      - "src/features.rs"
+      - "src/parallel.rs"
+      - "src/resources.rs"
       - "scripts/generate_audio_fixtures.py"
       - "src/audio_decode.rs"
       - "src/preprocess.rs"
       - ".github/workflows/native-essentia-cpp.yml"
+      - "scripts/prepare_ci_ffmpeg.py"
+      - "scripts/requirements-ci-ffmpeg.txt"
 
 permissions:
   contents: read
 
 jobs:
   original-essentia:
-    runs-on: ubuntu-22.04
+    # ort's prebuilt static ONNX Runtime needs glibc >=2.38 and GCC 13 libstdc++.
+    # Ubuntu 22.04 has glibc 2.35 and fails linking __isoc23_strto*.
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/requirements-ci-ffmpeg.txt
       - name: Install original Essentia C++ build dependencies
         run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            build-essential cmake pkg-config python3 python3-numpy python3-pip ffmpeg \
-            libeigen3-dev libyaml-dev libfftw3-dev \
-            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
-            libsamplerate0-dev libtag1-dev libchromaprint-dev
+          set -euo pipefail
+          echo "APT metadata refresh starting $(date -u +%FT%TZ)"
+          # Previous shared Ubuntu runners spent 19-33 minutes in quiet apt-get update.
+          # Bound network acquisition rather than silently using the 50-minute job limit.
+          timeout 300s sudo apt-get update \
+            -o Acquire::Retries=2 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30
+          echo "APT package install starting $(date -u +%FT%TZ)"
+          timeout 480s sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=2 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            build-essential cmake pkg-config nasm \
+            libeigen3-dev libfftw3-dev libsamplerate0-dev
+      - name: Install pinned Python and bundled FFmpeg for audio test fixtures
+        run: |
+          python -m pip install --disable-pip-version-check "numpy==1.26.4" -r scripts/requirements-ci-ffmpeg.txt
+          python scripts/prepare_ci_ffmpeg.py
       - name: Record installed Ubuntu native dependencies for ABI-safe Waf cache
         shell: bash
         run: |
           mkdir -p build
+          ldd --version | head -1
+          g++ --version | head -1
           # Installed dependency versions, not PR commits, define cache compatibility.
           dpkg-query -W -f='${binary:Package} ${Version}\n' | LC_ALL=C sort > build/ubuntu-native-packages.txt
+      # Ubuntu 24.04's FFmpeg 6 headers are incompatible with current Essentia.
+      # Cache a recent official FFmpeg toolchain separately from system APT.
+      - name: Restore FFmpeg 9.0.2 development libraries
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-9.0.2-install
+          key: ffmpeg-ubuntu2404-v1-9.0.2-946fcce0-${{ hashFiles('build/ubuntu-native-packages.txt') }}
+      - name: Build pinned official FFmpeg 9.0.2 libraries for upstream Essentia
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/ffmpeg-9.0.2-install"
+          if test -s "$prefix/lib/pkgconfig/libavcodec.pc"; then
+            echo "Reusing verified FFmpeg 9.0.2 libraries"
+          else
+            test ! -e "$prefix" || { echo "Refusing incomplete FFmpeg cache" >&2; exit 1; }
+            source="$RUNNER_TEMP/ffmpeg-9.0.2-source"
+            git clone --quiet --depth 1 --branch n9.0.2 https://github.com/FFmpeg/FFmpeg.git "$source"
+            test "$(git -C "$source" rev-parse HEAD)" = 946fcce07b6dcd0331c8cc609192aeff5e1924f8
+            cd "$source"
+            # Built-in WAV/FLAC/MP3 decoders and demuxers remain enabled.
+            ./configure --prefix="$prefix" --enable-shared --disable-static \
+              --enable-pic --disable-programs --disable-doc --disable-avdevice \
+              --disable-avfilter --disable-network
+            make -j 4
+            make install
+          fi
+          export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          pkg-config --modversion libavcodec libavformat libavutil libswresample
+          test "$(pkg-config --modversion libavcodec | cut -d. -f1)" = 63
+          test -s "$prefix/lib/libavcodec.so.63"
+
       - name: Restore pinned upstream Essentia Waf build objects
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/essentia-source
           # No restore-keys: native FFTW/FFmpeg/ABI changes must rebuild.
-          key: original-essentia-waf-ubuntu2204-v1-9ceef0a3-${{ hashFiles('build/ubuntu-native-packages.txt') }}
+          key: original-essentia-waf-ubuntu2404-v4-dc91e47e-ffmpeg902-${{ hashFiles('build/ubuntu-native-packages.txt') }}
       - name: Build pinned original MTG/essentia C++ library (not essentia-rs)
         shell: bash
         run: |
@@ -53,20 +116,28 @@ jobs:
           else
             test ! -e "$source"
             git clone --quiet https://github.com/MTG/essentia.git "$source"
-            git -C "$source" checkout --quiet 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
+            git -C "$source" checkout --quiet dc91e47ed634e0b152d3d0229ec86751bb315473
           fi
           # Cache contents are untrusted: insist on the exact pinned upstream tree.
-          test "$(git -C "$source" rev-parse HEAD)" = 9ceef0a3a7900ad51eb42aa5b6c6789b4bec6a47
+          test "$(git -C "$source" rev-parse HEAD)" = dc91e47ed634e0b152d3d0229ec86751bb315473
           test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
           test -z "$(git -C "$source" status --porcelain --untracked-files=no)"
+          export PKG_CONFIG_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:${LD_LIBRARY_PATH:-}"
+          test "$(pkg-config --modversion libavcodec | cut -d. -f1)" = 63
+          echo "Using pinned upstream MTG/essentia $(git -C "$source" rev-parse HEAD) on Ubuntu 24.04 with FFmpeg $(pkg-config --modversion libavcodec)"
           cd "$source"
-          python3 waf configure --prefix="$RUNNER_TEMP/essentia-install"
+          # Compile original upstream with only required audio dependencies.
+          # TensorflowInputMusiCNN preprocessing does NOT depend on TensorFlow.
+          python3 waf configure --prefix="$RUNNER_TEMP/essentia-install" \
+            --lightweight=libav,libsamplerate,fftw
           python3 waf -j 4
           python3 waf install
       - name: Compile the native worker against installed original C++ algorithms
         shell: bash
         run: |
-          export PKG_CONFIG_PATH="$RUNNER_TEMP/essentia-install/lib/pkgconfig:$RUNNER_TEMP/essentia-install/lib64/pkgconfig:$PKG_CONFIG_PATH"
+          export PKG_CONFIG_PATH="$RUNNER_TEMP/essentia-install/lib/pkgconfig:$RUNNER_TEMP/essentia-install/lib64/pkgconfig:$RUNNER_TEMP/ffmpeg-9.0.2-install/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:${LD_LIBRARY_PATH:-}"
           cmake -S native -B build/essentia-cpp -DCMAKE_BUILD_TYPE=Release
           cmake --build build/essentia-cpp --parallel 4
       - uses: dtolnay/rust-toolchain@stable
@@ -79,14 +150,17 @@ jobs:
       - name: Exercise original C++ worker and full four-patch Rust parity
         shell: bash
         run: |
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
           python3 scripts/test_native_essentia_protocol.py build/essentia-cpp/bliss-essentia-worker native/rust-mel-reference/target/release/rust-mel-reference
       - name: Generate deterministic multi-codec regression audio
-        run: python3 scripts/generate_audio_fixtures.py
+        run: |
+          command -v ffmpeg
+          ffmpeg -hide_banner -version | head -1
+          python3 scripts/generate_audio_fixtures.py
       - name: Check original C++ vs Rust Mel frontend parity on WAV FLAC MP3
         shell: bash
         run: |
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
           python3 scripts/compare_native_cpp_end_to_end.py \
             --worker build/essentia-cpp/bliss-essentia-worker \
             --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
@@ -107,18 +181,41 @@ jobs:
           fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
           fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
           fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
           fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
           sha256sum models/*.onnx
       - name: Compare full native C++ and Rust DSP through EffNet, Genre, Mood and Voice
         shell: bash
         run: |
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
           python3 scripts/compare_native_cpp_end_to_end.py \
             --worker build/essentia-cpp/bliss-essentia-worker \
             --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
             --models-dir models \
             --report-output results/native-codec-all-heads-parity.json
+      - name: Build the actual Rust ONNX scanner for native multiworker integration
+        shell: bash
+        run: |
+          echo "Linking on runner: $(ldd --version | head -1)"
+          cargo build --locked --release
+      - name: Verify native Essentia C++ serial, fixed 2/4 and adaptive-enabled 2 workers
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
+          python3 scripts/verify_native_essentia_worker_concurrency.py \
+            --binary target/release/bliss-mood \
+            --models-dir models \
+            --essentia-worker build/essentia-cpp/bliss-essentia-worker
+      - name: Observe 36-song native adaptive controller with real OS telemetry
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
+          python3 scripts/verify_native_essentia_adaptive_long.py \
+            --binary target/release/bliss-mood \
+            --models-dir models \
+            --essentia-worker build/essentia-cpp/bliss-essentia-worker \
+            --report-output results/native-adaptive-long.json
       - name: Upload synthetic codec parity report
         if: always()
         uses: actions/upload-artifact@v4
@@ -127,5 +224,6 @@ jobs:
           path: |
             results/native-codec-mel-parity.json
             results/native-codec-all-heads-parity.json
+            results/native-adaptive-long.json
           if-no-files-found: warn
           retention-days: 14

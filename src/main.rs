@@ -4,6 +4,7 @@ mod storage;
 mod engine;
 mod batch;
 mod features;
+mod song_embedding;
 mod essentia_worker;
 mod feature_lookup;
 mod parallel;
@@ -115,8 +116,16 @@ enum Action {
     },
     /// Incremental, model-independent sidecar analysis; legacy mood_tracks remain untouched.
     ScanFeatures {
-        #[arg(long)]
-        bliss_db: PathBuf,
+        /// Read exactly one of --bliss-db or --tracks-file.
+        #[arg(long, conflicts_with = "tracks_file", required_unless_present = "tracks_file")]
+        bliss_db: Option<PathBuf>,
+        /// UTF-8 newline-delimited source-relative track identities, no Bliss DB needed.
+        #[arg(long, conflicts_with = "bliss_db", requires = "source_root")]
+        tracks_file: Option<PathBuf>,
+        /// Private directory of opaque, versioned 1280D song embedding JSON exports.
+        /// Available only for explicit manifests and never in dry-run.
+        #[arg(long, requires = "tracks_file")]
+        embedding_dir: Option<PathBuf>,
         #[arg(long)]
         db: PathBuf,
         #[arg(long, default_value = "models")]
@@ -428,11 +437,14 @@ fn main() -> Result<()> {
             }
         }
         Action::ScanFeatures {
-            bliss_db, db, models_dir, registry, models, library_root,
+            bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
             adaptive_workers, min_workers, max_workers, dry_run, json,
         } => {
+            if tracks_file.is_some() && library_root.is_some() {
+                bail!("--library-root is only supported with --bliss-db");
+            }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
@@ -450,7 +462,9 @@ fn main() -> Result<()> {
                 &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
             )?;
             let summary = features::scan(features::ScanOptions {
-                bliss_db: &bliss_db, db: &db, models_dir: &models_dir,
+                bliss_db: bliss_db.as_deref(), tracks_file: tracks_file.as_deref(),
+                embedding_dir: embedding_dir.as_deref(),
+                db: &db, models_dir: &models_dir,
                 registry: registry.as_deref(), models: &models,
                 source_root: source_root.as_deref(),
                 library_root: library_root.as_deref(),
@@ -531,6 +545,41 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod manifest_cli_tests {
+    use super::{Action, Cli};
+    use clap::Parser;
+
+    #[test]
+    fn source_selection_is_exclusive_and_manifest_requires_root() {
+        let valid = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--db", "features.db",
+            "--workers", "2", "--threads", "1"
+        ]).unwrap();
+        match valid.action {
+            Action::ScanFeatures { bliss_db, tracks_file, .. } => {
+                assert!(bliss_db.is_none());
+                assert_eq!(tracks_file.unwrap(), std::path::PathBuf::from("cohort.txt"));
+            }
+            _ => panic!("Expected scan-features"),
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_ok());
+    }
 }
 
 #[cfg(test)]

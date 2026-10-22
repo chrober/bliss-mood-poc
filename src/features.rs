@@ -229,6 +229,8 @@ pub struct FeatureReport {
 pub struct FeatureEngine {
     encoder: Session,
     heads: Vec<(Profile, Session)>,
+    embedding_enabled: bool,
+    last_song_embedding: Option<crate::song_embedding::SongEmbedding>,
     load_secs: f64,
     counted_load: bool,
     threads: usize,
@@ -295,10 +297,21 @@ impl FeatureEngine {
         };
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
             counted_load: false, threads, frontend,
+            embedding_enabled: false, last_song_embedding: None,
             preprocessing: backend.preprocessing() })
     }
 
+    /// An opt-in f64 pooled 1280D song embedding. Legacy scans never enable it.
+    pub fn request_song_embedding(&mut self) {
+        self.embedding_enabled = true;
+    }
+
+    pub fn take_song_embedding(&mut self) -> Option<crate::song_embedding::SongEmbedding> {
+        self.last_song_embedding.take()
+    }
+
     pub fn analyze(&mut self, path: &Path, max_patches: Option<usize>) -> Result<FeatureReport> {
+        self.last_song_embedding = None;
         if !path.is_file() {
             bail!("Audio file does not exist: {}", path.display());
         }
@@ -319,6 +332,8 @@ impl FeatureEngine {
             }
         };
         let count = patches.len();
+        let mut embedding_sums = self.embedding_enabled
+            .then(|| vec![0.0_f64; crate::song_embedding::DIMENSIONS]);
         let mut sums: Vec<Vec<f64>> = self.heads.iter()
             .map(|(profile, _)| vec![0.0; profile.labels.len()]).collect();
         let at = Instant::now();
@@ -334,6 +349,9 @@ impl FeatureEngine {
                 }
             }
             let vector = vector.context("EffNet did not output a 1280-dimensional embedding")?;
+            if let Some(ref mut embedding_sums) = embedding_sums {
+                crate::song_embedding::add_patch(embedding_sums, &vector)?;
+            }
             for (i, (profile, session)) in self.heads.iter_mut().enumerate() {
                 let scores = classify(session, &vector, profile.labels.len(), profile.descriptor.output_type)?;
                 for (sum, value) in sums[i].iter_mut().zip(scores) {
@@ -363,6 +381,15 @@ impl FeatureEngine {
         }
         let at_hash = Instant::now();
         let audio_hash = sha256_file(path)?;
+        if let Some(ref embedding_sums) = embedding_sums {
+            let profile = &self.heads[0].0;
+            let model = &profile.descriptor.embedding_model;
+            let model_sha = profile.hashes.get(model)
+                .context("No encoder SHA256 for embedding export")?;
+            self.last_song_embedding = Some(crate::song_embedding::build(
+                embedding_sums, count, model, model_sha, self.preprocessing, &audio_hash,
+            )?);
+        }
         let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(FeatureReport {
             schema_version: 3, preprocessing_version: self.preprocessing,
@@ -660,7 +687,9 @@ impl ScanDiagnostics {
 }
 
 pub struct ScanOptions<'a> {
-    pub bliss_db: &'a Path,
+    pub bliss_db: Option<&'a Path>,
+    pub tracks_file: Option<&'a Path>,
+    pub embedding_dir: Option<&'a Path>,
     pub db: &'a Path,
     pub models_dir: &'a Path,
     pub registry: Option<&'a Path>,
@@ -679,10 +708,136 @@ pub struct ScanOptions<'a> {
     pub backend: BackendChoice,
 }
 
+/// Keep explicit research cohorts independent of Bliss's catalog while using
+/// the same scanner, worker scheduling and SQLite persistence code.
+fn read_track_manifest(path: &Path) -> Result<Vec<String>> {
+    use std::io::Read;
+    const MAX_MANIFEST_BYTES: u64 = 32 * 1024 * 1024;
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Cannot open track manifest {}", path.display()))?;
+    let mut content = String::new();
+    file.take(MAX_MANIFEST_BYTES + 1).read_to_string(&mut content)
+        .with_context(|| format!("Cannot read UTF-8 track manifest {}", path.display()))?;
+    if content.len() as u64 > MAX_MANIFEST_BYTES {
+        bail!("Track manifest exceeds 32 MiB input limit");
+    }
+    let mut tracks = Vec::new();
+    let mut unique = HashSet::new();
+    for (index, raw) in content.lines().enumerate() {
+        let key = raw.strip_suffix('\r').unwrap_or(raw);
+        if key.is_empty() { continue; }
+        if key.trim() != key || key.chars().any(|c| matches!(c, '\\' | ':' | '\0'))
+            || key.starts_with('/')
+            || key.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            bail!("Unsafe manifest track identity on line {}", index + 1);
+        }
+        if !unique.insert(key.to_owned()) {
+            bail!("Duplicate manifest track identity on line {}", index + 1);
+        }
+        if tracks.len() >= 100_000 {
+            bail!("Track manifest exceeds the 100000-song safety limit");
+        }
+        tracks.push(key.to_owned());
+    }
+    if tracks.is_empty() {
+        bail!("Track manifest contains no song identities");
+    }
+    Ok(tracks)
+}
+
+fn selected_tracks(options: &ScanOptions<'_>) -> Result<Vec<String>> {
+    let mut tracks = match (options.bliss_db, options.tracks_file) {
+        (Some(db), None) => storage::bliss_files(db)?,
+        (None, Some(manifest)) => {
+            let root = options.source_root.context("--tracks-file requires --source-root")?;
+            if options.library_root.is_some() {
+                bail!("--library-root is incompatible with --tracks-file");
+            }
+            let root_real = std::fs::canonicalize(root)
+                .context("Cannot resolve manifest --source-root")?;
+            let tracks = read_track_manifest(manifest)?;
+            // Deny any existing symlink that escapes the permitted local audio root.
+            // Unavailable files are handled by the scanner's usual missing-file policy.
+            for track in &tracks {
+                let path = crate::batch::source_path(track, None, Some(root))?;
+                if let Ok(resolved) = std::fs::canonicalize(&path) {
+                    if !resolved.starts_with(&root_real) {
+                        bail!("Manifest track resolves outside --source-root");
+                    }
+                }
+            }
+            tracks
+        }
+        _ => bail!("Specify exactly one of --bliss-db and --tracks-file"),
+    };
+    if let Some(exact) = options.only_track {
+        tracks.retain(|key| key == exact);
+        if tracks.is_empty() {
+            bail!("Exact --only-track not found in selected tracks");
+        }
+    }
+    Ok(tracks)
+}
+
+fn is_scan_complete(
+    conn: &Connection, track: &str, profiles: &[Profile], state: (i64, i64),
+    embedding_dir: Option<&Path>, preprocessing: &str,
+) -> Result<bool> {
+    if !is_current(conn, track, profiles, state)? { return Ok(false); }
+    let Some(dir) = embedding_dir else { return Ok(true); };
+    let profile = &profiles[0];
+    let model = &profile.descriptor.embedding_model;
+    let encoder_sha = profile.hashes.get(model)
+        .context("Encoder SHA256 missing from model metadata")?;
+    let (audio_sha, patches): (String, i64) = conn.query_row(
+        "SELECT audio_sha256, patches_analyzed FROM feature_tracks
+          WHERE track_file=?1 AND model_id=?2 AND model_key=?3",
+        params![track, &profile.descriptor.id, &profile.model_key],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if patches <= 0 { return Ok(false); }
+    crate::song_embedding::cached_matches(
+        &crate::song_embedding::track_output_path(dir, track),
+        track, &audio_sha, patches as usize, model, encoder_sha, preprocessing,
+    )
+}
+
+fn persist_scan_output(
+    conn: &mut Connection, track: &str, state: (i64, i64),
+    report: &FeatureReport,
+    embedding: Option<crate::song_embedding::SongEmbedding>,
+    embedding_dir: Option<&Path>,
+) -> Result<()> {
+    if let Some(dir) = embedding_dir {
+        let mut embedding = embedding.context("Requested 1280D embedding was not returned")?;
+        embedding.track_file = Some(track.to_owned());
+        crate::song_embedding::write_or_verify(
+            &crate::song_embedding::track_output_path(dir, track), &embedding,
+        )?;
+    }
+    persist_into(conn, track, report, Some(state))
+}
+
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     let started = Instant::now();
     if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
         bail!("--threads, --max-new and --max-errors must be positive");
+    }
+    let tracks = selected_tracks(&options)?;
+    if let Some(out) = options.embedding_dir {
+        if options.tracks_file.is_none() || options.dry_run {
+            bail!("--embedding-dir requires --tracks-file and forbids --dry-run");
+        }
+        if !out.is_dir() {
+            bail!("--embedding-dir must be an existing private directory");
+        }
+        let out_real = std::fs::canonicalize(out)?;
+        for protected in [options.source_root, Some(options.models_dir)].into_iter().flatten() {
+            if out_real.starts_with(std::fs::canonicalize(protected)?) {
+                bail!("Embedding output directory must be outside audio and model roots");
+            }
+        }
     }
     let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
     retarget_profiles(&mut profiles, &options.backend)?;
@@ -701,14 +856,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         }
     }
     if options.workers > 1 && !options.dry_run {
-        return scan_parallel(options, profiles, started);
-    }
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(track) = options.only_track {
-        tracks.retain(|key| key == track);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
+        return scan_parallel(options, profiles, tracks, started);
     }
     let mut conn = if options.dry_run {
         storage::open_readonly_scan_db(options.db)?
@@ -757,8 +905,10 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
                 continue;
             }
         };
-        if conn.as_ref().map(|db| is_current(db, &track, &profiles, state))
-            .transpose()?.unwrap_or(false) {
+        if conn.as_ref().map(|db| is_scan_complete(
+            db, &track, &profiles, state, options.embedding_dir,
+            options.backend.preprocessing(),
+        )).transpose()?.unwrap_or(false) {
             summary.up_to_date += 1;
             continue;
         }
@@ -769,15 +919,22 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             break;
         }
         if engine.is_none() {
-            engine = Some(FeatureEngine::with_backend(
+            let mut created = FeatureEngine::with_backend(
                 profiles.clone(), options.threads, &options.backend,
-            )?);
+            )?;
+            if options.embedding_dir.is_some() {
+                created.request_song_embedding();
+            }
+            engine = Some(created);
             summary.model_sessions_initialized = true;
         }
-        let outcome = engine.as_mut().expect("engine available").analyze(&path, None)
-            .and_then(|report| persist_into(
-                conn.as_mut().expect("writable feature database"), &track, &report, Some(state),
-            ));
+        let engine = engine.as_mut().expect("engine available");
+        let outcome = engine.analyze(&path, None).and_then(|report| {
+            persist_scan_output(
+                conn.as_mut().expect("writable feature database"), &track, state,
+                &report, engine.take_song_embedding(), options.embedding_dir,
+            )
+        });
         match outcome {
             Ok(()) => {
                 summary.analyzed += 1;
@@ -800,7 +957,16 @@ struct FeatureJob {
     state: (i64, i64),
 }
 
-type FeatureCompletion = (FeatureJob, Result<FeatureReport>);
+type FeatureCompletion = (
+    FeatureJob,
+    Result<(FeatureReport, Option<crate::song_embedding::SongEmbedding>)>,
+);
+
+#[derive(Clone, Copy)]
+struct CompletionPolicy<'a> {
+    expected: Option<usize>,
+    embedding_dir: Option<&'a Path>,
+}
 
 fn save_completion(
     rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
@@ -809,15 +975,17 @@ fn save_completion(
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
-    expected: Option<usize>,
+    policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
     match result {
-        Ok(report) => match persist_into(conn, &job.track, &report, Some(job.state)) {
+        Ok((report, embedding)) => match persist_scan_output(
+            conn, &job.track, job.state, &report, embedding, policy.embedding_dir,
+        ) {
             Ok(()) => {
                 diagnostics.add(&report);
                 summary.analyzed += 1;
-                if let Some(max) = expected {
+                if let Some(max) = policy.expected {
                     eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, max);
                 } else {
                     eprintln!("ANALYZED {} (completed={}, attempted={})",
@@ -850,17 +1018,11 @@ fn save_completion(
 fn scan_parallel(
     options: ScanOptions<'_>,
     profiles: Vec<Profile>,
+    tracks: Vec<String>,
     started: Instant,
 ) -> Result<ScanSummary> {
     use std::sync::{mpsc, Arc, Mutex};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(exact) = options.only_track {
-        tracks.retain(|key| key == exact);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
-    }
     let mut conn = storage::open_scan_db(options.db)?;
     let pool_size = if options.adaptive_workers {
         options.max_workers.min(tracks.len()).max(1)
@@ -924,13 +1086,19 @@ fn scan_parallel(
                     let active = active_analyses.fetch_add(1, Ordering::SeqCst) + 1;
                     peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
-                        Some(engine) => engine.analyze(&task.path, None),
+                        Some(engine) => engine.analyze(&task.path, None)
+                            .map(|report| (report, engine.take_song_embedding())),
                         None => match FeatureEngine::with_backend(
                             profiles.clone(), options.threads, &backend,
                         ) {
-                            Ok(created) => {
+                            Ok(mut created) => {
+                                if options.embedding_dir.is_some() {
+                                    created.request_song_embedding();
+                                }
+                                let result = created.analyze(&task.path, None)
+                                    .map(|report| (report, created.take_song_embedding()));
                                 engine = Some(created);
-                                engine.as_mut().expect("initialized").analyze(&task.path, None)
+                                result
                             }
                             Err(err) => Err(err),
                         },
@@ -974,17 +1142,20 @@ fn scan_parallel(
                     continue;
                 }
             };
-            if is_current(&conn, &track, &profiles, state)? {
+            if is_scan_complete(
+                &conn, &track, &profiles, state, options.embedding_dir,
+                options.backend.preprocessing(),
+            )? {
                 summary.up_to_date += 1;
                 continue;
             }
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
-            while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+            while !adaptive.as_ref().map_or(in_flight < pool_size, |a| a.permits_dispatch(in_flight)) {
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                    &mut monitor, &mut adaptive, options.max_new,
+                    &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -994,7 +1165,7 @@ fn scan_parallel(
                     while in_flight > 0 {
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                            &mut monitor, &mut adaptive, options.max_new,
+                            &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                         )?;
                         in_flight -= 1;
                     }
@@ -1019,7 +1190,7 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                &mut monitor, &mut adaptive, options.max_new,
+                &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
             )?;
             in_flight -= 1;
         }
@@ -1047,6 +1218,98 @@ fn scan_parallel(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn manifest_selection_reuses_scan_options_and_filters_exact_identity() {
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-cohort-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Artist")).unwrap();
+        std::fs::write(music.join("Artist").join("one.flac"), b"synthetic").unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "Artist/one.flac\nArtist/missing.flac\n").unwrap();
+        let mut options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            embedding_dir: None, db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre",
+            source_root: Some(music.as_path()), library_root: None,
+            only_track: None, max_new: None, max_errors: 5,
+            threads: 1, workers: 2, adaptive_workers: false,
+            min_workers: 1, max_workers: 3, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        // Missing audio is a scanner-stage error, not silently lost in the manifest.
+        assert_eq!(selected_tracks(&options).unwrap(),
+            vec!["Artist/one.flac", "Artist/missing.flac"]);
+        options.only_track = Some("Artist/one.flac");
+        assert_eq!(selected_tracks(&options).unwrap(), vec!["Artist/one.flac"]);
+        options.only_track = Some("Artist/not-selected.flac");
+        assert!(selected_tracks(&options).is_err());
+        options.only_track = None;
+        options.library_root = Some("/wrong");
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_rejects_existing_symlink_outside_source_root() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-symlink-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let outside = dir.join("outside.wav");
+        std::fs::write(&outside, b"synthetic").unwrap();
+        symlink(&outside, music.join("linked.wav")).unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "linked.wav\n").unwrap();
+        let options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            embedding_dir: None, db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre", source_root: Some(music.as_path()),
+            library_root: None, only_track: None, max_new: None,
+            max_errors: 5, threads: 1, workers: 2, adaptive_workers: false,
+            min_workers: 1, max_workers: 3, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn manifest_preserves_order_and_rejects_aliases_or_duplicates() {
+        let file = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-{}-{}.txt", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&file, "Artist/B.flac\nArtist/A.flac\n").unwrap();
+        assert_eq!(read_track_manifest(&file).unwrap(),
+            vec!["Artist/B.flac", "Artist/A.flac"]);
+        for contents in [
+            "Artist/A.flac\nArtist/A.flac\n",
+            "../outside.mp3\n",
+            "Artist/./song.flac\n",
+            "Artist//song.mp3\n",
+            "C:/escape.mp3\n",
+            "Artist\\song.mp3\n",
+            "/outside/song.mp3\n",
+        ] {
+            std::fs::write(&file, contents).unwrap();
+            assert!(read_track_manifest(&file).is_err(), "{contents:?}");
+        }
+        std::fs::write(&file, vec![b'a'; 32 * 1024 * 1024 + 1]).unwrap();
+        assert!(read_track_manifest(&file).is_err());
+        std::fs::remove_file(&file).unwrap();
+    }
+
+
 
     fn fake_result(model_id: &str, capability: &str, count: usize) -> ClassificationResult {
         let embedding_model = "encoder.onnx".to_owned();
