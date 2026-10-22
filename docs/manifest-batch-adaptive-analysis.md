@@ -229,6 +229,39 @@ Mel/codec/model parity checks remain strict; the subsequent scanner
 2023 or October 2026 upstream versions' parity results as direct evidence
 for the new pin.
 
+### Current upstream: pin latest Essentia, supply an appropriate modern FFmpeg
+
+The December 2025 intermediate fallback `82853264` also failed
+([run 39776970042](https://github.com/chrober/bliss-mood-poc/actions/runs/39776970042)):
+the worker executable could not link
+`essentia::streaming::AudioLoader::FFMPEG_BUFFER_SIZE`. Selecting
+arbitrary historic Essentia commits is **not our long-term strategy**.
+
+The native Linux CI instead tests the unmodified current original
+upstream Essentia commit `dc91e47ed634e0b152d3d0229ec86751bb315473`
+(14 October 2026) against pinned official **FFmpeg 9.0.2**, whose
+`n9.0.2` source release resolves to
+`946fcce07b6dcd0331c8cc609192aeff5e1924f8`.
+Modern FFmpeg is built separately and exposed through an isolated
+`PKG_CONFIG_PATH`/`LD_LIBRARY_PATH` prefix, not by upgrading random
+Ubuntu packages. Both dependency trees have independently
+versioned/ABI-specific CI caches. Ubuntu 24.04 is retained to satisfy the
+prebuilt ONNX Runtime's glibc/libstdc++ requirements.
+
+The word *latest* is the upstream maintenance **target**, not permission
+for nondeterministic builds from a moving branch. Every tested and
+distributable binary must record and verify an exact upstream SHA,
+FFmpeg release/commit, runner OS ABI and model provenance. Periodic
+dependency update PRs should advance these pins after passing the strict
+native codec/Mel/ONNX numerical parity, SQLite and 1/2/4 fixed/adaptive
+concurrency gates. Reproducibility and current dependencies are compatible.
+
+**Status:** this is an experimental CI compatibility change, not an
+approved Linux release. New Essentia decoding behavior can affect model
+results; do not relax numerical tolerances just to pass. Native FFmpeg 9
+shared libraries need separate distribution, library path and license
+verification for supported end-user platforms.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
