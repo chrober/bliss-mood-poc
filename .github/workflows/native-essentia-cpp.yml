@@ -9,6 +9,12 @@ on:
       - "src/preprocess.rs"
       - "scripts/test_native_essentia_protocol.py"
       - "scripts/compare_native_cpp_end_to_end.py"
+      - "scripts/verify_native_essentia_worker_concurrency.py"
+      - "scripts/verify_manifest_batch_smoke.py"
+      - "src/essentia_worker.rs"
+      - "src/features.rs"
+      - "src/parallel.rs"
+      - "src/resources.rs"
       - "scripts/generate_audio_fixtures.py"
       - "src/audio_decode.rs"
       - "src/preprocess.rs"
@@ -107,6 +113,7 @@ jobs:
           fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
           fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
           fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
           fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
           sha256sum models/*.onnx
@@ -119,6 +126,16 @@ jobs:
             --rust-reference native/rust-mel-reference/target/release/rust-mel-reference \
             --models-dir models \
             --report-output results/native-codec-all-heads-parity.json
+      - name: Build the actual Rust ONNX scanner for native multiworker integration
+        run: cargo build --locked --release
+      - name: Verify native Essentia C++ serial, fixed 2/4 and adaptive-enabled 2 workers
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:$LD_LIBRARY_PATH"
+          python3 scripts/verify_native_essentia_worker_concurrency.py \
+            --binary target/release/bliss-mood \
+            --models-dir models \
+            --essentia-worker build/essentia-cpp/bliss-essentia-worker
       - name: Upload synthetic codec parity report
         if: always()
         uses: actions/upload-artifact@v4
