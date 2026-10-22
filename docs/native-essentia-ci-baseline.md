@@ -102,6 +102,23 @@ python scripts/benchmark_native_adaptive_manifest.py `
   --plan-only
 ```
 
+The benchmark derives a UTF-8, source-relative `selected-tracks.txt`
+manifest from the **existing 100-key TracksV2 sample**, rather than
+running the full Bliss scanner. This is essential: the Rust CLI deliberately
+rejects `--embedding-dir` with `--bliss-db`. A sample database containing
+absolute LMS paths needs `--library-root` for the **benchmark's local
+manifest conversion**; `--library-root` is never passed to the
+manifest-mode Rust scanner. Every selected music path and normalized
+manifest identity is checked before model execution. Use
+`--expected-tracks 100` to demand the exact historical sample size.
+
+The numerical gate compares **all per-track/head score blobs** (100 songs
+times 3 model heads = 300 independent classification rows), all official
+model fingerprints, and the **complete pooled 1280D embedding JSON** for
+each song. It fails on one changed classification head; the simpler
+single-model synthetic helper must never be reused for this 3-head check.
+The Python safety tests are integrated into the Rust checks workflow.
+
 Remove `--plan-only` to run the full experiment. `--source-root` is
 appropriate for relative `TracksV2.File` keys; add `--library-root`
 only if the preexisting keys include an absolute LMS prefix that needs
