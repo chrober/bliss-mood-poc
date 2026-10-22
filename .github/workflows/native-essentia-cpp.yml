@@ -19,6 +19,8 @@ on:
       - "src/audio_decode.rs"
       - "src/preprocess.rs"
       - ".github/workflows/native-essentia-cpp.yml"
+      - "scripts/prepare_ci_ffmpeg.py"
+      - "scripts/requirements-ci-ffmpeg.txt"
 
 permissions:
   contents: read
@@ -31,6 +33,11 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/requirements-ci-ffmpeg.txt
       - name: Install original Essentia C++ build dependencies
         run: |
           set -euo pipefail
@@ -42,14 +49,16 @@ jobs:
             -o Acquire::http::Timeout=30 \
             -o Acquire::https::Timeout=30
           echo "APT package install starting $(date -u +%FT%TZ)"
-          timeout 480s sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          timeout 480s sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             -o Acquire::Retries=2 \
             -o Acquire::http::Timeout=30 \
             -o Acquire::https::Timeout=30 \
-            build-essential cmake pkg-config python3 python3-numpy python3-pip ffmpeg nasm \
-            libeigen3-dev libyaml-dev libfftw3-dev \
-            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
-            libsamplerate0-dev libtag1-dev libchromaprint-dev
+            build-essential cmake pkg-config nasm \
+            libeigen3-dev libfftw3-dev libsamplerate0-dev
+      - name: Install pinned Python and bundled FFmpeg for audio test fixtures
+        run: |
+          python -m pip install --disable-pip-version-check "numpy==1.26.4" -r scripts/requirements-ci-ffmpeg.txt
+          python scripts/prepare_ci_ffmpeg.py
       - name: Record installed Ubuntu native dependencies for ABI-safe Waf cache
         shell: bash
         run: |
@@ -117,7 +126,10 @@ jobs:
           test "$(pkg-config --modversion libavcodec | cut -d. -f1)" = 63
           echo "Using pinned upstream MTG/essentia $(git -C "$source" rev-parse HEAD) on Ubuntu 24.04 with FFmpeg $(pkg-config --modversion libavcodec)"
           cd "$source"
-          python3 waf configure --prefix="$RUNNER_TEMP/essentia-install"
+          # Compile original upstream with only required audio dependencies.
+          # TensorflowInputMusiCNN preprocessing does NOT depend on TensorFlow.
+          python3 waf configure --prefix="$RUNNER_TEMP/essentia-install" \
+            --lightweight=libav,libsamplerate,fftw
           python3 waf -j 4
           python3 waf install
       - name: Compile the native worker against installed original C++ algorithms
@@ -140,7 +152,10 @@ jobs:
           export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
           python3 scripts/test_native_essentia_protocol.py build/essentia-cpp/bliss-essentia-worker native/rust-mel-reference/target/release/rust-mel-reference
       - name: Generate deterministic multi-codec regression audio
-        run: python3 scripts/generate_audio_fixtures.py
+        run: |
+          command -v ffmpeg
+          ffmpeg -hide_banner -version | head -1
+          python3 scripts/generate_audio_fixtures.py
       - name: Check original C++ vs Rust Mel frontend parity on WAV FLAC MP3
         shell: bash
         run: |

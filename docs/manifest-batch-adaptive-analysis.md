@@ -262,6 +262,43 @@ results; do not relax numerical tolerances just to pass. Native FFmpeg 9
 shared libraries need separate distribution, library path and license
 verification for supported end-user platforms.
 
+### October 22 APT download failures and reduced CI dependency surface
+
+At commit `53ac45b5`, **both** the native C++ CI
+([run 39778787823](https://github.com/chrober/bliss-mood-poc/actions/runs/39778787823))
+and Voice parity CI ([run 39778787752](https://github.com/chrober/bliss-mood-poc/actions/runs/39778787752))
+failed with exit code `124` from our eight-minute `timeout 480s` wrapper
+around `apt-get install`. The mirror `azure.archive.ubuntu.com` was serving
+archives very slowly. The native job requested **127 MB** for 121 new packages;
+the Voice job requested **94.1 MB** for 99 new packages. Neither reached
+FFmpeg 9 compilation or its existing audio/model parity checks. These are
+APT-download failures, not evidence of broken classifications or a PHP attack.
+
+We should avoid downloading an entire system FFmpeg multimedia dependency
+tree just to generate four synthetic test files. Both CI workflows now install
+**CI-only, version-pinned `imageio-ffmpeg==0.6.0`** through pip and expose its
+bundled Linux x86_64 `ffmpeg` executable via
+`scripts/prepare_ci_ffmpeg.py` (checks availability of FLAC and libmp3lame).
+The reference tests remain the same, with the exact fixture encoder version
+printed in CI. This executable **does not replace** the separate FFmpeg 9.0.2
+shared library used to compile and run the latest original Essentia.
+
+The native C++ job now installs only build-essential, CMake, pkg-config,
+nasm, Eigen, FFTW and libsamplerate via `apt-get --no-install-recommends`.
+Upstream Essentia is configured using its own
+`--lightweight=libav,libsamplerate,fftw` option, preserving the required
+MonoLoader/resampling/preprocessing algorithms while omitting unused
+TagLib, YAML and Chromaprint integrations in this smoke test. This changes
+the compiled set of optional Essentia algorithms, not the original
+implementation of those algorithms retained in the C++ worker. The full
+runtime/decoder/model-parity tests remain mandatory. The new reduced-deps
+configuration must still pass the live CI build.
+
+The pinned `imageio-ffmpeg` wheel is strictly a **CI fixture-generation
+tool**, not an application runtime or a proposal for redistributable
+binaries. FFmpeg licensing/provenance and supported platform ABIs still
+require independent release assessment.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
