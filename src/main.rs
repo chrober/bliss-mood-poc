@@ -542,6 +542,41 @@ fn main() -> Result<()> {
 }
 
 #[cfg(test)]
+mod manifest_cli_tests {
+    use super::{Action, Cli};
+    use clap::Parser;
+
+    #[test]
+    fn source_selection_is_exclusive_and_manifest_requires_root() {
+        let valid = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--db", "features.db",
+            "--workers", "2", "--threads", "1"
+        ]).unwrap();
+        match valid.action {
+            Action::ScanFeatures { bliss_db, tracks_file, .. } => {
+                assert!(bliss_db.is_none());
+                assert_eq!(tracks_file.unwrap(), std::path::PathBuf::from("cohort.txt"));
+            }
+            _ => panic!("Expected scan-features"),
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_ok());
+    }
+}
+
+#[cfg(test)]
 mod pcm_tests {
     use super::essentia_linear_resample;
 
