@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Expose version-pinned CI-only ffmpeg AND ffprobe without Ubuntu multimedia APT."""
 import os
+from importlib.metadata import distribution
 from pathlib import Path
+import shutil
 import subprocess
 
 import imageio_ffmpeg
-from ffprobe_binaries import get_ffprobe_path
 
 
 def require_working_binary(binary: Path, name: str) -> str:
@@ -18,6 +19,42 @@ def require_working_binary(binary: Path, name: str) -> str:
     if not output or not output[0].startswith(f"{name} version "):
         raise RuntimeError(f"Unexpected {name} version output from {binary}: {output[:1]}")
     return output[0]
+
+
+def bundled_ffprobe_for_linux_x64(destination: Path) -> Path:
+    """Locate the actual ELF binary in the pinned wheel, not a Python import.
+
+    ffprobe-binaries-only 0.1.2 installs successfully but does not export
+    the documented `ffprobe_binaries` module. The wheel RECORD is an
+    authoritative manifest of files pip installed.
+    """
+    dist = distribution("ffprobe-binaries-only")
+    files = list(dist.files or [])
+    options = []
+    for item in files:
+        if "ffprobe" not in item.name.lower():
+            continue
+        path = Path(dist.locate_file(item))
+        if not path.is_file() or path.stat().st_size < 1_000_000:
+            continue
+        with path.open("rb") as handle:
+            header = handle.read(20)
+        # Require a 64-bit little-endian Linux x86-64 ELF executable.
+        if (len(header) == 20 and header[:4] == b"\\x7fELF"
+                and header[4] == 2 and header[5] == 1
+                and int.from_bytes(header[18:20], "little") == 62):
+            options.append(path)
+    if len(options) != 1:
+        names = [str(item) for item in files if "ffprobe" in str(item).lower()]
+        raise RuntimeError(
+            f"Expected one Linux x86-64 ffprobe ELF in pinned wheel, "
+            f"got {len(options)}: {[str(p) for p in options]}; "
+            f"packaged files mentioning ffprobe: {names[:30]}"
+        )
+    # Copy to a controlled CI-owned path in case the wheel strips mode bits.
+    shutil.copy2(options[0], destination)
+    destination.chmod(0o755)
+    return destination
 
 
 def main() -> None:
@@ -36,14 +73,11 @@ def main() -> None:
 
     # This is the real ffprobe CLI used unchanged by src/audio_decode.rs.
     # Pin its wheel version as an independent CI dependency.
-    ffprobe = Path(get_ffprobe_path()).resolve()
-    ffprobe_version = require_working_binary(ffprobe, "ffprobe")
-
     cli_dir = Path(os.environ["RUNNER_TEMP"]) / "ci-ffmpeg-cli"
     cli_dir.mkdir(parents=True, exist_ok=True)
-    for name, binary in (("ffmpeg", ffmpeg), ("ffprobe", ffprobe)):
-        link = cli_dir / name
-        link.symlink_to(binary)
+    ffprobe = bundled_ffprobe_for_linux_x64(cli_dir / "ffprobe")
+    ffprobe_version = require_working_binary(ffprobe, "ffprobe")
+    (cli_dir / "ffmpeg").symlink_to(ffmpeg)
     with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
         path_file.write(f"{cli_dir}\n")
 

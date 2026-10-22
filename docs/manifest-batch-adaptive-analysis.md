@@ -337,6 +337,17 @@ The ffprobe wheel provides third-party packaged binaries with its own
 provenance/licensing questions, so it is restricted to **CI tests**;
 the actual product's documented runtime prerequisites remain unchanged.
 
+The first follow-up at `69fb2e9a` revealed that
+`ffprobe-binaries-only==0.1.2` installs its wheel, but does **not** expose
+the advertised Python module `ffprobe_binaries`. Both pipelines stopped
+at the CI helper import, before reaching audio analysis. The helper now
+locates the actual ffprobe executable through its installed wheel
+`importlib.metadata` file list, explicitly validates the ELF x86-64 header,
+copies it to a controlled executable CI path, and runs its version command.
+This resolves the packaging discrepancy without touching the Rust decoder.
+If the pinned wheel changes layout, the helper fails visibly instead of
+silently substituting a different probe.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
