@@ -3,7 +3,12 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{fs::OpenOptions, io::BufWriter, path::Path};
+use std::{
+    fs::OpenOptions,
+    io::{BufWriter, Write},
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 pub const DIMENSIONS: usize = 1280;
 pub const POOLING: &str = "patch_f64_arithmetic_mean_v1";
@@ -101,16 +106,35 @@ pub fn build(
     })
 }
 
-/// Never overwrite an existing research export; source audio is always read-only.
+/// Publish a complete JSON with atomic no-overwrite semantics.
+/// The sibling temporary file and the target are on the same filesystem;
+/// the final hard link is atomic and refuses any existing target. A crash may
+/// leave a *.partial file, never an incomplete published *.json.
 pub fn write_new(path: &Path, embedding: &SongEmbedding) -> Result<()> {
-    let file = OpenOptions::new().write(true).create_new(true).open(path)
-        .with_context(|| format!("Refusing existing or inaccessible embedding output {}", path.display()))?;
-    let mut writer = BufWriter::new(file);
-    if let Err(err) = serde_json::to_writer(&mut writer, embedding) {
-        std::fs::remove_file(path).ok();
-        return Err(err.into());
-    }
-    Ok(())
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let attempt = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp = path.with_extension(format!(
+        "json.{}.{}.partial", std::process::id(), attempt,
+    ));
+    let file = OpenOptions::new().write(true).create_new(true).open(&temp)
+        .with_context(|| format!("Cannot stage song embedding {}", temp.display()))?;
+    let result = (|| {
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer(&mut writer, embedding)?;
+        writer.flush()?;
+        writer.get_ref().sync_all()?;
+        drop(writer);
+        std::fs::hard_link(&temp, path)
+            .with_context(|| format!(
+                "Refusing existing output or filesystem without hard-link support: {}",
+                path.display(),
+            ))?;
+        Ok(())
+    })();
+    // Success: unlink the staging name; target retains the same data.
+    // Failure: preserve any pre-existing target, never publish partial JSON.
+    std::fs::remove_file(&temp).ok();
+    result
 }
 
 
@@ -205,6 +229,8 @@ mod tests {
         assert!(!cached_matches(&path, track, &"b".repeat(64), 1,
             "encoder.onnx", &"a".repeat(64), "frontend-v5").unwrap());
         write_or_verify(&path, &embedding).unwrap();
+        assert!(write_new(&path, &embedding).is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         write_or_verify(&path, &embedding).unwrap();
         assert!(cached_matches(&path, track, &"b".repeat(64), 1,
             "encoder.onnx", &"a".repeat(64), "frontend-v5").unwrap());
