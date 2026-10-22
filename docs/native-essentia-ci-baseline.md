@@ -49,3 +49,42 @@ adaptive mode **does not demonstrate real dynamic resizing**.
 
 PR #18 is stacked upon PR #17 and does not itself update main or the
 PR #16 similarity research work.
+
+## Local real-music performance benchmark (not executed in CI)
+
+The standalone [native fixed-vs-adaptive benchmark](../scripts/benchmark_native_adaptive_manifest.py)
+takes an **existing intentionally bounded 30–500-track** Bliss TracksV2
+cohort database and exercises the original native C++ backend in a
+balanced, deterministic order: fixed 1/2/4/6 workers and adaptive
+(initial 2, limits 1–6) twice, with a reversed order on the second round.
+
+Run this only on the machine that can read the sampled music and has
+the tested native worker and official ONNX models. For example,
+from the repository root (paths are illustrative and must be replaced):
+
+```powershell
+python scripts/benchmark_native_adaptive_manifest.py `
+  --cohort-db "C:\\path\\sample-100.db" `
+  --analyzer "C:\\path\\bliss-mood.exe" `
+  --essentia-worker "C:\\path\\bliss-essentia-worker.exe" `
+  --models-dir "C:\\path\\models" `
+  --source-root "C:\\path\\music" `
+  --output-dir "C:\\path\\benchmark-native-adaptive" `
+  --plan-only
+```
+
+Remove `--plan-only` to run the full experiment. `--source-root` is
+appropriate for relative `TracksV2.File` keys; add `--library-root`
+only if the preexisting keys include an absolute LMS prefix that needs
+remapping. Output must be new/empty; each configuration receives a fresh
+SQLite sidecar and embedding directory. Scores, head fingerprints and
+entire pooled 1280D embeddings **must match exactly** between modes.
+The tool writes a local-only `summary.json`, `runs.csv`, and complete
+per-run scanner logs, including controller adjustments and process-tree
+memory diagnostics. It also verifies that the sampled input Bliss
+database hash does not change.
+
+**The script is prepared but real-music benchmarking has not been
+run here** because the user's music and local native binaries are not
+available to this session. Do not claim throughput gains, or upload
+raw local reports or the private cohort database to the repository.
