@@ -299,6 +299,44 @@ tool**, not an application runtime or a proposal for redistributable
 binaries. FFmpeg licensing/provenance and supported platform ABIs still
 require independent release assessment.
 
+### CI decoder preflight: FFprobe required by the unchanged Rust frontend
+
+At commit `c4cc6dc8`, **both** previously blocked CI jobs advanced beyond
+the build stage: native
+[39782931577](https://github.com/chrober/bliss-mood-poc/actions/runs/39782931577)
+**successfully compiled official FFmpeg 9.0.2, October 2026 upstream Essentia C++,
+and the native worker**. Its first DSP protocol test then failed before comparison.
+Voice [39782931597](https://github.com/chrober/bliss-mood-poc/actions/runs/39782931597)
+successfully installed pip dependencies, created WAV/FLAC/MP3 fixtures,
+downloaded all official model weights and built the Rust analyzer, but failed
+at the very first embedding dump. The identical cause was:
+
+```
+Error: ffprobe not found; install the full FFmpeg distribution
+```
+
+The Python `imageio-ffmpeg==0.6.0` wheel deliberately supplies `ffmpeg` but
+not `ffprobe`. Our existing `src/audio_decode.rs` legitimately uses the
+**actual ffprobe CLI** to obtain source sample rate and channel count before
+decoding PCM, so replacing it with a log parser or changing the production
+Rust decoder is unnecessary and would weaken the reference tests.
+
+Both workflows now install a separate pinned CI-only
+`ffprobe-binaries-only==0.1.2` wheel and expose **both** existing fixture
+`ffmpeg` and real `ffprobe` to downstream CI steps through
+`scripts/prepare_ci_ffmpeg.py`. The helper validates that both executables
+exist, are executable, print the expected version header, and that the
+unchanged imageio FFmpeg fixture encoder can encode MP3/FLAC. Its `ffprobe`
+is **not** substituted for Essentia's linked official FFmpeg 9 libraries;
+it is only a metadata tool used by our original Rust frontend. The fixture
+FFmpeg encoder stays at its prior version. Numerical parity gates and
+tolerances remain untouched.
+
+This compatibility change needs a green run to count as validated.
+The ffprobe wheel provides third-party packaged binaries with its own
+provenance/licensing questions, so it is restricted to **CI tests**;
+the actual product's documented runtime prerequisites remain unchanged.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
