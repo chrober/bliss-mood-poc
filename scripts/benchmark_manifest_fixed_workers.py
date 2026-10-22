@@ -32,6 +32,7 @@ def run(binary: Path, models: Path) -> None:
         baseline_features = None
         baseline_embeddings = None
         durations: dict[int, list[float]] = {1: [], 2: []}
+        net_durations: dict[int, list[float]] = {1: [], 2: []}
         runs = []
         for index, workers in enumerate((1, 2, 2, 1), start=1):
             sidecar = base / f"run{index}.sqlite"
@@ -52,8 +53,18 @@ def run(binary: Path, models: Path) -> None:
             elif feature_rows != baseline_features or embedding_rows != baseline_embeddings:
                 raise AssertionError("ABBA worker setting changed exact numeric features")
             diagnostic = summary.get("diagnostics") or {}
+            baseline = diagnostic.get("baseline") or {}
+            baseline_s = float(baseline.get("cpu_measurement_seconds") or 0.0)
+            # A parallel scan deliberately sleeps ~1s to establish CPU
+            # resource load before starting workers; serial does not.
+            # Do not hide this time from the actual wall-clock result.
+            net_wall_s = wall_s - baseline_s
+            assert 0 <= baseline_s < wall_s
             durations[workers].append(wall_s)
+            net_durations[workers].append(net_wall_s)
             runs.append({
+                "preworker_cpu_baseline_seconds": round(baseline_s, 3),
+                "wall_excluding_preworker_baseline_seconds": round(net_wall_s, 3),
                 "ordinal": index,
                 "workers": workers,
                 "songs": summary["analyzed"],
@@ -78,10 +89,16 @@ def run(binary: Path, models: Path) -> None:
                 str(worker): round(statistics.median(times), 3)
                 for worker, times in durations.items()
             },
+            "median_wall_excluding_preworker_baseline_seconds": {
+                str(worker): round(statistics.median(times), 3)
+                for worker, times in net_durations.items()
+            },
             "limitations": [
                 "Runner CPU/IO resources may vary and are not guaranteed across runs",
                 "Synthetic sine waves are not representative music or NAS/SMB access",
                 "Startup and model loading are included in each independent invocation",
+                "Parallel scans deliberately perform ~1 second pre-worker CPU baseline",
+                "Excluding that observed baseline is diagnostic only, not a user-visible speedup",
                 "A two-repeat ABBA diagnostic is not a confidence interval or causal speedup estimate",
                 "No adaptive worker increase/decrease is studied",
             ],
