@@ -1,6 +1,6 @@
 # Handover: Three song representations and similarity approaches for Lyrion
 
-**Updated:** October 21, 2026 · **Working branch:**
+**Updated:** October 22, 2026 · **Working branch:**
 `feat/similarity-metric-evaluation` · **Draft PR #16**.
 Use the [end-to-end roadmap](similarity-lyrion-roadmap.md)
 for the current phase-0-to-6 status. **Phase 0 is experimentally
@@ -123,6 +123,48 @@ See [fixed-rank research](similarity-fixed-rank-fusion-research-2026-10-21.md)
 for the exact algebra, tie/abstention contract,
 the four pre-defined combinations, complete
 paired outcomes and diagnostic limits.
+
+## Extension (2026-10-22): General scorer remains independent of personalization
+
+**A/B/C are candidates for the GENERAL metric**, which must be
+selected and validated for listeners **with zero personal
+training data**. The optional, user-learned metric is an
+additional scoring layer **on top of** a fixed, always
+available general A/B/C solution; learning is never required
+for retrieval or playlist creation.
+
+Once a user has a compatible, quality-gated learned score
+and the scores have a documented common scale:
+`S_effective=(1-alpha)S_general + alpha*S_personal`,
+with the user's **0–100% personal-blend** control.
+If no valid per-user model exists, `alpha_effective=0`
+and the general score is used **100%** regardless of the
+saved preference. A/B/C *general* fusion coefficients
+are not per-user blend weights. Raw cross-model cosine
+scores, Mahalanobis distances and triplet-local midranks
+must not be combined without calibration.
+
+**Implementation and evidence status:** this is an
+architectural decision, not a deployed Lab feature.
+The existing `bliss-learner` and `lms-blissmixer-lab`
+provide reusable triplet/survey and 23D Bliss learning
+concepts. The new personal learner, model quality gate,
+score calibration and UI slider still require separate
+design and validation.
+
+**Current local checkpoint (2026-10-22):** 100/100 matching
+87D/56D/1280D feature vectors verified; 12 blinded
+song pairs using 24 different tracks have been generated.
+Their four human rating axes are still **unanswered**;
+the old eight labels remain untouched. Do not call
+this a selected general metric or an evaluated personal
+learner. Preserve the blinded pilot before inspecting
+its private sampling/model-score audit.
+
+**Canonical decision:**
+[General-first similarity and optional per-user metric
+learning](similarity-general-personal-blending-architecture.md).
+The existing independent candidate-source strategy remains open.
 
 ## Distinct decision: feature representation vs playlist sourcing
 
