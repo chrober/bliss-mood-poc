@@ -660,7 +660,8 @@ impl ScanDiagnostics {
 }
 
 pub struct ScanOptions<'a> {
-    pub bliss_db: &'a Path,
+    pub bliss_db: Option<&'a Path>,
+    pub tracks_file: Option<&'a Path>,
     pub db: &'a Path,
     pub models_dir: &'a Path,
     pub registry: Option<&'a Path>,
@@ -679,11 +680,76 @@ pub struct ScanOptions<'a> {
     pub backend: BackendChoice,
 }
 
+/// Keep explicit research cohorts independent of Bliss's catalog while using
+/// the same scanner, worker scheduling and SQLite persistence code.
+fn read_track_manifest(path: &Path) -> Result<Vec<String>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Cannot read UTF-8 track manifest {}", path.display()))?;
+    let mut tracks = Vec::new();
+    let mut unique = HashSet::new();
+    for (index, raw) in content.lines().enumerate() {
+        let key = raw.strip_suffix('\r').unwrap_or(raw);
+        if key.is_empty() { continue; }
+        if key.trim() != key || key.contains(['\\', ':', '\0'])
+            || key.starts_with('/')
+            || key.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            bail!("Unsafe manifest track identity on line {}", index + 1);
+        }
+        if !unique.insert(key.to_owned()) {
+            bail!("Duplicate manifest track identity on line {}", index + 1);
+        }
+        if tracks.len() >= 100_000 {
+            bail!("Track manifest exceeds the 100000-song safety limit");
+        }
+        tracks.push(key.to_owned());
+    }
+    if tracks.is_empty() {
+        bail!("Track manifest contains no song identities");
+    }
+    Ok(tracks)
+}
+
+fn selected_tracks(options: &ScanOptions<'_>) -> Result<Vec<String>> {
+    let mut tracks = match (options.bliss_db, options.tracks_file) {
+        (Some(db), None) => storage::bliss_files(db)?,
+        (None, Some(manifest)) => {
+            let root = options.source_root.context("--tracks-file requires --source-root")?;
+            if options.library_root.is_some() {
+                bail!("--library-root is incompatible with --tracks-file");
+            }
+            let root_real = std::fs::canonicalize(root)
+                .context("Cannot resolve manifest --source-root")?;
+            let tracks = read_track_manifest(manifest)?;
+            // Deny any existing symlink that escapes the permitted local audio root.
+            // Unavailable files are handled by the scanner's usual missing-file policy.
+            for track in &tracks {
+                let path = crate::batch::source_path(track, None, Some(root))?;
+                if let Ok(resolved) = std::fs::canonicalize(&path) {
+                    if !resolved.starts_with(&root_real) {
+                        bail!("Manifest track resolves outside --source-root");
+                    }
+                }
+            }
+            tracks
+        }
+        _ => bail!("Specify exactly one of --bliss-db and --tracks-file"),
+    };
+    if let Some(exact) = options.only_track {
+        tracks.retain(|key| key == exact);
+        if tracks.is_empty() {
+            bail!("Exact --only-track not found in selected tracks");
+        }
+    }
+    Ok(tracks)
+}
+
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     let started = Instant::now();
     if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
         bail!("--threads, --max-new and --max-errors must be positive");
     }
+    let tracks = selected_tracks(&options)?;
     let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
     retarget_profiles(&mut profiles, &options.backend)?;
     if options.workers == 0 || options.workers > 64 {
@@ -701,14 +767,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         }
     }
     if options.workers > 1 && !options.dry_run {
-        return scan_parallel(options, profiles, started);
-    }
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(track) = options.only_track {
-        tracks.retain(|key| key == track);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
+        return scan_parallel(options, profiles, tracks, started);
     }
     let mut conn = if options.dry_run {
         storage::open_readonly_scan_db(options.db)?
@@ -850,17 +909,11 @@ fn save_completion(
 fn scan_parallel(
     options: ScanOptions<'_>,
     profiles: Vec<Profile>,
+    tracks: Vec<String>,
     started: Instant,
 ) -> Result<ScanSummary> {
     use std::sync::{mpsc, Arc, Mutex};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(exact) = options.only_track {
-        tracks.retain(|key| key == exact);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
-    }
     let mut conn = storage::open_scan_db(options.db)?;
     let pool_size = if options.adaptive_workers {
         options.max_workers.min(tracks.len()).max(1)
@@ -1047,6 +1100,32 @@ fn scan_parallel(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn manifest_preserves_order_and_rejects_aliases_or_duplicates() {
+        let file = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-{}-{}.txt", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&file, "Artist/B.flac\nArtist/A.flac\n").unwrap();
+        assert_eq!(read_track_manifest(&file).unwrap(),
+            vec!["Artist/B.flac", "Artist/A.flac"]);
+        for contents in [
+            "Artist/A.flac\nArtist/A.flac\n",
+            "../outside.mp3\n",
+            "Artist/./song.flac\n",
+            "Artist//song.mp3\n",
+            "C:/escape.mp3\n",
+            "Artist\\song.mp3\n",
+            "/outside/song.mp3\n",
+        ] {
+            std::fs::write(&file, contents).unwrap();
+            assert!(read_track_manifest(&file).is_err(), "{contents:?}");
+        }
+        std::fs::remove_file(&file).unwrap();
+    }
+
+
 
     fn fake_result(model_id: &str, capability: &str, count: usize) -> ClassificationResult {
         let embedding_model = "encoder.onnx".to_owned();
