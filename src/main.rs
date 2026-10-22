@@ -4,6 +4,7 @@ mod storage;
 mod engine;
 mod batch;
 mod features;
+mod song_embedding;
 mod essentia_worker;
 mod feature_lookup;
 mod parallel;
@@ -121,6 +122,10 @@ enum Action {
         /// UTF-8 newline-delimited source-relative track identities, no Bliss DB needed.
         #[arg(long, conflicts_with = "bliss_db", requires = "source_root")]
         tracks_file: Option<PathBuf>,
+        /// Private directory of opaque, versioned 1280D song embedding JSON exports.
+        /// Available only for explicit manifests and never in dry-run.
+        #[arg(long, requires = "tracks_file")]
+        embedding_dir: Option<PathBuf>,
         #[arg(long)]
         db: PathBuf,
         #[arg(long, default_value = "models")]
@@ -432,7 +437,7 @@ fn main() -> Result<()> {
             }
         }
         Action::ScanFeatures {
-            bliss_db, tracks_file, db, models_dir, registry, models, library_root,
+            bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
             adaptive_workers, min_workers, max_workers, dry_run, json,
@@ -458,6 +463,7 @@ fn main() -> Result<()> {
             )?;
             let summary = features::scan(features::ScanOptions {
                 bliss_db: bliss_db.as_deref(), tracks_file: tracks_file.as_deref(),
+                embedding_dir: embedding_dir.as_deref(),
                 db: &db, models_dir: &models_dir,
                 registry: registry.as_deref(), models: &models,
                 source_root: source_root.as_deref(),
