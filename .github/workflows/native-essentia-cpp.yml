@@ -81,7 +81,7 @@ jobs:
             # Built-in WAV/FLAC/MP3 decoders and demuxers remain enabled.
             ./configure --prefix="$prefix" --enable-shared --disable-static \
               --enable-pic --disable-programs --disable-doc --disable-avdevice \
-              --disable-avfilter --disable-postproc --disable-network
+              --disable-avfilter --disable-network
             make -j 4
             make install
           fi
