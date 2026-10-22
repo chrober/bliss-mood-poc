@@ -1,6 +1,6 @@
 # Current research handover: similarity representations and Lyrion integration
 
-**Updated:** October 21, 2026. **Read first:**
+**Updated:** October 22, 2026. **Read first:**
 [Central phase-0-to-6 research and integration roadmap](similarity-lyrion-roadmap.md).
 The roadmap contains four Mermaid diagrams, status, research constraints,
 and small stop/go work packages. This handover summarizes the current state;
@@ -17,6 +17,54 @@ read-only audit of compatible representations for
 the **same songs in the user's library**,
 not a full rescan. Production-wide feature
 lifecycle belongs to phase **6**, after all gates.
+
+## Current binding decision: general-purpose baseline plus optional personal learning (2026-10-22)
+
+**Primary goal UNCHANGED:** determine a strong, independently
+evaluated GENERAL song-similarity metric that works for any new
+listener without personal training data. It may involve Genre 87D,
+Mood 56D, pooled EffNet 1280D, and potentially Bliss 23D after
+fair same-song benchmarks and appropriate calibration.
+**No general-metric winner, learned weights, production deployment
+or final playlist candidate strategy has been established.**
+
+**Optional extension:** each user may learn a *separate* personal
+metric from their own odd-one-out / most-similar-pair triplets,
+building conceptually on
+[`chrober/bliss-learner`](https://github.com/chrober/bliss-learner)
+and
+[`chrober/lms-blissmixer-lab`](https://github.com/chrober/lms-blissmixer-lab).
+A configurable **0–100% PERSONAL influence slider** blends
+personal with general similarity **after score calibration**:
+
+```text
+alpha_effective = (valid compatible personal model) ? (slider_percent/100) : 0
+S_effective = (1-alpha_effective)*S_general + alpha_effective*S_personal
+```
+
+**No usable personal model => effective 0% personal, 100% GENERAL,
+whatever the stored slider value.** With a valid model, 0% is
+exactly general-only, 100% exactly personal-only, and values
+between interpolate calibrated scores. On failed/stale/training
+models, or incomplete personal-feature query coverage, consistently
+fall back to general-only; do not disrupt playback or change
+stored user preferences. Regularize personal learning, use
+independent held-out triplets, and keep per-user data local
+and isolated.
+
+**Four distinctions to preserve in future sessions:**
+A/B/C compares *general* representations/feature fusion;
+general-vs-personal blending is a second scoring layer;
+Bliss-first/feature-first/hybrid are separate candidate-source
+strategies; the existing BlissMixerLab `learned_blend`
+modifies its own 23D Bliss learned matrix and is **not the new
+general/personal slider**. No changes have been made to
+those external repositories or to the upstream mixer.
+
+**Canonical requirement and proposed research gates:**
+[General-first and optional personalized 0–100% blend](similarity-general-personal-blending-architecture.md).
+[Current overall roadmap](similarity-lyrion-roadmap.md) and
+[Lyrion integration constraints](lyrion-bliss-mood-genre-integration.md).
 
 ## Goal: compare the representation, not just the distance function
 
@@ -103,111 +151,83 @@ invalid exports or audio/encoder mismatches. Phase 0 remains partially open.
 M2 preparation is available in
 [`scripts/propose_local_embedding_ab_pilot.py`](../scripts/propose_local_embedding_ab_pilot.py)
 and passed [Linux/Windows CI 39668802990](https://github.com/chrober/bliss-mood-poc/actions/runs/39668802990).
-It creates 12 blinded pairs using 24 distinct songs, with
-private model-based selection and blank ordinal human ratings.
-**Human responses are not yet collected.**
+The user **has now locally generated** the 12-pair blinded
+review CSV (`BLINDED_REVIEW_READY`), using 24 distinct
+songs and all 100 matching feature representations.
+Model-based selection strata and raw scores remain in a
+separate sealed local private audit. All four ordinal
+human ratings remain blank: **no human judgments have
+yet been collected**. The generation reported
+`earlier_review_pairs_excluded=0`, which does NOT prove
+that old eight-pair reviews cannot overlap.
 See the [complete local pilot instructions](similarity-local-library-retest-plan-2026-10-21.md).
 Never expose the private audit prior to listening or overwrite earlier
 human ratings.
 
-## Immediate next local milestone: repaired one-song 1280D export (2026-10-21)
+## Next actions, prioritized (October 22, 2026)
 
-The user completed a read-only 100-song local L0 inventory:
-**100/100 compatible 87D Genre and 56D Mood features, 0 provenance
-mismatches, 0 invalid head pairs**. A one-song local dry-run
-then verified source audio and the three ONNX model weights
-and left SQLite unchanged.
+1. **General-metric research remains primary.** Start with the
+   already generated private 12-pair M2 listening instrument.
+   Ask the listener to independently judge genre/style,
+   mood/energy, timbral proximity and suitability of
+   left -> right as a playlist transition. The model-based
+   private selection audit must remain unopened until the
+   human judgments are finalized. Any overlap with the
+   earlier eight human-rated pairs must be checked rather
+   than presumed absent. Existing 8 labels remain unchanged.
+2. Build a separate read-only **ordinal** evaluator for the
+   new 1–5 ratings; the old binary Genre/Mood evaluator
+   does not accept these as equivalent. Compare five
+   baseline similarity functions on identical pairs:
+   Genre cosine/centered cosine, Mood cosine/centered cosine,
+   and 1280D cosine. Treat small selected pilot results
+   as diagnostics only. Freeze a new disjoint listening
+   block before any tuning or "winner" claim.
+3. In parallel **design only**, a bounded personal triplet
+   sampling and training baseline (informative disagreements,
+   near neighbors, presumed easy controls, random/diverse
+   questions). Use existing Bliss-learner/Lab as design
+   references; separate musical similarity from directed
+   next-song preference. A model-designated "correct"
+   control is only a hypothesis, not ground truth.
+4. Specify/calibrate a small, regularized per-user model
+   and its **0–100% personal influence**, with per-user
+   held-out evaluation and a complete missing/invalid
+   model fallback to general similarity. Do not train
+   an unrestricted 1,423D Mahalanobis matrix from sparse
+   votes, optimize fusion on evaluation labels, or
+   implement the new Lyrion slider prematurely.
+5. Independently continue reference evidence as sources
+   permit (MTT, FMA and DEAM provenance), then compare
+   general metrics and candidate-source strategies.
+   No library-wide reanalysis is necessary for the
+   completed 100-song local research cohort.
 
-The **first real one-song embedding export FAILED**
-(`failed=1`, `incomplete_do_not_use_for_scoring`).
-Root cause was **confirmed in the immutable Rust-v5 source**:
-`analyze-features` rejected `--track-key` without `--db`
-even though `--embedding-out` was requested, so the existing
-exporter intentionally avoided SQLite and the executable bailed.
-No musical quality conclusion follows from this CLI bug.
+**Implementation boundaries:** Only PR #16
+(`feat/similarity-metric-evaluation`), kept Draft;
+no changes to main, PR #13/#17, upstream Bliss or the
+other two repositories without separate authorization.
+Keep local files, listening data, track paths and model
+vectors private. GitHub Actions for Rust builds;
+PowerShell blocks are self-contained `& { ... }`.
+The [local phase-2/M2 plan](similarity-local-library-retest-plan-2026-10-21.md)
+contains previous Windows/export details.
 
-**FIXED:** The PR #16-only
-[`apply_rust_v5_embedding_export.py`](../scripts/apply_rust_v5_embedding_export.py)
-patch now permits `--track-key` without `--db` only alongside
-`--embedding-out`; pinned base Rust-v5/PR #17 remains untouched.
-[Replacement Windows x64 run 39664316069](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069)
-PASS, and real synthetic-audio ONNX embedding-only regression
+## Superseded M1 engineering notes (historical, NOT the next action)
+
+The first version of the research-only Windows embedding
+CLI erroneously required `--db` when supplied with
+`--track-key`, even for `--embedding-out`. The repaired
+Windows binary in [run 39664316069](https://github.com/chrober/bliss-mood-poc/actions/runs/39664316069)
+and independent ONNX regression
 [run 39664440263](https://github.com/chrober/bliss-mood-poc/actions/runs/39664440263)
-PASS (identical vector/audio/fingerprint to the original test).
-The **old Windows artifact from run 39661674510 is OBSOLETE**.
-The local exporter now refuses old-build provenance by checking
-the fixed overlay commit and reports aggregate failure stages.
-
-**Next single action:** Use the corrected Windows artifact from
-run 39664316069 and a **new local ignored output directory**
-for **one song** (`--limit 1 --seed 20261021 --execute`).
-Do not delete the previously failed folder, upload music,
-re-analyze all 100 songs, write existing head SQLite, or
-move to M2 before this one real-song export verifies.
-Exact steps and safeguard details:
-[local listening preflight and CLI correction](similarity-local-library-retest-plan-2026-10-21.md#critical-windows-research-cli-correction-2026-10-21).
-
-## M1 local feature readiness: implementation delivered; local measurement pending
-
-The project can now run a **bounded, read-only** phase-2
-local feature-inventory report using
-[`scripts/audit_local_feature_readiness.py`](../scripts/audit_local_feature_readiness.py).
-Synthetic source-metadata, 87D/56D, private 1280D sidecar,
-malformed-vector, SHA mismatch, strict no-overwrite and
-SQLite byte-preservation regressions passed on
-[Linux and Windows in CI 39660242090](https://github.com/chrober/bliss-mood-poc/actions/runs/39660242090).
-The command and complete `& { ... }` PowerShell example are in the
-[local listening preflight plan](similarity-local-library-retest-plan-2026-10-21.md#first-local-execution-windows-powershell-no-queue-or-audio-changes).
-
-**No user's actual local database was accessed yet.**
-The next actionable user step is to run that report on the
-previously analyzed 100-song feature DB and return **only the
-non-identifying aggregate JSON**. Without `--embedding-dir`,
-1280D coverage is reported as **not assessed**,
-not presumed missing. Interpret its data as experimental
-internal consistency only; phase 0 remains open,
-and no new library-wide scan or playlist action is authorized.
-
-## Next small actions
-
-1. **N1:** Validate DEAM publisher/mirror
-   reachability, archive SHA/layout and licence
-   **without compiling Rust**. Do not invent DEAM
-   embedding scores while source-blocked.
-2. **N2 (independent):** Make a read-only
-   inventory of the user's existing
-   schema-v3 Genre/Mood rows and optional
-   1280D research sidecars for a bounded,
-   exactly mapped set of songs. Do not scan
-   the entire private library.
-3. **N3:** After source verification,
-   run the frozen 240-song paired DEAM A/B
-   with exact sample SHA and head baseline.
-4. **N4:** Review ~12 new library contrasts
-   including positive/negative controls
-   and methodological disagreements, then
-   design a **new** unseen ~24–40-pair block
-   with independent Genre, Mood,
-   audible similarity and playlist
-   successor judgments.
-5. **N5:** Compare A/B/C on the same songs
-   with clear abstentions and uncertainty;
-   only then compare Bliss-only versus
-   Bliss-first, feature-first and hybrid
-   candidate strategies.
-
-**Engineering constraints:** Keep PR #16 Draft;
-change only `feat/similarity-metric-evaluation`.
-Do not alter `main`, PR #13/#17 or production mixer.
-All local music, NAS paths, Lyrion identifiers,
-per-track feature vectors and human judgments
-remain local. Use GitHub Actions for Rust builds.
-No local Windows Rust build by default;
-complete PowerShell scripts must use
-`& { ... }` per
-[PowerShell conventions](powershell-script-conventions.md).
-
----
+passed. The user subsequently exported **100/100** local
+song embeddings and confirmed **100/100** joined
+Genre/Mood/Embedding provenance matches.
+The old first-run Windows binary
+[39661674510](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510)
+is obsolete. **Do not repeat the old one-song preflight
+or the 100-song scan as the current next step.**
 
 ## Historical engineering and experiment handover (archival)
 
