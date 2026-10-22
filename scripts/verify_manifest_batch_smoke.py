@@ -18,14 +18,14 @@ import tempfile
 import wave
 
 
-def synthetic_wav(path: Path, frequency: int) -> None:
+def synthetic_wav(path: Path, frequency: int, seconds: int = 4) -> None:
     """Use deterministic signed 16-bit mono PCM, four seconds at 16 kHz."""
     rate = 16000
     with wave.open(str(path), "wb") as file:
         file.setnchannels(1)
         file.setsampwidth(2)
         file.setframerate(rate)
-        for offset in range(0, rate * 4, 4000):
+        for offset in range(0, rate * seconds, 4000):
             frames = [
                 round(10000 * math.sin(2 * math.pi * frequency * sample / rate))
                 for sample in range(offset, offset + 4000)
