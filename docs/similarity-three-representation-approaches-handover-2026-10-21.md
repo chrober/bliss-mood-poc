@@ -261,30 +261,40 @@ corrected with
 Later runs failed on external publisher connectivity,
 not on an observed embedding accuracy comparison.
 
-## Next research actions and decision gates
+## Next research actions and decision gates (updated 2026-10-22)
 
-1. **DEAM source-only check:** validate original
-   source reachability or exact SHA/layout/licence
-   of an alternative, without expensive builds.
-   Do not infer any new paired DEAM score yet.
-2. **Local phase-2 feature inventory:** select bounded
-   Lyrion tracks with exact keys; verify existing
-   87D/56D features and whether 1280D sidecars
-   exist. No full-library scan; no changes to
-   existing user data.
-3. **Local controlled human judgments:** ~12
-   diagnostic contrasts, then a new disjoint
-   24–40-pair review block with distinct Genre,
-   Mood, audible-nearness and next-song ratings.
-4. **A/B/C decision:** only compare same-song
-   methods with coverage/abstention and
-   uncertainty declared; no post-hoc
-   fusion-weight tuning on the evaluation set.
-5. **Product strategy separately:** only after
-   representation evaluation, compare Bliss-only,
-   Bliss-first, feature-first and hybrid
-   in Lyrion using identical constraints and
-   actual playlist listening evidence.
+1. **General-purpose A/B/C is the main workstream.** The
+   user's bounded phase-2 feature inventory/export is
+   **complete for the research cohort**: all 100 songs
+   have coherent and verifiable 87D/56D/1280D features.
+   Do not require any optional per-user learner to evaluate
+   these untrained general similarity methods.
+2. **Diagnostic listening is ready:** the local blinded
+   12-pair pilot has actually been generated, using
+   24 distinct songs, with **zero new human ratings
+   supplied**. Collect independent 1–5 genre, mood,
+   timbre and next-track judgments; keep the
+   model-selection audit sealed until after review.
+3. **Assess general similarity first:** compare A/B/C
+   on matching songs, query sets and held-out evidence
+   with explicit abstentions and uncertainty; retain
+   simple reference baselines. Freeze a fresh
+   24–40-pair evaluation block before weight fitting.
+4. **Optional personal learning is a parallel track:**
+   independently design informative/near/random/control
+   triplets, train a small regularized per-user metric
+   from human choices and evaluate incremental benefits
+   on separate held-out votes. Then test calibrated
+   **0–100% personal influence**, with deterministic
+   **100% GENERAL fallback** if the per-user model
+   is absent or incompatible. No Lab/learner changes
+   are authorized at this stage.
+5. **Product strategy remains separate:** compare
+   Bliss-only, Bliss-first, feature-first and hybrid
+   sourcing only with the same mandatory Lyrion
+   filters and actual playlist-quality evidence.
+   DEAM publisher/source verification can continue
+   independently; never invent unsupported scores.
 
 No merge to `main`, no changes to PR #13/#17
 or the production mixer, and no production
