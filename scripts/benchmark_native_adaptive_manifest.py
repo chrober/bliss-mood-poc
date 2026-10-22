@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from contextlib import closing
 import csv
 import json
 import math
 from pathlib import Path
 import random
+import sqlite3
 import statistics
 import subprocess
 import time
 
 from benchmark_audio_backends import (
-    checked_cohort, digest, load_feature_rows, model_fingerprints_by_head,
-    validate_report,
+    checked_cohort, digest, model_fingerprints_by_head, validate_report,
 )
 from verify_manifest_batch_smoke import stored_embeddings
 
@@ -70,6 +71,42 @@ def verify_music_paths(keys: list[str], source_root: Path) -> None:
             raise ValueError("Selected music file resolves outside --source-root")
     if missing:
         raise ValueError(f"{missing}/{len(keys)} sample audio files are unavailable under --source-root")
+
+
+def exact_feature_rows(db: Path, track_keys: list[str],
+                       heads: list[str]) -> dict[tuple[str, str], tuple]:
+    """Compare EVERY per-track/head float blob, not only a song's last model.
+
+    The short synthetic test helper stored_features() has a one-row-per-song
+    contract and deliberately collapses keys across different model heads.
+    It must not be used to validate the 3-head real-music benchmark.
+    """
+    with closing(sqlite3.connect(
+        f"file:{db.resolve().as_posix()}?mode=ro", uri=True
+    )) as conn:
+        rows = conn.execute(
+            "SELECT track_file, model_id, model_key, audio_sha256, "
+            "patches_analyzed, scores_f32_le FROM feature_tracks "
+            "ORDER BY track_file, model_id"
+        ).fetchall()
+    expected = {(track, head) for track in track_keys for head in heads}
+    found = {(track, head) for track, head, *_ in rows}
+    if len(rows) != len(expected) or found != expected:
+        raise AssertionError(
+            f"Wrong real-cohort classification coverage: expected "
+            f"{len(expected)} rows, found {len(rows)}; missing="
+            f"{len(expected - found)} unexpected={len(found - expected)}"
+        )
+    dimensions = {"moodtheme": 56, "genre": 87, "voice": 2}
+    for track, head, model_key, sha, patches, blob in rows:
+        if not model_key or not sha or len(sha) != 64 or patches <= 0:
+            raise AssertionError(f"Invalid feature metadata for {head}")
+        if not blob or len(blob) != dimensions[head] * 4:
+            raise AssertionError(f"Invalid {head} score blob dimension")
+    return {
+        (track, head): (model_key, sha, patches, bytes(blob))
+        for track, head, model_key, sha, patches, blob in rows
+    }
 
 
 def schedule(repeats: int, seed: int) -> list[tuple[int, str]]:
@@ -152,7 +189,7 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "native_child_processes_max": diag.get("native_child_processes_max"),
     }
     # Exact parity remains mandatory across all fixed/adaptive run orders.
-    return record, load_feature_rows(db), {
+    return record, exact_feature_rows(db, args.cohort, args.models.split(',')), {
         "vectors": stored_embeddings(embedding_dir, args.cohort),
         "fingerprints": model_fingerprints_by_head(db),
     }
