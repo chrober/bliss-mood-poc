@@ -245,7 +245,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # UTF-8 manifest identity is the relative path, not the original absolute
     # LMS File key. This guarantees all embedding outputs match our lookups.
-    args.manifest_file.write_text("\\n".join(mapped) + "\\n", encoding="utf-8")
+    args.manifest_file.write_text("\n".join(mapped) + "\n", encoding="utf-8")
     original_cohort_hash = digest(args.cohort_db)
     manifest = {
         "cohort_tracks": len(cohort),
