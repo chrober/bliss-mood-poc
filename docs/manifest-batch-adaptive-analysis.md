@@ -399,6 +399,32 @@ wall-clock opportunity for the unchanged 20-second cooldown to elapse.
 This is still a live shared-runner observation, not a deterministic
 expectation of resizing. Numeric parity remains exact.
 
+### Live native adaptive resize verified (22 October 2026)
+
+The corrected long-running native test **passed** in
+[CI run 39791414361](https://github.com/chrober/bliss-mood-poc/actions/runs/39791414361)
+(`38426ab4`). It analyzed 36 synthetic five-minute WAV songs
+with the actual native C++ worker in fixed-2 and adaptive-2 modes,
+preserved **exact SQLite classification and 1280D embedding parity**,
+and observed a real controller increase **from 2 to 3 workers after
+song 27**, with real CPU **51.07%** and system RAM **7.95%**.
+The peak number of active analyses and in-flight jobs reached 3.
+The original 24-completion gate and 20-second cooldown were not
+changed; no synthetic resource samples were injected. Fixed-2
+wall time was 32.493 seconds; adaptive wall time was 32.932 seconds.
+This single sequential shared-runner comparison establishes **no
+reliable throughput benefit or penalty**.
+
+The [baseline evidence](native-essentia-ci-baseline.md) now separates
+the prior 8-song no-resize smoke from the measured 36-song resize.
+A new **local-only** `scripts/benchmark_native_adaptive_manifest.py`
+uses a bounded 30–500-track Bliss cohort database and balanced fixed
+1/2/4/6 versus adaptive configurations, with fresh output sidecars
+and exact result checks. It requires the user's local music, verified
+native worker executable and ONNX models: it has **not** been run on
+actual music here. Refer to the baseline documentation for the
+plan-only PowerShell command and privacy requirements.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.

@@ -29,14 +29,43 @@ the conservative controller requires at least **24 completed tracks** and
 **20 seconds** from its last capacity adjustment. Successful entry into
 adaptive mode **does not demonstrate real dynamic resizing**.
 
+## Real adaptive controller resize: verified native integration
+
+The [extended native run 39791414361](https://github.com/chrober/bliss-mood-poc/actions/runs/39791414361)
+at commit `38426ab4281fabb4e6d95e5841122782c6febf81`
+**passed** every native CI stage, including the additional real adaptive
+test using **36 distinct synthetic five-minute WAV inputs**. The original
+C++ worker was used for both separate, fresh SQLite scans; only the
+Mood/EffNet ONNX head was selected to keep this gate bounded.
+
+- Fixed 2 workers: **32.493 s** total wall time.
+- Adaptive initial 2 workers, bounds 1–3: **32.932 s**.
+- The real production controller made **one legitimate 2 → 3 increase
+  after 27 completed songs**. Its measured system CPU at that decision
+  was **51.07%** and RAM **7.95%**, consistent with the existing
+  sustained-headroom threshold. The observed peak active analyses and
+  in-flight jobs both reached **3**.
+- Nine interval-based CPU/RAM observations were recorded: **seven low
+  load** and **two neutral**, with six observations below the 24-song
+  threshold and three at/above it. The untouched 20-second cooldown
+  expired before the change.
+- Exactly identical per-song classification bytes and complete
+  normalized 1280D song embeddings were written by both modes.
+  **All assertions passed.** No synthetic CPU load or test-only
+  controller overrides were used.
+
+This is the **first observed real scanner worker resize**, not an
+evaluation of performance improvement. The adaptive run took
+**0.439 s longer** in these two unpaired sequential shared-CI runs.
+Uncontrolled runner conditions and repeated synthetic tones do not
+support interpreting that difference as a policy slowdown, either.
+A representative, balanced local music benchmark remains required.
+
 ## Remaining qualification
 
-1. The newly added `scripts/verify_native_essentia_adaptive_long.py` uses
-   **36** distinct synthetic 300-second tracks to observe actual, unmodified
-   CPU/RAM samples and the controller's decision history. A green run with
-   zero adjustments remains **inconclusive for real resizing**; the report
-   explicitly records this. Never artificially manipulate resource samples
-   or thresholds to force a PASS.
+1. **Observed dynamic resizing is qualified for the synthetic native CI cohort**
+   (36 songs, 2 → 3 after the 27th completed song). Separate validation
+   of adaptive scaling down under pressure and real music/NAS load remains.
 2. For operational performance, use a deliberately bounded representative
    local cohort: fixed **1/2/4/6** workers and adaptive, order balanced
    across repetitions, fresh sidecars, matched binaries/models and track
