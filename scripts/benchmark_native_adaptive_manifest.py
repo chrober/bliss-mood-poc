@@ -228,6 +228,8 @@ def main() -> None:
     parser.add_argument("--library-root")
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--models", default="moodtheme,genre,voice")
+    parser.add_argument("--expected-tracks", type=int,
+                        help="Fail if the deliberate sample has a different song count")
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261022)
     parser.add_argument("--timeout-seconds", type=int, default=900)
@@ -250,6 +252,8 @@ def main() -> None:
         parser.error(str(error))
     if len(cohort) < 30:
         parser.error("Adaptive evaluation requires a deliberate 30..500-track cohort")
+    if args.expected_tracks is not None and len(cohort) != args.expected_tracks:
+        parser.error(f"Expected {args.expected_tracks} sample tracks, found {len(cohort)}")
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
         parser.error("Output directory must be new/empty; never overwrite prior runs")
     for item in (args.analyzer, args.essentia_worker):
