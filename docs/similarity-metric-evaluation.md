@@ -22,6 +22,36 @@ Sigmoid classification vectors independently. It never modifies BlissMixerLab
 or music files, opens the existing schema-v3 SQLite database read-only,
 and never runs ONNX, inference or audio decoding.
 
+## Current research objective and optional personalization (2026-10-22)
+
+**Selecting a strong GENERAL-purpose metric is still the primary goal.**
+All Genre/Mood metrics in this document and the broader A/B/C
+1280D study are evaluated independently of any user's trained
+preferences; **the default general scorer must work without
+personal triplets**. External benchmark numbers and local
+listening diagnostics remain unpersonalized evidence.
+
+A separate **optional personal metric** may later be learned
+from each listener's triplet comparisons and combined with
+the fixed general scorer under a **0–100% personal influence**
+control. Blending requires explicitly calibrated score
+scales: `S_eff=(1-alpha)S_general+alpha*S_personal`.
+With **no valid/compatible personal model**, the effective
+`alpha` is **0** and similarity is **100% general**,
+independently of the stored slider setting. The new
+general/personal blend does not re-label previous
+BlissMixerLab `learned_blend` or resolve the separate
+Bliss-first / feature-first / hybrid sourcing decision.
+
+**Current measured sample:** 100/100 compatible same-song
+87D/56D/1280D features and a locally generated blinded
+12-pair/24-distinct-song pilot; no new human ratings
+have been submitted. Existing eight labels are unchanged.
+No general metric winner or personal learner is released.
+
+[Decision record, personal learning contract and
+evaluation gates](similarity-general-personal-blending-architecture.md).
+
 ## What is compared?
 
 | Metric | Range | What it measures |
