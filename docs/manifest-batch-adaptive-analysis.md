@@ -348,6 +348,36 @@ This resolves the packaging discrepancy without touching the Rust decoder.
 If the pinned wheel changes layout, the helper fails visibly instead of
 silently substituting a different probe.
 
+### Validated modern Essentia and longer native adaptive observation
+
+The previously green CI head `c5df10b0` is frozen as a qualified
+baseline in [native-essentia-ci-baseline.md](native-essentia-ci-baseline.md),
+including exact upstream source pins, observed numeric errors and
+successful original C++ multiworker runs. The full native CI
+[39787075901](https://github.com/chrober/bliss-mood-poc/actions/runs/39787075901)
+and all other head checks passed. The eight-song CI smoke did not resize
+workers; `adjustments=[]` was expected below the 24-song gate.
+
+A distinct extended integration test,
+`scripts/verify_native_essentia_adaptive_long.py`, now runs **36 distinct
+synthetic 120-second WAVs** twice against official Mood/EffNet ONNX weights
+and the actual original Essentia C++ subprocesses: fixed 2 workers vs
+adaptive 2 workers with bounds 1–3. It compares the resulting SQLite score
+bytes and complete 1280D song embeddings for exact parity. The report
+`results/native-adaptive-long.json` includes the real OS load samples,
+production controller counters, any actual `adjustments`, concurrency
+high-water marks and wall times. No synthetic load, changed cooldown or
+fake measurements are used. The CI artifact is retained with the codec
+parity reports.
+
+This is **not** a speedup benchmark. The shared CI runner's unregulated
+load may produce zero genuine worker adjustments; an otherwise successful
+test must explicitly label such a run inconclusive for *actual resizing*.
+If a real resize occurs, the test checks its direction, legal worker
+bounds, completed-song threshold, counter consistency and terminal cap.
+Performance claims still require the separate, balanced local NAS/music
+cohort benchmark.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
