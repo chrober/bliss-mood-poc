@@ -178,6 +178,38 @@ not infer backend performance from Rust-front-end timings or merely from an
   scan wall time; report it separately without removing it from end-to-end
   runtime. Do not upload personal audio, feature sidecars or track manifests.
 
+### Native CI failure and runner compatibility (22 October 2026)
+
+The [native C++ workflow run 39768344277](https://github.com/chrober/bliss-mood-poc/actions/runs/39768344277)
+at `28d8caff` **failed after all its original Essentia C++ codec, Mel and
+ONNX comparison steps PASSED**. The new actual Rust `scan-features` binary
+failed to link against its prebuilt static ONNX Runtime archive on
+`ubuntu-22.04`: `__isoc23_strtol`, `__isoc23_strtoull`,
+`__isoc23_strtoll`, and `std::__cxx11::basic_string::_M_replace_cold`
+were unresolved. These newer glibc (2.38+) and libstdc++ (GCC 13+) ABI
+requirements come from the downloaded `ort` library, not from original
+Essentia's C++ subprocess or failed ONNX inference. Therefore the **new C++
+1/2/4-worker test was SKIPPED** at that commit; do not count it as PASS.
+
+The workflow now targets `ubuntu-24.04`, whose glibc/libstdc++ satisfy the
+linker's ABI requirements, with an OS-separated Essentia Waf cache key.
+This raises the **CI native Linux executable build baseline** to Ubuntu
+24.04; it is NOT proof of compatibility with Ubuntu 22.04 or older.
+Support for older Linux distributions requires a different ONNX runtime
+linking/distribution strategy, independently of the C++ worker.
+
+The same failed native job spent about **33m 41s** in its quiet APT metadata
+refresh, while [successful Voice run 39768344281](https://github.com/chrober/bliss-mood-poc/actions/runs/39768344281)
+spent about **19m** in its APT step. Both later installed packages
+successfully, and the Voice run downloaded official model files and passed.
+The precise mirror/network cause cannot be inferred from the quiet logs;
+there is no demonstrated connection to a PHP outage. The native and Voice
+workflows now emit APT phase timestamps, show non-quiet APT diagnostics,
+retry transient fetch failures and cap update and install periods explicitly.
+Any resulting CI failures will be easier to triage than silent 20-30-minute
+stalls. The new runner/cache change remains **unqualified until its own
+workflow completes**.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.

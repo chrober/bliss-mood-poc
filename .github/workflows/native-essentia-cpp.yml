@@ -25,14 +25,27 @@ permissions:
 
 jobs:
   original-essentia:
-    runs-on: ubuntu-22.04
+    # ort's prebuilt static ONNX Runtime needs glibc >=2.38 and GCC 13 libstdc++.
+    # Ubuntu 22.04 has glibc 2.35 and fails linking __isoc23_strto*.
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Install original Essentia C++ build dependencies
         run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          set -euo pipefail
+          echo "APT metadata refresh starting $(date -u +%FT%TZ)"
+          # Previous shared Ubuntu runners spent 19-33 minutes in quiet apt-get update.
+          # Bound network acquisition rather than silently using the 50-minute job limit.
+          timeout 300s sudo apt-get update \
+            -o Acquire::Retries=2 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30
+          echo "APT package install starting $(date -u +%FT%TZ)"
+          timeout 480s sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            -o Acquire::Retries=2 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
             build-essential cmake pkg-config python3 python3-numpy python3-pip ffmpeg \
             libeigen3-dev libyaml-dev libfftw3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libswresample-dev \
@@ -41,6 +54,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p build
+          ldd --version | head -1
+          g++ --version | head -1
           # Installed dependency versions, not PR commits, define cache compatibility.
           dpkg-query -W -f='${binary:Package} ${Version}\n' | LC_ALL=C sort > build/ubuntu-native-packages.txt
       - name: Restore pinned upstream Essentia Waf build objects
@@ -48,7 +63,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/essentia-source
           # No restore-keys: native FFTW/FFmpeg/ABI changes must rebuild.
-          key: original-essentia-waf-ubuntu2204-v1-9ceef0a3-${{ hashFiles('build/ubuntu-native-packages.txt') }}
+          key: original-essentia-waf-ubuntu2404-v1-9ceef0a3-${{ hashFiles('build/ubuntu-native-packages.txt') }}
       - name: Build pinned original MTG/essentia C++ library (not essentia-rs)
         shell: bash
         run: |
@@ -127,7 +142,10 @@ jobs:
             --models-dir models \
             --report-output results/native-codec-all-heads-parity.json
       - name: Build the actual Rust ONNX scanner for native multiworker integration
-        run: cargo build --locked --release
+        shell: bash
+        run: |
+          echo "Linking on runner: $(ldd --version | head -1)"
+          cargo build --locked --release
       - name: Verify native Essentia C++ serial, fixed 2/4 and adaptive-enabled 2 workers
         shell: bash
         run: |
