@@ -1,5 +1,32 @@
 # Lyrion — next local song-representation listening comparison
 
+## Current status and new optional-personalization design (2026-10-22)
+
+**This file also preserves old execution notes for reproducibility.**
+The user has **already completed** the corrected local one-song
+research export, the 100-song embedding export and the independent
+final audit: **100/100 same-song matching Genre 87D, Mood 56D,
+and Audio 1280D features, zero missing or incompatible embeddings**.
+The **12-pair blinded M2 review instrument has already been
+generated locally**, using 24 distinct tracks with all human
+rating fields empty. **Do not rerun historic one-song/100-song
+export examples as the current next step**; the private
+model-score selection audit stays sealed until the reviews
+are completed.
+
+The research direction is extended, not replaced: independently
+evaluate the strongest **general-purpose** metric without any
+per-user training; add only **optional** per-listener triplet
+learning and a **0–100% personal influence** blend after
+calibration. With no usable learned model, effective scoring
+is **100% general**, regardless of slider position.
+The current blinded 12-pair study remains primarily
+**general-metric evidence**; designing a personalized
+triplet learner is a separate parallel experiment.
+See the binding
+[general/personal architecture decision](similarity-general-personal-blending-architecture.md)
+and [current chat handover](chat-handover.md).
+
 ## Critical Windows research CLI correction (2026-10-21)
 
 **The original binary from [run 39661674510](https://github.com/chrober/bliss-mood-poc/actions/runs/39661674510) is obsolete. DO NOT use it.**
@@ -37,7 +64,7 @@ and never passes `--db` to the research binary.
 Proceed to the remaining songs only if this complete real
 Windows one-song run verifies successfully.
 
-**Status:** October 21, 2026; planning document. **No new local test has started.**
+**Historical status (October 21, 2026):** Originally a planning document; **superseded by the successful 100-song export and completed pilot generation above**.
 Work only on `feat/similarity-metric-evaluation` / Draft PR #16.
 Do not change `main`, PR #13/#17, the production mixer, or user audio.
 
