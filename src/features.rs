@@ -711,8 +711,16 @@ pub struct ScanOptions<'a> {
 /// Keep explicit research cohorts independent of Bliss's catalog while using
 /// the same scanner, worker scheduling and SQLite persistence code.
 fn read_track_manifest(path: &Path) -> Result<Vec<String>> {
-    let content = std::fs::read_to_string(path)
+    use std::io::Read;
+    const MAX_MANIFEST_BYTES: u64 = 32 * 1024 * 1024;
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Cannot open track manifest {}", path.display()))?;
+    let mut content = String::new();
+    file.take(MAX_MANIFEST_BYTES + 1).read_to_string(&mut content)
         .with_context(|| format!("Cannot read UTF-8 track manifest {}", path.display()))?;
+    if content.len() as u64 > MAX_MANIFEST_BYTES {
+        bail!("Track manifest exceeds 32 MiB input limit");
+    }
     let mut tracks = Vec::new();
     let mut unique = HashSet::new();
     for (index, raw) in content.lines().enumerate() {
@@ -1296,6 +1304,8 @@ mod tests {
             std::fs::write(&file, contents).unwrap();
             assert!(read_track_manifest(&file).is_err(), "{contents:?}");
         }
+        std::fs::write(&file, vec![b'a'; 32 * 1024 * 1024 + 1]).unwrap();
+        assert!(read_track_manifest(&file).is_err());
         std::fs::remove_file(&file).unwrap();
     }
 
