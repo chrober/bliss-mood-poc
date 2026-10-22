@@ -90,6 +90,48 @@ The classification calculations, native-backend preprocessing fingerprint, model
 4. Validate new pooled 1280D song exports against PR #16's independent validator on the same public cohort, audit crash-safe atomic output handling on Windows filesystems, and integrate with the currently pinned per-song research exporter only in a separately coordinated change (pending).
 5. Integrate the reviewed changes into the relevant long-term branch only after PR #17's license/distribution release gates are separately resolved.
 
+## First controlled synthetic fixed-worker ABBA benchmark (22 October 2026)
+
+A dedicated, independent runner script
+[`scripts/benchmark_manifest_fixed_workers.py`](../scripts/benchmark_manifest_fixed_workers.py)
+now runs **eight synthetic 20-second WAV songs** with original ONNX inference
+in fixed worker order **1, 2, 2, 1**, on distinct fresh SQLite sidecars and
+embedding output directories. Exact serialized classifier score blobs and
+complete song embeddings **must match**, or the CI step fails. This is an
+exploratory throughput diagnostic, not a public-data musical benchmark.
+
+The first [successful GitHub Actions run](https://github.com/chrober/bliss-mood-poc/actions/runs/39760717124)
+on commit `b396d357a6381a2f411980efac0afd27620cceca` measured these
+wall-clock durations **including startup and pre-worker measurements**:
+
+| Workers | First run | Second run | Median |
+|---|---:|---:|---:|
+| 1 | 1.544 s | 1.486 s | 1.515 s |
+| 2 | 1.821 s | 1.816 s | 1.819 s |
+
+All outputs had **exact numerical equality**; two simultaneous analyses
+were observed for the two-worker scans. These data **do not show a total
+wall-clock speedup** from two workers for this synthetic eight-song workload.
+
+**Major confound discovered by inspection:** the existing parallel scanner
+calls `scan_resource_baseline()`, which intentionally sleeps **one second**
+before dispatching workers to measure system CPU. The serial scanner does
+not. Thus the short-run median unfairly compares a required ~1-second
+parallel-mode observation with no corresponding serial observation. A
+follow-up commit `933112af...` adds the *actual measured* pre-worker
+baseline interval and a separate baseline-excluded wall-time estimate to
+the benchmark output, **without concealing the real end-to-end cost**.
+Baseline-adjusted measures are diagnostic only. The new step's CI
+verification remains separate from the historical completed run.
+
+The cohort consists only of generated steady tones, runs on a shared
+GitHub-hosted Linux VM, has two repetitions per configuration, and is too
+short to exercise adaptive adjustments or produce reliable CPU/RAM sample
+aggregates. Proper performance qualification still requires representative
+longer public recordings, fixed runner conditions, separate load/decode/
+preprocess/inference timings, and ultimately optional private Windows/NAS
+benchmarks with no music uploaded to GitHub.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
