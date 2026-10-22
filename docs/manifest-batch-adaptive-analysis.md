@@ -132,6 +132,52 @@ longer public recordings, fixed runner conditions, separate load/decode/
 preprocess/inference timings, and ultimately optional private Windows/NAS
 benchmarks with no music uploaded to GitHub.
 
+## Original Essentia C++ multiworker gate and adaptive admission (22 October 2026)
+
+**Goal:** establish that the *original upstream Essentia C++ subprocess backend*
+retains the Rust orchestrator's fixed and adaptive concurrency semantics. Do
+not infer backend performance from Rust-front-end timings or merely from an
+`--adaptive-workers` flag being accepted.
+
+- `scripts/verify_native_essentia_worker_concurrency.py` runs the **actual
+  `scan-features --audio-backend essentia`** binary with 1, 2 and 4 fixed song
+  workers plus an adaptive-enabled 2-worker baseline. Eight generated 20-second
+  WAV inputs use only official ONNX weights. All variants must analyze exactly
+  eight tracks on distinct sidecars, show the requested concurrent Rust
+  analyses, and yield **bitwise identical** stored classification blobs and
+  equal complete 1280D pooled embedding JSONs. The Rust worker threads each
+  own an independent long-lived native C++ child; no silent Rust DSP fallback.
+- The native Linux workflow compiles pinned upstream Essentia and the original
+  C++ child, then builds the real Rust/ONNX scanner and runs the new gate.
+  Existing original C++/Rust codec/Mel/model-parity checks stay mandatory.
+  [Native workflow run at `db79beb1`](https://github.com/chrober/bliss-mood-poc/actions/runs/39767213632):
+  **running at the time of documentation**. Do not report a native concurrency
+  PASS until this particular gate completes.
+- The real production coordinator now delegates dispatch admission to
+  `AdaptiveWorkers::permits_dispatch(in_flight)`. A deterministic test passes
+  controlled monotonic timestamps through the **same** observation/policy
+  implementation: it confirms the 24-completed-song gate, 20-second cooldown,
+  increase 2→3 under headroom and reduction 3→2 under CPU pressure, and
+  corresponding rejection/admission at the new active cap. This does **not**
+  inject fake load into any deployed analyzer.
+  [Rust checks at `080a4cd1`](https://github.com/chrober/bliss-mood-poc/actions/runs/39768072854)
+  **PASS**.
+- **Not yet demonstrated:** adaptive resizing during a real C++ song scan.
+  The eight-song smoke is too short for the policy's 24-song gate. CPU/RAM
+  telemetry alone is also *not* a throughput-feedback optimizer. For the
+  next gate use a longer bounded public cohort (at least 30 songs), allow the
+  unmodified 20-second policy cooldown, and observe genuine `adjustments`
+  in the scanner JSON. If using induced OS load, isolate it from performance
+  comparisons, record exact conditions, and never assert deterministic
+  adjustment under uncontrolled CI runner load.
+- For a meaningful native performance decision, compare fixed 1/2/4/6 and
+  adaptive operation with the **same** representative local NAS cohort, fresh
+  sidecars, model weights and native binary SHA, balanced run order, separate
+  Rust/C++ process-tree memory diagnostics and source-file/sidecar read-only
+  invariants. The pre-worker CPU baseline adds about one second to parallel
+  scan wall time; report it separately without removing it from end-to-end
+  runtime. Do not upload personal audio, feature sidecars or track manifests.
+
 ## Branch boundaries
 
 This is a stacked PR on `feat/essentia-cpp-worker-backend`, keeping Rust-v5 and the optional original C++ frontend available. It does **not** update PR #17 or its native redistributable artifacts and does **not** change PR #16's frozen research exporter. The new option is unavailable in binaries produced from `main` or from PR #17's original head.
