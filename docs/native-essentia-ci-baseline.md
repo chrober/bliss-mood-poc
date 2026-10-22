@@ -32,7 +32,7 @@ adaptive mode **does not demonstrate real dynamic resizing**.
 ## Remaining qualification
 
 1. The newly added `scripts/verify_native_essentia_adaptive_long.py` uses
-   **36** distinct synthetic 120-second tracks to observe actual, unmodified
+   **36** distinct synthetic 300-second tracks to observe actual, unmodified
    CPU/RAM samples and the controller's decision history. A green run with
    zero adjustments remains **inconclusive for real resizing**; the report
    explicitly records this. Never artificially manipulate resource samples
