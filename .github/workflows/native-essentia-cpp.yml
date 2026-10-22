@@ -10,6 +10,7 @@ on:
       - "scripts/test_native_essentia_protocol.py"
       - "scripts/compare_native_cpp_end_to_end.py"
       - "scripts/verify_native_essentia_worker_concurrency.py"
+      - "scripts/verify_native_essentia_adaptive_long.py"
       - "scripts/verify_manifest_batch_smoke.py"
       - "src/essentia_worker.rs"
       - "src/features.rs"
@@ -206,6 +207,15 @@ jobs:
             --binary target/release/bliss-mood \
             --models-dir models \
             --essentia-worker build/essentia-cpp/bliss-essentia-worker
+      - name: Observe 36-song native adaptive controller with real OS telemetry
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
+          python3 scripts/verify_native_essentia_adaptive_long.py \
+            --binary target/release/bliss-mood \
+            --models-dir models \
+            --essentia-worker build/essentia-cpp/bliss-essentia-worker \
+            --report-output results/native-adaptive-long.json
       - name: Upload synthetic codec parity report
         if: always()
         uses: actions/upload-artifact@v4
@@ -214,5 +224,6 @@ jobs:
           path: |
             results/native-codec-mel-parity.json
             results/native-codec-all-heads-parity.json
+            results/native-adaptive-long.json
           if-no-files-found: warn
           retention-days: 14
