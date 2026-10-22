@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/**'
       - 'scripts/verify_manifest_batch_smoke.py'
+      - 'scripts/benchmark_manifest_fixed_workers.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/model-smoke.yml'
@@ -57,4 +58,8 @@ jobs:
       - name: Compare serial, fixed 2-worker and adaptive 2-worker manifest analysis
         run: |
           python3 scripts/verify_manifest_batch_smoke.py \
+            --binary target/release/bliss-mood --models-dir models
+      - name: Record synthetic fixed 1/2-worker ABBA benchmark and exact output equality
+        run: |
+          python3 scripts/benchmark_manifest_fixed_workers.py \
             --binary target/release/bliss-mood --models-dir models
