@@ -29,6 +29,46 @@ pub fn unregister_native_child(pid: u32) {
     }
 }
 
+/// Persist actual Windows native child process priority classes on launch:
+/// children can exit before the final scan summary is serialized.
+#[cfg(windows)]
+fn native_priorities() -> &'static Mutex<(std::collections::BTreeSet<String>, usize)> {
+    static OBSERVED: OnceLock<Mutex<(std::collections::BTreeSet<String>, usize)>> = OnceLock::new();
+    OBSERVED.get_or_init(|| Mutex::new((std::collections::BTreeSet::new(), 0)))
+}
+
+pub fn reset_native_priority_observations() {
+    #[cfg(windows)]
+    if let Ok(mut state) = native_priorities().lock() {
+        state.0.clear();
+        state.1 = 0;
+    }
+}
+
+pub fn native_priority_observations() -> (Vec<String>, usize) {
+    #[cfg(windows)]
+    {
+        return native_priorities().lock()
+            .map(|state| (state.0.iter().cloned().collect(), state.1))
+            .unwrap_or_else(|_| (Vec::new(), 1));
+    }
+    #[cfg(not(windows))]
+    (Vec::new(), 0)
+}
+
+pub fn record_native_child_priority(child: &std::process::Child) {
+    #[cfg(windows)]
+    if let Ok(mut state) = native_priorities().lock() {
+        if let Some(actual) = crate::parallel::native_child_priority(child) {
+            state.0.insert(actual.to_owned());
+        } else {
+            state.1 += 1;
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = child;
+}
+
 /// Resident and private memory combined across Rust and its directly spawned
 /// Essentia subprocesses. Resident totals may include shared DLL / page-cache
 /// mappings more than once; this is a conservative footprint estimate.
