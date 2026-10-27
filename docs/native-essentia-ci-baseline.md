@@ -79,6 +79,36 @@ A representative, balanced local music benchmark remains required.
 PR #18 is stacked upon PR #17 and does not itself update main or the
 PR #16 similarity research work.
 
+## 27 October 2026: completed private 100-song NAS benchmark and priority confound
+
+The bounded local native C++ experiment completed **ten real-music scans**
+(two reversed-order repetitions of fixed 1/2/4/6 and adaptive 2–6),
+with strict, exactly equal Mood/Genre/Voice feature blobs and pooled
+1280D embeddings. Median end-to-end wall times in seconds:
+fixed1 **282.126**, fixed2 **277.649**, fixed4 **110.803**,
+fixed6 **93.417**, adaptive2–6 **116.852**. Adaptive increased
+from 2 to 6 workers in four adjustments in **each** repetition.
+The maximum private process-tree memory in MiB was 226.922 (fixed2),
+419.023 (fixed4), 657.281 (fixed6), and 552.539 (adaptive).
+These results are user-supplied aggregate diagnostics; **no private
+music, manifest, or source SQLite data is stored in git**.
+
+IMPORTANT: the old scanner only lowered Win32 priority for auto/adaptive,
+so fixed modes normally ran at `Normal` and adaptive at `BelowNormal`.
+The experiment therefore combines **priority and worker scheduling
+effects**, and it cannot establish which caused the difference.
+
+The follow-up control is specified in
+[Windows native worker priority study](native-worker-priority-study.md):
+`scan-features --priority normal|below-normal`, real Win32
+scanner/child process class reporting, and strict equal-priority
+validation in `scripts/benchmark_native_adaptive_manifest.py`.
+That script now defaults to **Normal for all five configurations**,
+without changing the public scanner's default behavior for legacy
+calls where `--priority` is omitted. An identical-priority real
+music benchmark is **not yet measured**; use a new verified Windows
+binary for this CLI flag, never the previous artifact that lacks it.
+
 ## Local real-music performance benchmark (not executed in CI)
 
 The standalone [native fixed-vs-adaptive benchmark](../scripts/benchmark_native_adaptive_manifest.py)
