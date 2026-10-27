@@ -381,6 +381,41 @@ mod tests {
         assert!(priority_policy(Some("realtime"), false, false).is_err());
     }
 
+    /// Run priority changes in an isolated test-harness subprocess so other
+    /// concurrently running tests never have their own priority changed.
+    #[cfg(windows)]
+    #[test]
+    fn windows_priority_is_applied_and_inherited_by_real_child() {
+        const CHILD: &str = "LYRION_TEST_PRIORITY_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let current = std::env::current_exe().unwrap();
+            let result = std::process::Command::new(current)
+                .args(["--exact",
+                    "parallel::tests::windows_priority_is_applied_and_inherited_by_real_child",
+                    "--nocapture"])
+                .env(CHILD, "yes")
+                .output()
+                .unwrap();
+            assert!(result.status.success(),
+                "child test failed: {} {}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr));
+            return;
+        }
+        for requested in ["below-normal", "normal"] {
+            let observed = configure_scan_priority(
+                Some(requested), false, false, false,
+            ).unwrap();
+            assert_eq!(observed.effective_scanner.as_deref(), Some(requested));
+            let mut child = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive",
+                    "-Command", "Start-Sleep -Milliseconds 700"])
+                .spawn().unwrap();
+            assert_eq!(native_child_priority(&child), Some(requested));
+            child.wait().unwrap();
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn maps_windows_priority_classes() {
