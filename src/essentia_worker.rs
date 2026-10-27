@@ -183,11 +183,17 @@ impl EssentiaWorker {
 
     fn start(&mut self) -> Result<()> {
         if self.child.is_some() { return Ok(()); }
-        let mut child = Command::new(&self.executable)
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit())
-            .spawn().with_context(|| format!(
-                "Failed to launch native Essentia worker {}", self.executable.display()
-            ))?;
+        let mut command = Command::new(&self.executable);
+        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        crate::parallel::configure_native_child_command(&mut command);
+        let mut child = command.spawn().with_context(|| format!(
+            "Failed to launch native Essentia worker {}", self.executable.display()
+        ))?;
+        if let Err(err) = crate::parallel::verify_native_child_priority(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err);
+        }
         let input = child.stdin.take().context("Native worker stdin missing")?;
         let output = child.stdout.take().context("Native worker stdout missing")?;
         // Handshake occurs *under the same hard deadline* as the first request.

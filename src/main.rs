@@ -164,8 +164,9 @@ enum Action {
         #[arg(long)]
         adaptive_workers: bool,
         /// Windows process priority; omitted preserves original fixed/auto/adaptive behavior.
-        /// Applies to this scanner and, via OS inheritance, native Essentia children.
-        #[arg(long, value_parser = ["normal", "below-normal"])]
+        /// Also applies to native Essentia children through explicit CreateProcess
+        /// flags. AboveNormal is not automatically inherited by Windows.
+        #[arg(long, value_parser = ["normal", "below-normal", "above-normal"])]
         priority: Option<String>,
         /// Minimum active jobs during adaptive scanning.
         #[arg(long, default_value_t = 4)]
@@ -560,7 +561,7 @@ mod manifest_cli_tests {
 
     #[test]
     fn priority_is_independent_from_adaptive_flag_and_rejects_unsafe_values() {
-        for priority in ["normal", "below-normal"] {
+        for priority in ["normal", "below-normal", "above-normal"] {
             let cli = Cli::try_parse_from([
                 "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
                 "--source-root", "music", "--db", "features.db",

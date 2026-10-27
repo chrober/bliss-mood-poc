@@ -250,7 +250,7 @@ def main() -> None:
     parser.add_argument("--models", default="moodtheme,genre,voice")
     parser.add_argument("--expected-tracks", type=int,
                         help="Fail if the deliberate sample has a different song count")
-    parser.add_argument("--scan-priority", choices=("normal", "below-normal"),
+    parser.add_argument("--scan-priority", choices=("normal", "below-normal", "above-normal"),
                         default="normal",
                         help="Apply identical observed Windows priority to all scan modes")
     parser.add_argument("--repeats", type=int, default=2)

@@ -40,7 +40,7 @@ therefore **do not isolate the adaptive controller**.
 
 ## New CLI behavior
 
-`scan-features --priority normal|below-normal` sets the **Windows process
+`scan-features --priority below-normal|normal|above-normal` sets the **Windows process
 priority class** independent of `--workers`, `--workers auto` and
 `--adaptive-workers`. The flag is **optional** and does not alter existing
 behavior when omitted:
@@ -50,6 +50,7 @@ behavior when omitted:
 | Omitted | Do not override OS-assigned class | Request `BelowNormal` (legacy) |
 | `--priority normal` | Explicitly set `Normal` | Explicitly set `Normal` |
 | `--priority below-normal` | Explicitly set `BelowNormal` | Explicitly set `BelowNormal` |
+| `--priority above-normal` | Explicitly set `AboveNormal` | Explicitly set `AboveNormal` |
 
 On **non-Windows platforms**, explicitly specifying `--priority` fails
 with a clear error: mapping the Windows-specific priority class to POSIX
@@ -85,7 +86,13 @@ not inferred from CLI arguments. The scanner reads `GetPriorityClass`
 from each **original Essentia C++ child process handle immediately after
 spawn**, stores its distinct observed classes, and reports the number
 of failed queries. All launched children are included even if they exit
-before the final scanner summary. An empty child array is expected
+before the final scanner summary. For all three explicitly selected priorities, the scanner passes the requested
+class as a Windows `CreateProcess` creation flag; relying on implicit
+inheritance would be incorrect for `AboveNormal`. The scanner verifies the
+child process class immediately after spawning it, before handling a song,
+and terminates a mismatched child. For the omitted priority option, it
+does not set creation flags, retaining the legacy scheduling behavior.
+An empty child array is expected
 for the Rust audio backend or a scan with no new songs, but **is not**
 accepted by the strict native benchmark. No child priority is guessed
 from the parent's priority.
@@ -101,9 +108,10 @@ cannot be equated directly with the aggregate CPU utilization metric.
 It rejects any run for which `priority.effective_scanner` or the real
 observed native child class is not exactly `normal`, and records
 priority alongside timing and memory metrics in local `summary.json` /
-`runs.csv`. Users may select `--scan-priority below-normal` to compare
-at a second common priority, but **never mix two priorities within the
-same five-mode fixed/adaptive experiment**.
+`runs.csv`. Users can select `--scan-priority below-normal` or
+`--scan-priority above-normal` to compare at an independently controlled
+priority, but **never mix two priorities within the same five-mode
+fixed/adaptive experiment**.
 
 The original 100-song private sample, official model files, native
 worker and verified new Windows scanner artifact are reused.
@@ -116,7 +124,7 @@ Regression gates:
    settings and rejects unrecognized or unsafe values.
 2. Production priority resolution preserves the omitted-flag legacy
    policy on all platforms.
-3. Windows native unit test sets both classes in a separate test process,
+3. Windows native unit test sets all three classes in a separate test process,
    launches an actual Win32 child and queries its **actual** priority
    to test inheritance. It does not alter priority in the parent CI
    test harness shared by other tests.

@@ -161,9 +161,10 @@ fn priority_policy(requested: Option<&str>, is_auto: bool, adaptive: bool) -> Re
     match requested {
         Some("normal") => Ok("normal"),
         Some("below-normal") => Ok("below-normal"),
+        Some("above-normal") => Ok("above-normal"),
         None if is_auto || adaptive => Ok("below-normal"),
         None => Ok("unchanged"),
-        Some(_) => bail!("Invalid --priority; choose normal or below-normal"),
+        Some(_) => bail!("Invalid --priority; choose below-normal, normal or above-normal"),
     }
 }
 
@@ -178,10 +179,11 @@ pub fn configure_scan_priority(
 
     #[cfg(windows)]
     if !dry_run && policy != "unchanged" {
-        let target = if policy == "normal" {
-            NORMAL_PRIORITY_CLASS
-        } else {
-            BELOW_NORMAL_PRIORITY_CLASS
+        let target = match policy {
+            "normal" => NORMAL_PRIORITY_CLASS,
+            "below-normal" => BELOW_NORMAL_PRIORITY_CLASS,
+            "above-normal" => ABOVE_NORMAL_PRIORITY_CLASS,
+            _ => unreachable!("validated priority class"),
         };
         if let Err(err) = set_current_windows_priority(target) {
             if requested.is_some() {
@@ -195,6 +197,23 @@ pub fn configure_scan_priority(
     if requested.is_some() && !dry_run && effective.as_deref() != Some(policy) {
         bail!("Windows priority mismatch: requested {policy}, observed {effective:?}");
     }
+    // Explicit classes must be passed to CreateProcess for native children:
+    // Windows only inherits BelowNormal/Idle, not AboveNormal.
+    // Zero means legacy child priority behavior (no creation class flag).
+    #[cfg(windows)]
+    NATIVE_CHILD_CREATION_CLASS.store(
+        if !dry_run && requested.is_some() {
+            match policy {
+                "normal" => NORMAL_PRIORITY_CLASS,
+                "below-normal" => BELOW_NORMAL_PRIORITY_CLASS,
+                "above-normal" => ABOVE_NORMAL_PRIORITY_CLASS,
+                _ => unreachable!("validated priority class"),
+            }
+        } else {
+            0
+        },
+        std::sync::atomic::Ordering::SeqCst,
+    );
     crate::resources::reset_native_priority_observations();
     Ok(PriorityDiagnostics {
         requested: requested.unwrap_or("default").to_owned(),
@@ -213,6 +232,12 @@ impl PriorityDiagnostics {
     }
 }
 
+#[cfg(windows)]
+static NATIVE_CHILD_CREATION_CLASS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+#[cfg(windows)]
+const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
 #[cfg(windows)]
 const NORMAL_PRIORITY_CLASS: u32 = 0x0000_0020;
 #[cfg(windows)]
@@ -255,6 +280,41 @@ fn current_windows_priority() -> Option<&'static str> {
 
 #[cfg(not(windows))]
 fn current_windows_priority() -> Option<&'static str> { None }
+
+/// Add the verified explicit class to CreateProcess before the native worker
+/// executes anything. This is essential for AboveNormal, which Windows does
+/// not inherit from its parent.
+pub fn configure_native_child_command(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let flags = NATIVE_CHILD_CREATION_CLASS.load(std::sync::atomic::Ordering::SeqCst);
+        if flags != 0 {
+            command.creation_flags(flags);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
+/// Explicit selection is fail-closed: never analyze tracks under an
+/// unexpected native child priority class.
+pub fn verify_native_child_priority(child: &std::process::Child) -> Result<()> {
+    #[cfg(windows)]
+    {
+        let expected = NATIVE_CHILD_CREATION_CLASS.load(std::sync::atomic::Ordering::SeqCst);
+        if expected != 0 {
+            let actual = native_child_priority(child);
+            if actual != Some(priority_class_name(expected)) {
+                bail!("Native worker scheduling priority mismatch: expected {}, got {actual:?}",
+                    priority_class_name(expected));
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = child;
+    Ok(())
+}
 
 /// Query the actual native child process handle immediately after spawn.
 #[cfg(windows)]
@@ -377,6 +437,7 @@ mod tests {
         for mode in [(false, false), (false, true), (true, false)] {
             assert_eq!(priority_policy(Some("normal"), mode.0, mode.1).unwrap(), "normal");
             assert_eq!(priority_policy(Some("below-normal"), mode.0, mode.1).unwrap(), "below-normal");
+            assert_eq!(priority_policy(Some("above-normal"), mode.0, mode.1).unwrap(), "above-normal");
         }
         assert!(priority_policy(Some("realtime"), false, false).is_err());
     }
@@ -402,16 +463,18 @@ mod tests {
                 String::from_utf8_lossy(&result.stderr));
             return;
         }
-        for requested in ["below-normal", "normal"] {
+        for requested in ["below-normal", "normal", "above-normal"] {
             let observed = configure_scan_priority(
                 Some(requested), false, false, false,
             ).unwrap();
             assert_eq!(observed.effective_scanner.as_deref(), Some(requested));
-            let mut child = std::process::Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive",
-                    "-Command", "Start-Sleep -Milliseconds 700"])
-                .spawn().unwrap();
+            let mut command = std::process::Command::new("powershell.exe");
+            command.args(["-NoProfile", "-NonInteractive",
+                "-Command", "Start-Sleep -Milliseconds 700"]);
+            configure_native_child_command(&mut command);
+            let mut child = command.spawn().unwrap();
             assert_eq!(native_child_priority(&child), Some(requested));
+            verify_native_child_priority(&child).unwrap();
             child.wait().unwrap();
         }
     }
@@ -421,6 +484,7 @@ mod tests {
     fn maps_windows_priority_classes() {
         assert_eq!(priority_class_name(NORMAL_PRIORITY_CLASS), "normal");
         assert_eq!(priority_class_name(BELOW_NORMAL_PRIORITY_CLASS), "below-normal");
+        assert_eq!(priority_class_name(ABOVE_NORMAL_PRIORITY_CLASS), "above-normal");
         assert_eq!(priority_class_name(0), "unknown");
     }
 
