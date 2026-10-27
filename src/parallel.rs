@@ -146,29 +146,123 @@ impl AdaptiveWorkers {
     }
 }
 
-/// On Windows, make auto-mode background work lower priority than interactive
-/// applications. It does not change priority outside this process.
-#[cfg(windows)]
-pub fn lower_priority_auto() {
-    use std::ffi::c_void;
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetCurrentProcess() -> *mut c_void;
-        fn SetPriorityClass(process: *mut c_void, priority: u32) -> i32;
-    }
-    const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-    // SAFETY: The pseudo-handle refers only to our own process. The
-    // Win32 APIs accept the constant documented priority-class value.
-    let success = unsafe {
-        SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
-    };
-    if success == 0 {
-        eprintln!("WARNING: Could not lower Windows analysis process priority");
+/// Explicit Windows priority is independent of worker count and adaptive policy.
+/// Omitted --priority retains the preexisting fixed/auto/adaptive behavior.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PriorityDiagnostics {
+    pub requested: String,
+    pub policy: String,
+    pub effective_scanner: Option<String>,
+    pub native_worker_classes: Vec<String>,
+    pub native_worker_observation_failures: usize,
+}
+
+fn priority_policy(requested: Option<&str>, is_auto: bool, adaptive: bool) -> Result<&'static str> {
+    match requested {
+        Some("normal") => Ok("normal"),
+        Some("below-normal") => Ok("below-normal"),
+        None if is_auto || adaptive => Ok("below-normal"),
+        None => Ok("unchanged"),
+        Some(_) => bail!("Invalid --priority; choose normal or below-normal"),
     }
 }
 
+pub fn configure_scan_priority(
+    requested: Option<&str>, is_auto: bool, adaptive: bool, dry_run: bool,
+) -> Result<PriorityDiagnostics> {
+    let policy = priority_policy(requested, is_auto, adaptive)?;
+    #[cfg(not(windows))]
+    if requested.is_some() {
+        bail!("--priority is Windows-only; omit it to use platform-native scheduling");
+    }
+
+    #[cfg(windows)]
+    if !dry_run && policy != "unchanged" {
+        let target = if policy == "normal" {
+            NORMAL_PRIORITY_CLASS
+        } else {
+            BELOW_NORMAL_PRIORITY_CLASS
+        };
+        if let Err(err) = set_current_windows_priority(target) {
+            if requested.is_some() {
+                return Err(err);
+            }
+            eprintln!("WARNING: Cannot lower Windows process priority: {err:#}");
+        }
+    }
+    let effective = current_windows_priority().map(str::to_owned);
+    #[cfg(windows)]
+    if requested.is_some() && !dry_run && effective.as_deref() != Some(policy) {
+        bail!("Windows priority mismatch: requested {policy}, observed {effective:?}");
+    }
+    crate::resources::reset_native_priority_observations();
+    Ok(PriorityDiagnostics {
+        requested: requested.unwrap_or("default").to_owned(),
+        policy: if dry_run { "unchanged" } else { policy }.to_owned(),
+        effective_scanner: effective,
+        native_worker_classes: Vec::new(),
+        native_worker_observation_failures: 0,
+    })
+}
+
+impl PriorityDiagnostics {
+    pub fn collect_native_workers(&mut self) {
+        let (classes, failures) = crate::resources::native_priority_observations();
+        self.native_worker_classes = classes;
+        self.native_worker_observation_failures = failures;
+    }
+}
+
+#[cfg(windows)]
+const NORMAL_PRIORITY_CLASS: u32 = 0x0000_0020;
+#[cfg(windows)]
+const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentProcess() -> *mut std::ffi::c_void;
+    fn GetPriorityClass(process: *mut std::ffi::c_void) -> u32;
+    fn SetPriorityClass(process: *mut std::ffi::c_void, priority: u32) -> i32;
+}
+
+#[cfg(windows)]
+fn priority_class_name(priority: u32) -> &'static str {
+    match priority {
+        0x0000_0040 => "idle",
+        0x0000_4000 => "below-normal",
+        0x0000_0020 => "normal",
+        0x0000_8000 => "above-normal",
+        0x0000_0080 => "high",
+        0x0000_0100 => "realtime",
+        _ => "unknown",
+    }
+}
+
+#[cfg(windows)]
+fn set_current_windows_priority(priority: u32) -> Result<()> {
+    if unsafe { SetPriorityClass(GetCurrentProcess(), priority) } == 0 {
+        bail!("SetPriorityClass failed: {}", std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn current_windows_priority() -> Option<&'static str> {
+    let value = unsafe { GetPriorityClass(GetCurrentProcess()) };
+    (value != 0).then(|| priority_class_name(value))
+}
+
 #[cfg(not(windows))]
-pub fn lower_priority_auto() {}
+fn current_windows_priority() -> Option<&'static str> { None }
+
+/// Query the actual native child process handle immediately after spawn.
+#[cfg(windows)]
+pub fn native_child_priority(child: &std::process::Child) -> Option<&'static str> {
+    use std::os::windows::io::AsRawHandle;
+    let value = unsafe { GetPriorityClass(child.as_raw_handle().cast()) };
+    (value != 0).then(|| priority_class_name(value))
+}
 
 #[cfg(test)]
 mod tests {
@@ -273,6 +367,26 @@ mod tests {
         assert!(AdaptiveWorkers::new(6, 7, 8).is_err());
         assert!(AdaptiveWorkers::new(6, 4, 5).is_err());
         assert!(AdaptiveWorkers::new(1, 0, 8).is_err());
+    }
+
+    #[test]
+    fn explicit_priority_policy_decouples_mode_from_process_priority() {
+        assert_eq!(priority_policy(None, false, false).unwrap(), "unchanged");
+        assert_eq!(priority_policy(None, true, false).unwrap(), "below-normal");
+        assert_eq!(priority_policy(None, false, true).unwrap(), "below-normal");
+        for mode in [(false, false), (false, true), (true, false)] {
+            assert_eq!(priority_policy(Some("normal"), mode.0, mode.1).unwrap(), "normal");
+            assert_eq!(priority_policy(Some("below-normal"), mode.0, mode.1).unwrap(), "below-normal");
+        }
+        assert!(priority_policy(Some("realtime"), false, false).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn maps_windows_priority_classes() {
+        assert_eq!(priority_class_name(NORMAL_PRIORITY_CLASS), "normal");
+        assert_eq!(priority_class_name(BELOW_NORMAL_PRIORITY_CLASS), "below-normal");
+        assert_eq!(priority_class_name(0), "unknown");
     }
 
     #[test]
