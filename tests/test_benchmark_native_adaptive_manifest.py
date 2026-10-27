@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import sys
@@ -123,7 +124,9 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
             self.assertEqual(
                 set(all_rows), {(track, head) for track in keys for head in heads},
             )
-            with sqlite3.connect(db) as changed:
+            # sqlite3.Connection.__exit__ commits, but does NOT close.
+            # Keep both contexts so Windows can delete features.sqlite on exit.
+            with closing(sqlite3.connect(db)) as changed, changed:
                 changed.execute(
                     "UPDATE feature_tracks SET scores_f32_le=? "
                     "WHERE track_file=? AND model_id=?",
@@ -133,7 +136,7 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 bench.exact_feature_rows(db, keys, heads), all_rows,
                 "Changing only mood must not be hidden by a last-head-wins map",
             )
-            with sqlite3.connect(db) as deleted:
+            with closing(sqlite3.connect(db)) as deleted, deleted:
                 deleted.execute(
                     "DELETE FROM feature_tracks WHERE track_file=? AND model_id=?",
                     (keys[1], "genre"),
