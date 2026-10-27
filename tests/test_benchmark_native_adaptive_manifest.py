@@ -167,7 +167,7 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                     "native_worker_classes": ["below-normal"],
                     "native_worker_observation_failures": 0,
                 },
-                "diagnostics": {"baseline": {"cpu_measurement_seconds": 1.0}},
+                "diagnostics": {"baseline": {"cpu_measurement_seconds": 0.0}},
             }
             result = argparse.Namespace(returncode=0)
             def fake_run(*args, **kwargs):
