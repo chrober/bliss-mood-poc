@@ -143,6 +143,7 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "--essentia-worker", str(args.essentia_worker),
         "--essentia-timeout-seconds", str(args.timeout_seconds),
         "--workers", str(workers),
+        "--priority", args.scan_priority,
         "--threads", "1",
         "--max-new", str(expected), "--max-errors", "1", "--json",
     ]
@@ -162,6 +163,21 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     baseline_s = (diag.get("baseline") or {}).get("cpu_measurement_seconds") or 0
     if not 0 <= baseline_s < elapsed or not math.isfinite(elapsed):
         raise AssertionError("Invalid wall time or resource-baseline measurement")
+    priority = summary.get("priority")
+    if not isinstance(priority, dict):
+        raise AssertionError("Scanner missing priority diagnostics; use current PR #18 Windows binary")
+    if (priority.get("requested") != args.scan_priority
+            or priority.get("policy") != args.scan_priority
+            or priority.get("effective_scanner") != args.scan_priority):
+        raise AssertionError(
+            f"{stem}: real scanner priority differs from requested {args.scan_priority}: {priority}"
+        )
+    child_classes = priority.get("native_worker_classes")
+    if (child_classes != [args.scan_priority]
+            or priority.get("native_worker_observation_failures") != 0):
+        raise AssertionError(
+            f"{stem}: actual native Essentia worker priority is not verified: {priority}"
+        )
     adjustments = diag.get("adjustments", [])
     if not isinstance(adjustments, list):
         raise AssertionError("Malformed native adaptive diagnostics")
@@ -171,7 +187,11 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     elif adjustments:
         raise AssertionError("Fixed worker run unexpectedly changed worker count")
     record = {
-        "round": round_no, "mode": mode, "initial_workers": workers,
+        "round": round_no, "mode": mode,
+        "requested_priority": args.scan_priority,
+        "observed_scanner_priority": priority["effective_scanner"],
+        "observed_native_child_priorities": ",".join(child_classes),
+        "initial_workers": workers,
         "tracks": expected, "wall_seconds": round(elapsed, 3),
         "songs_per_minute": round(expected * 60 / elapsed, 3),
         "preworker_cpu_baseline_seconds": round(baseline_s, 3),
@@ -230,6 +250,9 @@ def main() -> None:
     parser.add_argument("--models", default="moodtheme,genre,voice")
     parser.add_argument("--expected-tracks", type=int,
                         help="Fail if the deliberate sample has a different song count")
+    parser.add_argument("--scan-priority", choices=("normal", "below-normal"),
+                        default="normal",
+                        help="Apply identical observed Windows priority to all scan modes")
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261022)
     parser.add_argument("--timeout-seconds", type=int, default=900)
@@ -270,6 +293,7 @@ def main() -> None:
     plan = schedule(args.repeats, args.seed)
     print("Local, private, bounded experiment plan:")
     print(json.dumps({"tracks": len(cohort), "order": plan,
+                      "scan_priority": args.scan_priority,
                       "validated_audio_paths": len(mapped),
                       "manifest": "generated locally from bounded TracksV2 cohort",
                       "note": "No music or private database contents uploaded"},
@@ -300,6 +324,7 @@ def main() -> None:
         "analyzer_sha256": digest(args.analyzer),
         "native_worker_sha256": digest(args.essentia_worker),
         "models": args.models,
+        "scan_priority": args.scan_priority,
         "schedule": plan,
         "note": "PRIVATE LOCAL BENCHMARK; never commit or upload outputs",
     }
