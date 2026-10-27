@@ -11,6 +11,8 @@ on:
       - "Cargo.lock"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
+      - "scripts/benchmark_native_adaptive_manifest.py"
+      - "tests/test_benchmark_native_adaptive_manifest.py"
   push:
     branches: [main]
     paths:
@@ -21,6 +23,8 @@ on:
       - "Cargo.lock"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
+      - "scripts/benchmark_native_adaptive_manifest.py"
+      - "tests/test_benchmark_native_adaptive_manifest.py"
 
 permissions:
   contents: read
@@ -35,6 +39,13 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify native adaptive benchmark regression tests on Windows
+        run: |
+          python -m unittest discover -s tests -p 'test_benchmark_native_adaptive_manifest.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native benchmark regression tests failed on Windows' }
       - name: Set up Rust stable (MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
