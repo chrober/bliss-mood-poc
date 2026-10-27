@@ -163,6 +163,10 @@ enum Action {
         /// Opt-in system CPU/RAM-aware concurrency control.
         #[arg(long)]
         adaptive_workers: bool,
+        /// Windows process priority; omitted preserves original fixed/auto/adaptive behavior.
+        /// Applies to this scanner and, via OS inheritance, native Essentia children.
+        #[arg(long, value_parser = ["normal", "below-normal"])]
+        priority: Option<String>,
         /// Minimum active jobs during adaptive scanning.
         #[arg(long, default_value_t = 4)]
         min_workers: usize,
@@ -440,7 +444,7 @@ fn main() -> Result<()> {
             bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
-            adaptive_workers, min_workers, max_workers, dry_run, json,
+            adaptive_workers, priority, min_workers, max_workers, dry_run, json,
         } => {
             if tracks_file.is_some() && library_root.is_some() {
                 bail!("--library-root is only supported with --bliss-db");
@@ -455,13 +459,13 @@ fn main() -> Result<()> {
                     bail!("Adaptive analysis requires --threads 1");
                 }
             }
-            if (is_auto || adaptive_workers) && !dry_run {
-                parallel::lower_priority_auto();
-            }
+            let mut priority_report = parallel::configure_scan_priority(
+                priority.as_deref(), is_auto, adaptive_workers, dry_run,
+            )?;
             let backend = essentia_worker::BackendChoice::from_cli(
                 &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
             )?;
-            let summary = features::scan(features::ScanOptions {
+            let mut summary = features::scan(features::ScanOptions {
                 bliss_db: bliss_db.as_deref(), tracks_file: tracks_file.as_deref(),
                 embedding_dir: embedding_dir.as_deref(),
                 db: &db, models_dir: &models_dir,
@@ -472,6 +476,8 @@ fn main() -> Result<()> {
                 max_new, max_errors, threads, workers: worker_count,
                 adaptive_workers, min_workers, max_workers, dry_run, backend,
             })?;
+            priority_report.collect_native_workers();
+            summary.set_priority_diagnostics(priority_report);
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             } else {
@@ -551,6 +557,27 @@ fn main() -> Result<()> {
 mod manifest_cli_tests {
     use super::{Action, Cli};
     use clap::Parser;
+
+    #[test]
+    fn priority_is_independent_from_adaptive_flag_and_rejects_unsafe_values() {
+        for priority in ["normal", "below-normal"] {
+            let cli = Cli::try_parse_from([
+                "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+                "--source-root", "music", "--db", "features.db",
+                "--workers", "2", "--adaptive-workers", "--priority", priority,
+            ]).unwrap();
+            match cli.action {
+                Action::ScanFeatures { priority: selected, .. } => {
+                    assert_eq!(selected.as_deref(), Some(priority));
+                }
+                _ => panic!("Expected feature scan"),
+            }
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--priority", "realtime",
+        ]).is_err());
+    }
 
     #[test]
     fn source_selection_is_exclusive_and_manifest_requires_root() {
