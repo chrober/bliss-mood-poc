@@ -192,6 +192,7 @@ impl EssentiaWorker {
         let output = child.stdout.take().context("Native worker stdout missing")?;
         // Handshake occurs *under the same hard deadline* as the first request.
         crate::resources::register_native_child(child.id());
+        crate::resources::record_native_child_priority(&child);
         self.child = Some(ChildIo {
             child, input: Some(input), output: Some(output), hello_pending: true,
         });
