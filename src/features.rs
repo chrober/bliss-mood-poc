@@ -568,9 +568,17 @@ pub struct ScanSummary {
     model_sessions_initialized: bool,
     experimental_results: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<crate::parallel::PriorityDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<ScanDiagnostics>,
 }
 
+
+impl ScanSummary {
+    pub fn set_priority_diagnostics(&mut self, report: crate::parallel::PriorityDiagnostics) {
+        self.priority = Some(report);
+    }
+}
 
 #[derive(Debug, Default, Serialize)]
 struct ScanDiagnostics {
@@ -872,7 +880,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
-        diagnostics: None,
+        priority: None, diagnostics: None,
     };
     for track in tracks {
         // Bound attempted songs, not just successful writes. A broken ONNX
@@ -1055,7 +1063,7 @@ fn scan_parallel(
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
-        diagnostics: None,
+        priority: None, diagnostics: None,
     };
 
     // A single bounded task channel; only up to active jobs in flight.
