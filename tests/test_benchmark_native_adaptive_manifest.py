@@ -81,7 +81,8 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 analyzer=root / "bliss-mood", essentia_worker=root / "native-worker",
                 source_root=root / "music", manifest_file=root / "tracks.txt",
                 models_dir=root / "models", models="moodtheme,genre,voice",
-                timeout_seconds=900, output_dir=root / "results",
+                timeout_seconds=900, scan_priority="normal",
+                output_dir=root / "results",
             )
             options.output_dir.mkdir()
             class Capture(Exception):
@@ -96,6 +97,7 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
             self.assertNotIn("--bliss-db", arguments)
             self.assertNotIn("--library-root", arguments)
             self.assertIn("--adaptive-workers", arguments)
+            self.assertEqual(arguments[arguments.index("--priority") + 1], "normal")
             self.assertEqual(arguments[arguments.index("--max-new") + 1], "100")
 
     def test_exact_feature_rows_include_all_three_heads_not_just_last(self):
@@ -143,6 +145,39 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 )
             with self.assertRaisesRegex(AssertionError, "coverage"):
                 bench.exact_feature_rows(db, keys, heads)
+
+    def test_benchmark_rejects_mismatched_or_unobserved_child_priority(self):
+        # A successful scan must not be classified as a fair comparison unless
+        # BOTH parent and actual native child process classes match.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opts = argparse.Namespace(
+                analyzer=root / "analyzer.exe", essentia_worker=root / "worker.exe",
+                source_root=root / "music", manifest_file=root / "tracks.txt",
+                models_dir=root / "models", models="moodtheme",
+                timeout_seconds=900, scan_priority="normal", output_dir=root / "out",
+            )
+            opts.output_dir.mkdir()
+            fake = {
+                "analyzed": 100, "pending": 100, "failures": 0, "missing_files": 0,
+                "elapsed_seconds": 10.0,
+                "priority": {
+                    "requested": "normal", "policy": "normal",
+                    "effective_scanner": "normal",
+                    "native_worker_classes": ["below-normal"],
+                    "native_worker_observation_failures": 0,
+                },
+                "diagnostics": {"baseline": {"cpu_measurement_seconds": 1.0}},
+            }
+            result = argparse.Namespace(returncode=0)
+            def fake_run(*args, **kwargs):
+                (opts.output_dir / "round-01-fixed2.scanner.json").write_text(
+                    __import__("json").dumps(fake), encoding="utf-8"
+                )
+                return result
+            with patch.object(bench.subprocess, "run", side_effect=fake_run):
+                with self.assertRaisesRegex(AssertionError, "native Essentia worker priority"):
+                    bench.analyze(opts, 1, "fixed2", 100)
 
     def test_plan_only_on_exact_local_30_track_sqlite_cohort(self):
         with tempfile.TemporaryDirectory() as tmp:
