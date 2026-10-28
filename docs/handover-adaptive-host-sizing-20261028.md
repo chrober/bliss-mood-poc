@@ -104,6 +104,10 @@ Local workflow: **no Rust build on Windows laptop**; build via CI. Use a complet
 > last Windows binary remain tied to the prior **10dadb65** source SHA;
 > subsequent Markdown commits must not be presented as new binary validation.
 >
+## Phase B opt-in implementation status (28 October 2026)
+
+A new stacked branch `feat/ram-safe-online-autotune` begins a hardware-independent Phase B prototype. Read [the Phase B design and limitations](online-autotune-phase-b.md) before testing it. `scan-features --adaptive-workers --adaptive-policy autotune --workers auto --max-workers auto` selects it; the default legacy `resource` policy remains unchanged. The prototype runs coarse, nonmonotonic exploration with a free-RAM admission budget and patch-throughput observations, while disallowing claims of a global optimum from short scans. This is **not** yet production-safe on Pi/cgroup/macos, nor an excuse to remove the existing per-host RAM watchdog from private benchmark execution.
+
 ## 6. Recommended next work (do not skip controls)
 
 1. **Native throughput-versus-memory scaling:** On the 16-logical-CPU Windows host, compare **fixed 6/8/10/12** (or an incremental stop-on-memory-pressure schedule), two balanced repetitions with identical 100-song sample, priority `Normal`, clean sidecars. Preserve exact 3-head scores and 1280D embeddings, measure wall/songs-min, system CPU/RAM, available memory, process-tree private MiB, real active concurrency and native child count. These are *not yet measured* for this native C++ cohort beyond six. Avoid oversubscribing Raspberry Pi hardware.
