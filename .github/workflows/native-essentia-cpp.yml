@@ -172,33 +172,72 @@ jobs:
             --report-output results/native-codec-mel-parity.json
       - name: Install minimal ONNX Runtime CPU evaluator (no TensorFlow)
         run: python3 -m pip install --user --no-cache-dir "numpy<2" "onnxruntime==1.19.2"
+      # Only CI-internal cache storage: no weights in git, releases or artifacts.
+      # This key is tied to the four immutable official ONNX SHA256 pins below.
+      - name: Restore internally cached official ONNX model files
+        id: official-onnx
+        uses: actions/cache/restore@v4
+        with:
+          path: models/
+          key: essentia-verified-onnx-linux-v1-a280825b-637acf45-7d6270ac-20155e4c
       - name: Fetch official, unmodified ONNX models for all three heads
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p models
-          base=https://essentia.upf.edu/models
-          fetch() {
-            curl --fail --location --retry 3 --retry-delay 3 \
-              --connect-timeout 15 --max-time 180 \
-              "$base/$1/$2" -o "models/$2"
-            test -s "models/$2"
-          }
-          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
-          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
-          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
-          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
-          fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
-          fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
-          fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.json
+          if [[ "${{ steps.official-onnx.outputs.cache-hit }}" == "true" ]]; then
+            echo "Using internal CI model cache; checking exact official SHA256 below"
+          else
+            # No third-party mirror or substituted model version is accepted.
+            base=https://essentia.upf.edu/models
+            fetch() {
+              local dest="models/$2"
+              curl --fail --silent --show-error --location \
+                --retry 6 --retry-all-errors --retry-delay 5 \
+                --connect-timeout 20 --max-time 180 \
+                "$base/$1/$2" -o "$dest.part"
+              test -s "$dest.part"
+              mv "$dest.part" "$dest"
+            }
+            fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+            fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+            fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
+            fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+            fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
+            fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
+            fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.json
+          fi
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
-          # Enforce the exact official model bytes already pinned in Windows CI.
-          # A server-side replacement must not silently change parity evidence.
+          # Never trust restored content without verifying all four model bytes.
           sha256sum --check - <<'PINNED_OFFICIAL_ONNX'
           a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c  models/discogs-effnet-bsdynamic-1.onnx
           637acf45315191a2c9a87d5977d48f02da6fc823192fe794a1537c55e7c7ce6a  models/mtg_jamendo_genre-discogs-effnet-1.onnx
           7d6270acaa5f4bba4b115a0d6849aca05ed6bd153dcb6d9da4f6ab9f99ef10ff  models/mtg_jamendo_moodtheme-discogs-effnet-1.onnx
           20155e4c439714b0c45c08644b73c8e12d9dccb173bd4ab9934bf1e5aee837ca  models/voice_instrumental-discogs-effnet-1.onnx
           PINNED_OFFICIAL_ONNX
+          # Metadata is not an ONNX model but determines output label identity.
+          # Revalidate required class count/uniqueness even on cached restores.
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {
+              "mtg_jamendo_genre-discogs-effnet-1.json": 87,
+              "mtg_jamendo_moodtheme-discogs-effnet-1.json": 56,
+              "voice_instrumental-discogs-effnet-1.json": 2,
+          }
+          for filename, size in expected.items():
+              labels = json.loads((Path("models") / filename).read_text())["classes"]
+              assert isinstance(labels, list) and len(labels) == size
+              assert all(isinstance(label, str) and label for label in labels)
+              assert len(set(labels)) == size
+          print("Official metadata class counts and uniqueness: PASS")
+          PY
+      - name: Save checksum-verified official ONNX models to internal CI cache
+        if: steps.official-onnx.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: models/
+          key: essentia-verified-onnx-linux-v1-a280825b-637acf45-7d6270ac-20155e4c
       - name: Compare full native C++ and Rust DSP through EffNet, Genre, Mood and Voice
         shell: bash
         run: |
