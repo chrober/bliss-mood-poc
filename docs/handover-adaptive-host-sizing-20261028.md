@@ -91,13 +91,18 @@ Successful checks on that exact code commit:
 
 Local workflow: **no Rust build on Windows laptop**; build via CI. Use a complete self-contained PowerShell `& { ... }` block with verified literal run ID, `gh run download`, `BUILD.txt` source-commit identity, SHA256 verification, clean detached worktree, 100-song bounded input, explicit `--threads 1`, `--priority normal`, native worker prerequisite and new/empty result dir. No login access to private local Windows/NAS from remote GitHub Actions. Use `--experiment adaptive-policy` for the earlier 2/4/6 and 8/24-song controller study; its study modes deliberately cap at 6. Do not present that experiment as a validation of host-`auto` on a Pi. Use the CI-backed binary from a **matching commit** and confirm green Windows + Rust + native/model parity workflows. Separate all code changes from experiment result claims.
 
-> **Phase A implementation update (28 October 2026):** The independent
+> **Phase A measured update (28 October 2026):** The independent
 > [native 6/8/10/12 fixed-worker scaling study](native-worker-scaling-study.md)
-> documents the new `--experiment native-scaling` mode, Windows physical-RAM
-> safety guard, eight balanced scans, additional diagnostics, local-only data
-> restrictions and still-unmeasured performance question. The original code
-> baseline and prior 30+10 local measurements remain historical evidence;
-> consult the live PR/CI before treating a newer binary as qualified.
+> now includes **eight completed private local real-music scans** (100 songs,
+> three heads, exact classifier and 1280D embedding parity). Median whole
+> scan times: fixed6 **84.558 s**, fixed8 **85.562 s**, fixed10 **94.127 s**,
+> fixed12 **68.069 s**. Twelve was fastest in both repeats, at **88.166 songs/min**
+> and **1127 MiB** peak observed private process-tree memory, with at least
+> **3679 MiB** physical RAM available. This is the best *tested* worker count,
+> **not** proof of the optimum at fourteen/sixteen or on small ARM hardware.
+> The ten-worker slowdown is not yet explained. The scanner code and
+> last Windows binary remain tied to the prior **10dadb65** source SHA;
+> subsequent Markdown commits must not be presented as new binary validation.
 >
 ## 6. Recommended next work (do not skip controls)
 
