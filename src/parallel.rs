@@ -64,6 +64,7 @@ pub struct AdaptiveWorkers {
 }
 
 impl AdaptiveWorkers {
+    #[cfg(test)]
     pub fn new(initial: usize, minimum: usize, maximum: usize) -> Result<Self> {
         Self::with_min_completed_songs(initial, minimum, maximum, 24)
     }
