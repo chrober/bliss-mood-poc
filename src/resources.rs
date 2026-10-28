@@ -428,7 +428,7 @@ mod native {
     /// Parse the current cgroup without trusting path traversal components.
     /// Unified cgroup v2 uses '0::/slice/...'; legacy v1 uses a comma-separated
     /// memory controller list. A namespace with '/' maps to the mount root.
-    fn cgroup_relative_path(membership: &str, v2: bool) -> Option<std::path::PathBuf> {
+    pub(super) fn cgroup_relative_path(membership: &str, v2: bool) -> Option<std::path::PathBuf> {
         use std::path::PathBuf;
         for line in membership.lines() {
             let mut fields = line.splitn(3, ':');
