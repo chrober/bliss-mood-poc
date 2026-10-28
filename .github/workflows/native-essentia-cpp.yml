@@ -14,6 +14,11 @@ on:
       - "scripts/verify_manifest_batch_smoke.py"
       - "src/essentia_worker.rs"
       - "src/features.rs"
+      - "src/feature_worker_process.rs"
+      - "src/main.rs"
+      - "model-registry.json"
+      - "scripts/compare_isolated_feature_worker.py"
+      - "tests/test_compare_isolated_feature_worker.py"
       - "src/parallel.rs"
       - "src/resources.rs"
       - "scripts/generate_audio_fixtures.py"
@@ -180,9 +185,11 @@ jobs:
           }
           fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
           fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
           fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx
           fetch classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json
           fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
+          fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.json
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
           sha256sum models/*.onnx
       - name: Compare full native C++ and Rust DSP through EffNet, Genre, Mood and Voice
@@ -199,6 +206,30 @@ jobs:
         run: |
           echo "Linking on runner: $(ldd --version | head -1)"
           cargo build --locked --release
+      - name: Verify actual-model direct-versus-isolated FeatureEngine on synthetic audio (not real music)
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          # Generated copyright-free audio; no private songs, DBs, embeddings,
+          # raw per-song responses or ONNX weights enter the repository/artifacts.
+          # These 56/87/2-head + 1280D exact-f32 tests deliberately do not
+          # claim parity on private real music or production-scan integration.
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/ffmpeg-9.0.2-install/lib:$RUNNER_TEMP/essentia-install/lib:$RUNNER_TEMP/essentia-install/lib64:${LD_LIBRARY_PATH:-}"
+          for source in fixtures/mono-16k.wav fixtures/stereo-44100.flac; do
+            python3 scripts/compare_isolated_feature_worker.py \\
+              --exe target/release/bliss-mood \\
+              --source "$source" --models-dir models \\
+              --models moodtheme,genre,voice \\
+              --audio-backend essentia \\
+              --essentia-worker build/essentia-cpp/bliss-essentia-worker \\
+              --max-patches 5 --embedding
+          done
+          python3 scripts/compare_isolated_feature_worker.py \\
+            --exe target/release/bliss-mood \\
+            --source fixtures/mono-16k.wav --models-dir models \\
+            --models moodtheme,genre,voice --audio-backend rust \\
+            --max-patches 5 --embedding
       - name: Verify native Essentia C++ serial, fixed 2/4 and adaptive-enabled 2 workers
         shell: bash
         run: |

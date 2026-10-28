@@ -91,3 +91,7 @@ The parent will need to choose between prewarming workers and starting them on d
 - `scripts/compare_isolated_feature_worker.py` — read-only local exact f32 classifier/identity and optional full 1280D direct-vs-isolated vector comparison; `--embedding` adds a third hidden in-process diagnostic for a direct reference.
 - `tests/feature_worker_process.rs` — compiled-binary IPC and missing-model safety integration tests.
 - `docs/online-autotune-phase-b.md` — current Phase B implementation and verification limits.
+
+## CI staging gate for the executable process boundary (2026-10-28)
+
+The Linux native Essentia workflow now explicitly executes the existing exact direct-versus-isolated comparator with **actual official ONNX sessions** and generated copyright-free mono WAV/stereo FLAC, including every pooled 1280D f32 embedding component. The check is run only after the original native backend and production Rust CLI have compiled and the matching official model files/metadata have been obtained; it is a test of the hidden `FeatureEngine` child, not `scan-features` workerpool integration. See [current handover](handover-phase-c-isolated-worker-20261028.md). CI success is *not* the private real-song gate and does not prove Windows process-tree containment or OOM immunity.
