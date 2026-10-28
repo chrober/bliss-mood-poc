@@ -26,6 +26,7 @@ pub struct Probe {
 #[derive(Debug, Default, Serialize)]
 pub struct TuningCounters {
     pub probes: usize,
+    pub completed_coarse_sweeps: usize,
     pub expansions: usize,
     pub reductions: usize,
     pub memory_pressure_reductions: usize,
@@ -96,6 +97,7 @@ pub struct OnlineAutotuner {
     counters: TuningCounters,
     last_available_mib: f64,
     exploit_epochs: usize,
+    reverse_sweep: bool,
     draining: bool,
 }
 
@@ -141,7 +143,8 @@ impl OnlineAutotuner {
             epoch_baseline_patches: 0, best: None, probes: Vec::new(),
             evidence: BTreeMap::new(), visited: BTreeSet::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
-            last_available_mib: available, exploit_epochs: 0, draining: false,
+            last_available_mib: available, exploit_epochs: 0,
+            reverse_sweep: false, draining: false,
         })
     }
 
@@ -243,23 +246,36 @@ impl OnlineAutotuner {
             }
             return Ok(());
         }
-        // After completing the coarse search, periodically revisit the
-        // bounded candidate set. This is deliberately budgeted exploration,
-        // not a local-neighbour hill climb.
+        // Run a reverse-ordered second sweep immediately after the first
+        // complete coarse pass. This gives comparable candidates two windows
+        // before ordinary exploitation, mitigating systematic time drift.
+        // Later revisit the entire safe set only on a bounded cadence.
         if self.next_candidate >= self.candidates.len() {
-            self.exploit_epochs += 1;
-            if self.exploit_epochs.is_multiple_of(4) {
+            self.counters.completed_coarse_sweeps += 1;
+            let second_pass = self.counters.completed_coarse_sweeps == 1
+                && self.candidates.len() > 1;
+            if second_pass {
+                self.reverse_sweep = true;
                 self.next_candidate = 0;
             } else {
-                if let Some((best, _)) = self.best {
-                    self.change(best, completed, "exploit best sampled throughput");
+                self.exploit_epochs += 1;
+                if self.exploit_epochs.is_multiple_of(4) {
+                    self.reverse_sweep = !self.reverse_sweep;
+                    self.next_candidate = 0;
+                } else {
+                    if let Some((best, _)) = self.best {
+                        self.change(best, completed, "exploit best measured throughput");
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         // A bad intermediate probe must not suppress higher worker counts.
         while self.next_candidate < self.candidates.len() {
-            let target = self.candidates[self.next_candidate];
+            let index = if self.reverse_sweep {
+                self.candidates.len() - self.next_candidate - 1
+            } else { self.next_candidate };
+            let target = self.candidates[index];
             self.next_candidate += 1;
             if target == self.active { continue; }
             let extra = target.saturating_sub(self.active);
@@ -416,6 +432,23 @@ mod tests {
         assert!(!result.replication_completed);
         assert!(!result.observed_ranges_separated);
         assert!(result.probes[2].patches_per_second < result.probes[0].patches_per_second);
+    }
+
+    #[test]
+    fn second_sweep_reverses_order_without_stopping_at_local_trough() {
+        let mut now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        let (mut done, mut patches) = (0, 0);
+        let mut seen = Vec::new();
+        for duration in [18, 19, 28, 12, 13, 28, 19, 18] {
+            seen.push(t.active);
+            run_epoch(&mut t, &mut done, &mut patches, 8, duration, 150, &mut now);
+        }
+        assert_eq!(seen, [6, 8, 10, 12, 10, 8, 6, 12]);
+        let diag = t.into_diagnostics();
+        assert!(diag.replication_completed);
+        assert!(diag.search_completed);
+        assert!(diag.counters.completed_coarse_sweeps >= 2);
     }
 
     #[test]
