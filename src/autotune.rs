@@ -35,6 +35,7 @@ pub struct TuningCounters {
     pub insufficient_work_holds: usize,
     pub exploration_budget_holds: usize,
     pub unsafe_best_holds: usize,
+    pub local_refinement_probes: usize,
 }
 
 /// Bounded rolling evidence per worker count. The ranges are descriptive,
@@ -107,6 +108,9 @@ pub struct OnlineAutotuner {
     // exploration just because a later epoch completed.
     exploration_budget_exhausted: bool,
     typical_probe_songs: usize,
+    refinement_started: bool,
+    refinement_queue: VecDeque<usize>,
+    refinement_active: Option<usize>,
 }
 
 fn candidate_schedule(minimum: usize, maximum: usize, initial: usize) -> Vec<usize> {
@@ -155,6 +159,8 @@ impl OnlineAutotuner {
             reverse_sweep: false, sweep_in_progress: true, draining: false,
             exploration_budget_exhausted: false,
             typical_probe_songs: MIN_EPOCH_SONGS,
+            refinement_started: false,
+            refinement_queue: VecDeque::new(), refinement_active: None,
         })
     }
 
@@ -239,6 +245,9 @@ impl OnlineAutotuner {
             songs_per_minute: 60.0 * self.epoch_songs as f64 / seconds,
         });
         self.counters.probes += 1;
+        if self.refinement_active == Some(self.active) {
+            self.counters.local_refinement_probes += 1;
+        }
         self.visited.insert(self.active);
         let entry = self.evidence.entry(self.active).or_default();
         if entry.len() == RECENT_SAMPLES_PER_WORKER {
@@ -266,7 +275,13 @@ impl OnlineAutotuner {
         // work for exploitation; never claim this is a statistical optimum.
         // Once the initial sweep is complete, charge the optional replication
         // sweep separately. RAM skips do not count as measured candidates.
-        let remaining_candidates = if self.next_candidate >= self.candidates.len() {
+        let remaining_candidates = if self.refinement_active.is_some()
+            || !self.refinement_queue.is_empty() {
+            let current = self.refinement_active.and_then(|worker|
+                self.evidence.get(&worker).map(|samples| 2_usize.saturating_sub(samples.len())))
+                .unwrap_or(0);
+            current + self.refinement_queue.len().saturating_mul(2)
+        } else if self.next_candidate >= self.candidates.len() {
             self.candidates.len()
         } else {
             self.candidates.len() - self.next_candidate
@@ -280,6 +295,12 @@ impl OnlineAutotuner {
                 "stop exploration: insufficient remaining scan to repay probes");
             return Ok(());
         }
+        // Complete bounded local refinement only after both coarse sweeps.
+        // High peaks BETWEEN sampled worker counts would otherwise be missed.
+        if self.refinement_active.is_some() || !self.refinement_queue.is_empty() {
+            self.advance_refinement(completed, headroom);
+            return Ok(());
+        }
         // Run a reverse-ordered second sweep immediately after the first
         // complete coarse pass. This gives comparable candidates two windows
         // before ordinary exploitation, mitigating systematic time drift.
@@ -291,6 +312,15 @@ impl OnlineAutotuner {
             }
             let second_pass = self.counters.completed_coarse_sweeps == 1
                 && self.candidates.len() > 1;
+            if !second_pass && self.counters.completed_coarse_sweeps == 2
+                && !self.refinement_started {
+                self.refinement_started = true;
+                self.plan_local_refinement();
+                if !self.refinement_queue.is_empty() {
+                    self.advance_refinement(completed, headroom);
+                    return Ok(());
+                }
+            }
             if second_pass {
                 self.reverse_sweep = true;
                 self.next_candidate = 0;
@@ -333,6 +363,44 @@ impl OnlineAutotuner {
         }
         self.exploit_safe_best(completed, headroom, "exploit best safe measured throughput");
         Ok(())
+    }
+
+    /// Search only the immediate missing neighbors of the best replicated
+    /// coarse setting. It is independent of monotonic assumptions, bounded
+    /// to two candidates and never blocks the initial sweep to the maximum.
+    fn plan_local_refinement(&mut self) {
+        if let Some((center, _)) = self.best {
+            for neighbor in [center.checked_sub(1), center.checked_add(1)] {
+                if let Some(worker) = neighbor {
+                    if (self.minimum..=self.maximum).contains(&worker)
+                        && !self.visited.contains(&worker) {
+                        self.refinement_queue.push_back(worker);
+                    }
+                }
+            }
+        }
+    }
+
+    fn advance_refinement(&mut self, completed: usize, headroom: f64) {
+        if let Some(worker) = self.refinement_active {
+            // The single first window cannot displace a replicated winner;
+            // require a second real epoch before evaluating the challenger.
+            if self.evidence.get(&worker).is_none_or(|samples| samples.len() < 2) {
+                return;
+            }
+            self.refinement_active = None;
+        }
+        while let Some(worker) = self.refinement_queue.pop_front() {
+            let extra = worker.saturating_sub(self.active);
+            if (extra as f64 * self.incremental_worker_mib) > headroom {
+                self.counters.memory_gate_holds += 1;
+                continue;
+            }
+            self.refinement_active = Some(worker);
+            self.change(worker, completed, "local refinement around replicated coarse winner");
+            return;
+        }
+        self.exploit_safe_best(completed, headroom, "exploit after local refinement");
     }
 
     /// The best historical setting may no longer be RAM-admissible after a
@@ -673,6 +741,35 @@ mod tests {
             assert_eq!(t.best.unwrap().0, expected);
             assert!(t.visited.contains(&12));
         }
+    }
+
+    #[test]
+    fn narrow_peak_between_coarse_candidates_is_refined_after_two_sweeps() {
+        let mut now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(9000.0), now).unwrap();
+        let (mut completed, mut patches) = (0, 0);
+        for (workers, rate) in [
+            (6, 65.0), (8, 73.0), (10, 80.0), (12, 78.0),
+            (12, 78.0), (10, 80.0), (8, 73.0), (6, 65.0),
+        ] {
+            assert_eq!(t.active, workers);
+            let remaining = 800 - (completed + 20);
+            simulate_rate(&mut t, &mut completed, &mut patches, &mut now,
+                rate, remaining, 7600.0);
+        }
+        assert_eq!(t.best.unwrap().0, 10);
+        // With a long enough remaining scan the algorithm investigates
+        // unsampled neighbors of 10 after sweeping all coarse candidates.
+        assert_eq!(t.active, 9);
+        for (worker, rate) in [(9, 77.0), (9, 77.0), (11, 94.0), (11, 94.0)] {
+            assert_eq!(t.active, worker);
+            let remaining = 800 - (completed + 20);
+            simulate_rate(&mut t, &mut completed, &mut patches, &mut now,
+                rate, remaining, 7600.0);
+        }
+        assert_eq!(t.best.unwrap().0, 11);
+        assert!(t.visited.contains(&12));
+        assert!(t.counters.local_refinement_probes >= 4);
     }
 
     #[test]
