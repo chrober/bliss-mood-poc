@@ -1,5 +1,18 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **Static scanner integration supersedes historical adaptive plans (28 Oct 2026):** New code path [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) carries verified native Essentia C++ and manifest/1280D embedding analysis without runtime worker resizing. `--workers 1` remains default, `--workers auto` is one-time conservative CPU sizing. Former dynamic/adaptive implementation and four real-music benchmark campaigns remain *research* in [PR #19](https://github.com/chrober/bliss-mood-poc/pull/19). Consult [final architecture](multi-worker-song-analysis-final.md) and [Similarity handback](handback-multi-worker-to-similarity-20261028.md) for the actual production target. Legacy instructions below may be invalid for the static CLI.
+
+
+> **CURRENT 28 OCTOBER 2026 HANDOVER:** Start with
+> [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
+> and [its copy-paste prompt](handover-prompt-adaptive-host-sizing-20261028.md).
+> This file is a **historical** account of older PR #5 / October 19
+> experiments. The current PR #18 includes real 30-scan Windows priority
+> and 10-scan native adaptive-gate experiments, and system-dependent
+> `--max-workers auto` in place of the historical default eight.
+> Re-check the PR head and CI, do **not** treat older fixed/auto defaults
+> and open investigations below as current facts.
+
 > **Purpose:** Start a new development chat without losing the current project
 > state. The detailed performance experiment, raw benchmark measurements,
 > implementation details and open questions are in
@@ -10,6 +23,19 @@
 > `55b35dab1a873c3e61ecd639b7430caf0b09034c` (PR #5 merged), before the
 > documentation-only handover PR. Do not assume that SHA is still the latest.
 
+> **22 October 2026 addendum — active adaptive batch workstream:** This document is a
+> historical account of main / PR #5. The current implementation branch is
+> [feat/manifest-batch-adaptive-worker-analysis](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis),
+> tracked in [Draft PR #18](https://github.com/chrober/bliss-mood-poc/pull/18),
+> **stacked on PR #17 rather than main**. It adds a manifest-based batch
+> scanner and opt-in pooled 1280D song embedding export using the original
+> bounded parallel/adaptive Rust worker scheduler. Read
+> [manifest-batch-adaptive-analysis.md](manifest-batch-adaptive-analysis.md)
+> for architecture, CLI examples, synthetic ONNX parity/Resume CI and open
+> performance, atomic-file and licensing restrictions. The independent PR #16
+> similarity workstream is unchanged. Do not treat the new experimental CLI
+> as a released production interface.
+>
 ## Project and boundaries
 
 Repository: [chrober/bliss-mood-poc](https://github.com/chrober/bliss-mood-poc).

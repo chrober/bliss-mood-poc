@@ -7,6 +7,7 @@ on:
     paths:
       - "src/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_mel_essentia.py"
       - ".github/workflows/mel-parity.yml"
 
@@ -55,7 +56,7 @@ jobs:
           PY
       - name: Dump Rust log-Mel features
         run: |
-          cargo run --release -- mel-dump test-mel.wav --max-frames 32 > rust-mel.json
+          cargo run --locked --release -- mel-dump test-mel.wav --max-frames 32 > rust-mel.json
       - name: Compare Essentia reference (fail on mismatch)
         run: |
           python scripts/compare_mel_essentia.py \

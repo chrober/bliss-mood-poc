@@ -1,9 +1,48 @@
 # bliss-mood-poc
 
+> **Static multi-worker integration (28 October 2026):** This branch selects scan worker capacity once at startup: `--workers N` or explicit `--workers auto`. The CLI default remains `--workers 1`. The existing dynamic flags (`--adaptive-workers`, `--adaptive-policy`, worker min/max and adaptive song gate) are no longer supported. Native Essentia C++ analysis, bounded manifest scans and pooled 1280D embeddings are retained. See [final multi-worker architecture](docs/multi-worker-song-analysis-final.md) and [Similarity handback](docs/handback-multi-worker-to-similarity-20261028.md). **Source integration into main is independent of native third-party binary distribution approval:** the latter remains BLOCKED pending license/notice review; no public native EXE/DLL release is authorized.
+
+
 Experimental Rust CLI for capability-based music feature analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme and Genre plus Voice/Instrumental ONNX classification heads. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
 
+
+## Windows real-audio parity checkpoint (2026-10-21)
+
+**Original Essentia C++ and corrected Rust-v5 feature scores agree within the
+unchanged 0.001 maximum per-class tolerance** on the already completed
+100-real-MP3-song cohort (14,500 scores, four and six Rust workers),
+controlled bit-identical decoded WAV24/FLAC, and two original independent
+lossless downloads (48 kHz/24-bit FLAC, 44.1 kHz/16-bit WAV).
+Those tests are finished; do not unnecessarily rescan private music.
+The CLI's original C++ frontend remains opt-in
+(`--audio-backend essentia --essentia-worker ...`); the previous Rust
+DSP remains available. Adaptive worker telemetry was exercised, but
+no actual dynamic worker increase/decrease occurred in the six-worker run.
+
+[Release qualification, including source evidence and the read-only
+Windows native dev-kit auditor](docs/release-qualification-gates.md) and
+[licensing/distribution strategy](docs/essentia-licensing-distribution-strategy.md)
+remain authoritative. **This is technical parity evidence, not permission
+to redistribute Essentia AGPL, FFmpeg native DLLs or third-party models.**
+The existing test kit deliberately declares
+`release_approved=false`; public/production distribution is blocked
+pending manual review. A **real kit audit** verified 100 native
+EXE/DLL files, 77 installed MSYS2 packages and 94 present license
+notice references; **17 packages lack installed notice files**.
+`scripts/triage_windows_native_license_gaps.py` creates a read-only
+exact-version review register, without inventing license grants.
+The **public native C++ Windows development ZIP upload is paused**
+while Windows CI continues building/testing and publishes metadata-only
+diagnostics. Existing locally verified test kits remain usable for
+development; this is not permission to redistribute their contents.
+See the [licensing scenarios A–D](docs/essentia-licensing-distribution-strategy.md).
+Draft PR #17 is separate from similarity PR #16.
+
+## Explicit manifest batch analysis (experimental)
+
+The fixed-worker `scan-features --tracks-file` entry point accepts a private UTF-8 list of source-root-relative exact track identities, without reading the Bliss database. It writes the feature sidecar and optional atomic pooled 1280D song embedding JSON files outside audio/model roots. `--embedding-dir` requires a manifest; scans retain strict duplicate/path validation, resume/skip and single SQLite-writer semantics. The audio frontend is optional `--audio-backend essentia` with an externally provisioned original Essentia C++ worker. See [manifest architecture](docs/manifest-batch-adaptive-analysis.md) for historical design detail and [the final fixed-worker CLI guide](docs/multi-worker-song-analysis-final.md) for supported commands. Experimental online-adaptive implementation remains isolated in PR #19 and is not part of this code path.
 
 ## Development handover (2026-10-19)
 
@@ -30,6 +69,54 @@ its first gate is a read-only schema-v3 feature lookup and **exact**
 production Bliss Mixer, invoke ONNX at mixing time, or silently use
 unvalidated predictions. The [cross-platform resources plan](docs/platform-resource-roadmap.md)
 is recorded for later and does not block functional integration.
+
+## Essentia C++ development handover (2026-10-20)
+
+**Current status, experimental:** the **genuine original Essentia C++ Windows x64
+worker has passed** build/linkage, dependency packaging, isolated startup,
+synthetic WAV/FLAC/MP3 DSP and complete 1280D/87D/56D/2D ONNX numerical
+parity, schema-v3 sidecar persistence, two-worker scanner reuse and the
+unchanged PR #16 similarity evaluator. See [successful Windows run
+#39421541546](https://github.com/chrober/bliss-mood-poc/actions/runs/39421541546)
+at `bdb281d3a952775d62f4b29786e687a05471f9b1`.
+Its `bliss-mood-essentia-windows-x64-dev` artifact is valid through
+2026-11-03.
+
+**NEXT GATE (not yet validated):** compare Rust and original C++ frontends on
+the **same real music** using fresh, separate schema-v3 sidecars and different
+model fingerprints. Read the [bounded Windows real-music compatibility
+runbook](docs/essentia-cpp-real-music-compatibility-gate.md).
+After successful real-audio numerical parity, CI and review, merge #17 into
+main and continue the independent Genre/Mood similarity investigations in
+#16 on newly generated C++ feature data. Rust default remains unchanged;
+native licensing/release approval is still open. Older Windows linker
+failure investigations are historical and superseded by the successful run.
+
+For architecture and history see [the handover](docs/handover-essentia-cpp-20261020.md)
+and [Windows linker runbook](docs/handover-essentia-windows-linker-20261020.md).
+
+## Experimental original Essentia C++ frontend (feature branch only)
+
+The [Essentia C++ worker architecture](docs/essentia-cpp-worker-architecture.md)
+explains how the existing Rust multi-worker scanner, adaptive controller,
+ONNX Runtime sessions and SQLite writer can be reused with a **separate,
+persistent original Essentia C++ DSP subprocess per Rust worker**.
+A versioned, bounded binary IPC frontend is implemented in
+`src/essentia_worker.rs`, with native source and test fixture in
+[`native/`](native/README.md). The default is still the original Rust
+frontend; the C++ backend is explicitly selected using
+`--audio-backend essentia --essentia-worker <trusted-executable>`
+for `analyze-features` or `scan-features`.
+
+**Not production-ready:** Genuine original-Essentia C++ Windows x64
+DSP/ONNX numerical parity is now proven on synthetic fixtures and the
+development test kit is available, but **real-music cohort compatibility,
+large-library performance, Pi/ARM64/macOS distribution and complete native
+licensing review remain open**. Native process watchdogs, restart behavior
+and process-tree memory sampling remain implemented. Do not scan an
+unattended full music library or distribute the binary as a production
+release. Backend fingerprints are intentionally distinct, so retain new
+C++ sidecars separately from prior Rust data.
 
 ## Generic feature models (opt-in)
 
@@ -177,45 +264,13 @@ keeps previous CLI behavior.
 }
 ~~~
 
-## Native scanner diagnostics and optional adaptive concurrency
+## Native scanner diagnostics and static concurrency
 
-The Rust scan reports **stage totals** in its JSON diagnostics: FFprobe/
-FFmpeg decode (includes file/network I/O), Mel + patch preparation, ONNX
-inference, SHA-256 audio re-read, and per-worker ONNX session load. Values
-are **sums of overlapping per-song wall times**, not exclusive CPU times.
-They must not be compared directly to whole-scan wall time. Audio hashing
-performs a second full read of every source audio file; high decode/hash
-fractions are consistent with I/O constraints, not proof of NAS saturation.
-Windows and Linux sample system-wide CPU and physical RAM about every two
-seconds as classification results arrive.
+The scanner reports stage totals for FFprobe/FFmpeg decode (including file/network I/O), Mel/patch preprocessing, ONNX inference, SHA-256 source re-read, and per-worker model-session load. These are **sums of overlapping per-song wall times**, not exclusive CPU seconds, and may exceed whole-scan wall time. Windows/Linux resource diagnostics are observational and do not change the worker count.
 
-By default fixed --workers behavior remains unchanged. The opt-in flag
-**--adaptive-workers** dynamically changes the number of concurrent
-in-flight tracks. Per-worker ONNX sessions are reused and SQLite still has
-one writer. For the measured HP Ryzen 7 7730U with 16GB memory, start at
-six workers and permit a guarded range of four to eight. In adaptive mode
-Windows sets the analyzer process priority to BelowNormal.
+The CLI defaults to one worker for compatibility. To request fixed parallelism, pass `--workers 2`, `--workers 4`, etc. For **one-time conservative CPU sizing**, specify `--workers auto`: it uses the logical CPUs visible to the process, keeps roughly a quarter (at least two where possible) available and caps the automatic selection at eight. Explicit worker values between 1 and 64 must not exceed available logical CPU capacity; values beyond this fail, never silently clamp. When worker count exceeds one, set `--threads 1` to avoid ONNX oversubscription. The pool capacity never changes during a scan; there may be fewer busy workers near completion. Under memory pressure, the process may fail or stop safely, but never dynamically shrink the pool. Manual `--priority` values (Windows only) are independent of dynamic sizing.
 
-~~~powershell
-& {
-    Set-Location 'D:\LMS\bliss-mood-poc'
-    $exe = '.\bin\windows-x64\LATEST-RUN-ID\bliss-mood.exe'
-    & $exe scan-features --bliss-db .\bliss.db --db .\adaptive-test.db --models-dir .\models --models moodtheme,genre,voice --source-root '\\192.168.1.100\music' --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 --threads 1 --max-new 100 --max-errors 3 --json
-}
-~~~
-
-The controller requires at least 24 completed songs. It lowers active
-concurrency by one after two consecutive samples at 88% RAM or 90% CPU.
-It raises by one only after three samples below 79% RAM AND 65% CPU.
-Adjustments require at least a 20-second cooldown to avoid oscillation.
-Decisions are logged as ADAPTIVE WORKERS and recorded under the JSON
-diagnostics adjustments field. No active task is cancelled and no ONNX
-environment is recreated. On a system already around 85% RAM it should
-usually hold the six-worker baseline. This is a **protective resource
-heuristic, not a proven real-time throughput optimizer**; compare controlled
-equal-work scans to infer optimum worker settings. Missing OS metrics cause
-the controller to hold current concurrency. Fresh sidecar databases are
-necessary for honest benchmark comparisons.
+The old adaptive flags are intentionally rejected. [Archived autotune research](https://github.com/chrober/bliss-mood-poc/blob/feat/ram-safe-online-autotune/docs/autotune-real-music-e2e-findings-20261028.md) documents four private 100-song campaigns (40 full scans), without a reliable short-scan throughput advantage. Experimental online-autotune and ONNX process isolation are preserved in PR #19.
 
 ## Windows executable without local Rust/Visual Studio
 

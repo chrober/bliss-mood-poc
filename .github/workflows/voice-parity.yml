@@ -7,19 +7,25 @@ on:
       - "src/**"
       - "model-registry.json"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_full_essentia.py"
       - "scripts/compare_classification_essentia.py"
       - "scripts/generate_audio_fixtures.py"
       - ".github/workflows/voice-parity.yml"
+      - "scripts/prepare_ci_ffmpeg.py"
+      - "scripts/requirements-ci-ffmpeg.txt"
   push:
     branches: [main]
     paths:
       - "src/**"
       - "model-registry.json"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "scripts/compare_full_essentia.py"
       - "scripts/compare_classification_essentia.py"
       - ".github/workflows/voice-parity.yml"
+      - "scripts/prepare_ci_ffmpeg.py"
+      - "scripts/requirements-ci-ffmpeg.txt"
 
 permissions:
   contents: read
@@ -36,12 +42,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: scripts/requirements-embedding-parity.txt
-      - name: Install reference Essentia and audio decoder
+          cache-dependency-path: |
+            scripts/requirements-embedding-parity.txt
+            scripts/requirements-ci-ffmpeg.txt
+      - name: Install reference Essentia and pinned fixture FFmpeg
         run: |
-          python -m pip install -r scripts/requirements-embedding-parity.txt
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -r scripts/requirements-embedding-parity.txt -r scripts/requirements-ci-ffmpeg.txt
+          python scripts/prepare_ci_ffmpeg.py
       - name: Generate reproducible WAV FLAC MP3 inputs
         run: python scripts/generate_audio_fixtures.py
       - name: Download official models; never commit weights
@@ -64,7 +71,7 @@ jobs:
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
           sha256sum models/*
       - name: Build native feature analyzer
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Validate both Softmax voice classes on identical embeddings
         run: |
           target/release/bliss-mood embedding-dump fixtures/mono-16k.wav \
@@ -190,7 +197,7 @@ jobs:
               assert serial_rows == parallel_rows
           print("PASS: 12 score vectors byte-identical, exact max-new, read-only Bliss DB")
           PY
-      - name: Stress eight ONNX sessions and verify bounded failing scans
+      - name: Stress available ONNX worker sessions and verify bounded failing scans
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -207,17 +214,24 @@ jobs:
                   db.executemany("INSERT INTO TracksV2 VALUES (?, NULL)",
                                 [(f"track-{n:02}.{ext}",) for n in range(8)])
           PY
+          # Derive the *same* process-permitted logical CPU ceiling the Rust
+          # scanner reports; shared GitHub runners often expose only 4 CPUs.
+          # Keep eight fixture tracks, but never oversubscribe the host.
+          cpu_capacity=$(python -c 'import json; print(json.load(open("parallel-first.json"))["diagnostics"]["logical_cpu_capacity"])')
+          export STRESS_WORKERS="$((cpu_capacity < 8 ? cpu_capacity : 8))"
+          export INVALID_WORKERS="$((cpu_capacity < 4 ? cpu_capacity : 4))"
+          test "$STRESS_WORKERS" -ge 1
           target/release/bliss-mood scan-features \
             --bliss-db stress-bliss.db --db stress-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root stress \
-            --workers 8 --threads 1 --max-new 8 --max-errors 5 --json > stress-summary.json
+            --workers "$STRESS_WORKERS" --threads 1 --max-new 8 --max-errors 5 --json > stress-summary.json
           python - <<'PY'
-          import json,sqlite3
+          import json, os, sqlite3
           data=json.load(open("stress-summary.json"))
-          assert data["workers"]==8 and data["analyzed"]==8 and data["failures"]==0,data
+          assert data["workers"]==int(os.environ["STRESS_WORKERS"]) and data["analyzed"]==8 and data["failures"]==0,data
           with sqlite3.connect("stress-output.db") as db:
               assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0]==24
-          print("PASS: all eight worker sessions initialize in one ONNX Runtime environment")
+          print("PASS: all eight tracks analyzed with host-bounded ONNX sessions")
           PY
           # The first three invalid sources must stop the run, even though
           # --max-new exceeds the number of successfully analyzed songs.
@@ -225,7 +239,7 @@ jobs:
           target/release/bliss-mood scan-features \
             --bliss-db invalid-bliss.db --db invalid-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root invalid \
-            --workers 4 --threads 1 --max-new 3 --max-errors 5 \
+            --workers "$INVALID_WORKERS" --threads 1 --max-new 3 --max-errors 5 \
             > invalid-summary.json 2> invalid-errors.txt
           code=$?
           set -e
@@ -242,7 +256,7 @@ jobs:
           target/release/bliss-mood scan-features \
             --bliss-db invalid-bliss.db --db invalid-limit-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root invalid \
-            --workers 4 --threads 1 --max-new 8 --max-errors 2 \
+            --workers "$INVALID_WORKERS" --threads 1 --max-new 8 --max-errors 2 \
             > /dev/null 2> invalid-limit-errors.txt
           code=$?
           set -e
@@ -250,22 +264,25 @@ jobs:
           grep -Eq 'Feature scan stopped after [2-4] errors \(limit 2\)' invalid-limit-errors.txt
           test "$(grep -c '^ANALYSIS FAILED' invalid-limit-errors.txt)" -le 4
           echo "PASS: hard error budget stops bad library scans"
-      - name: Verify adaptive scanner stage diagnostics and identical classifications
+      - name: Verify fixed worker scanner stage diagnostics and identical classifications
         run: |
+          cpu_capacity=$(python -c 'import json; print(json.load(open("parallel-first.json"))["diagnostics"]["logical_cpu_capacity"])')
+          export FIXED_WORKERS="$((cpu_capacity < 6 ? cpu_capacity : 6))"
+          test "$FIXED_WORKERS" -ge 2
           target/release/bliss-mood scan-features \
-            --bliss-db stress-bliss.db --db adaptive-output.db \
+            --bliss-db stress-bliss.db --db fixed-stress-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root stress \
-            --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 \
-            --threads 1 --max-new 8 --max-errors 3 --json > adaptive-summary.json
+            --workers "$FIXED_WORKERS" --threads 1 --max-new 8 --max-errors 3 --json > fixed-stress-summary.json
           python - <<'PY'
-          import json, sqlite3
-          data = json.load(open("adaptive-summary.json"))
+          import json, os, sqlite3
+          data = json.load(open("fixed-stress-summary.json"))
           assert data["analyzed"] == 8 and data["failures"] == 0, data
-          assert data["workers"] == 6, data
+          assert data["workers"] == int(os.environ["FIXED_WORKERS"]), data
           d = data["diagnostics"]
           assert d["completed_songs"] == 8, d
-          assert d["initial_workers"] == 6, d
-          assert 4 <= d["final_workers"] <= 8, d
+          assert d["initial_workers"] == int(os.environ["FIXED_WORKERS"]), d
+          assert d["final_workers"] == int(os.environ["FIXED_WORKERS"]), d
+          assert d["configured_max_workers"] == int(os.environ["FIXED_WORKERS"]), d
           assert d["cumulative_decode_seconds"] > 0, d
           assert d["cumulative_features_seconds"] > 0, d
           assert d["cumulative_inference_seconds"] > 0, d
@@ -278,9 +295,9 @@ jobs:
           sql = ("SELECT track_file, model_id, model_key, scores_f32_le "
                  "FROM feature_tracks ORDER BY track_file, model_id")
           with sqlite3.connect("stress-output.db") as a, \
-               sqlite3.connect("adaptive-output.db") as b:
+               sqlite3.connect("fixed-stress-output.db") as b:
               assert a.execute(sql).fetchall() == b.execute(sql).fetchall()
-          print("PASS: adaptive and fixed workers yield identical features; native stage profile present")
+          print("PASS: repeated fixed worker scans yield identical features and stage diagnostics")
           PY
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()

@@ -1,0 +1,585 @@
+name: Native original Essentia C++ Windows x64 (experimental)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "native/essentia_cpp_worker.cpp"
+      - "native/CMakeLists.txt"
+      - "native/rust-mel-reference/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/audio_decode.rs"
+      - "src/preprocess.rs"
+      - ".github/workflows/native-essentia-windows.yml"
+      - "docs/essentia-cpp-windows-native-build.md"
+      - "scripts/package_essentia_worker_windows.py"
+      - "scripts/test_native_essentia_protocol.py"
+      - "scripts/generate_audio_fixtures.py"
+
+permissions:
+  contents: read
+
+jobs:
+  original-essentia-win64:
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install original Essentia C++ build dependencies for MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            python
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-eigen3
+            mingw-w64-x86_64-fftw
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-libsamplerate
+            mingw-w64-x86_64-binutils
+      - name: Record exact installed MinGW package versions for native cache key
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p build/windows-native
+          # Retain full lock for release provenance and ABI-correct cache key.
+          pacman -Q > build/windows-native/pacman-package-lock-observed.txt
+          gcc --version
+          cmake --version
+          pkg-config --modversion libavcodec libavformat libavutil samplerate eigen3
+      - name: Restore original Essentia upstream Waf objects (exact toolchain)
+        id: essentia-waf-cache
+        uses: actions/cache@v4
+        with:
+          path: build/windows-native/essentia-source
+          # Never restore a different MinGW/FFmpeg ABI.
+          # Bump v1 if upstream pin, configure options, or build policy changes.
+          key: original-essentia-waf-win2022-mingw64-v1-b0661db99be4a8e2-${{ hashFiles('build/windows-native/pacman-package-lock-observed.txt') }}
+      - name: Verify pinned original MTG sources or fetch on cache miss
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          source=build/windows-native/essentia-source
+          if test -d "$source/.git"; then
+            echo "Restored upstream sources and Waf build objects from Actions cache"
+          else
+            test ! -e "$source"
+            git clone --quiet https://github.com/MTG/essentia.git "$source"
+            # Pin the exact, immutable upstream revision. The external
+            # PR head is mutable and has already moved independently.
+            git -C "$source" fetch --no-tags --depth=1 origin b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+            git -C "$source" checkout --detach FETCH_HEAD
+          fi
+          test "$(git -C "$source" rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
+          test -z "$(git -C "$source" status --porcelain)"
+          echo "Pinned upstream Essentia SHA verified: $(git -C "$source" rev-parse HEAD)"
+      - name: Configure/build original Essentia via upstream waf, not an in-house port
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd build/windows-native/essentia-source
+          # MSYS Python gives a POSIX host environment; GCC and pkgconf
+          # are explicitly selected from the MINGW64 target toolchain.
+          export CC=/mingw64/bin/gcc
+          export CXX=/mingw64/bin/g++
+          export PKG_CONFIG=/mingw64/bin/pkg-config
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          # Upstream Essentia is written for GNU C++11/14. GNU++14 keeps
+          # M_PI/M_LN2 visible but avoids the C++17 std::byte collision
+          # in Windows RPC headers (legacy global byte typedef).
+          # Only original dependencies needed by MonoLoader and MusiCNN mel.
+          # Avoid unrelated TagLib/YAML/Chromaprint compatibility.
+          /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14 --lightweight=libav,libsamplerate,fftw
+          /usr/bin/python3 waf -j 4
+          /usr/bin/python3 waf install
+          pkg-config --modversion essentia
+      - name: Inspect actual upstream Essentia PE exports and MinGW import linkage
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          diagnostics=build/windows-native
+          dll=/mingw64/lib/essentia.dll
+          implib=/mingw64/lib/essentia.dll.a
+          test -s "$dll"
+          test -s "$implib"
+          echo "=== Installed original DLL and import archive ==="
+          ls -lh "$dll" "$implib"
+          echo "=== pkg-config selects ==="
+          pkg-config --variable=prefix essentia
+          pkg-config --variable=libdir essentia
+          pkg-config --libs essentia
+          pkg-config --cflags essentia
+          pkg-config --modversion essentia
+          pkg-config --libs essentia > "$diagnostics/pkg-config-essentia-libs.txt"
+          echo "=== All candidate Essentia import archives / DLLs ==="
+          find /mingw64/lib /mingw64/bin -maxdepth 1 \
+            \( -iname '*essentia*.a' -o -iname '*essentia*.dll' \) -print
+          objdump -p "$dll" > "$diagnostics/essentia-dll-pe.txt"
+          nm -gC "$implib" > "$diagnostics/essentia-import-nm.txt"
+          nm -gC "$dll" > "$diagnostics/essentia-dll-nm.txt"
+          echo "=== Actual PE export table header ==="
+          grep -A 18 -E '^The Export Tables' "$diagnostics/essentia-dll-pe.txt" || true
+          echo "=== Expected original core symbols in PE exports (mangled) ==="
+          grep -E '(_ZN8essentia(4init|8shutdown|6Logger|12ParameterMap|14loggerInstance|16debugIndentLevel|20activatedDebugLevels)|_ZNK8essentia)' \
+            "$diagnostics/essentia-dll-pe.txt" | head -n 35 || true
+          echo "=== Expected original core symbols in import archive (demangled) ==="
+          grep -E 'essentia::(init\(|shutdown\(|Logger::debug|ParameterMap::add|loggerInstance|debugIndentLevel|activatedDebugLevels|nameOfType)' \
+            "$diagnostics/essentia-import-nm.txt" | head -n 50 || true
+          echo "=== Core symbols in DLL symbol table (may include nonexported symbols) ==="
+          grep -E 'essentia::(init\(|shutdown\(|Logger::debug|ParameterMap::add|loggerInstance|debugIndentLevel|activatedDebugLevels|nameOfType)' \
+            "$diagnostics/essentia-dll-nm.txt" | head -n 50 || true
+          echo "=== Symbol table sizes ==="
+          wc -l "$diagnostics/essentia-dll-pe.txt" "$diagnostics/essentia-import-nm.txt" "$diagnostics/essentia-dll-nm.txt"
+          echo "=== Check all core symbol imports against exact installed archive ==="
+          missing=0
+          for symbol in 'essentia::init()' 'essentia::shutdown()' \
+            'essentia::Logger::debug' 'essentia::ParameterMap::add' \
+            'essentia::nameOfType'; do
+            if grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
+              printf 'FOUND: %s\\n' "$symbol"
+            else
+              printf 'NOT EXPORTED: %s\\n' "$symbol"
+              missing=1
+            fi
+          done
+          # Import archives leave global data in mangled __imp_ form even
+          # under nm -C; verify BOTH the actual PE exports and import thunks.
+          for mangled in _ZN8essentia14loggerInstanceE \
+            _ZN8essentia16debugIndentLevelE \
+            _ZN8essentia20activatedDebugLevelsE; do
+            if grep -Fq "__imp_$mangled" "$diagnostics/essentia-import-nm.txt" \
+              && grep -Fq "$mangled" "$diagnostics/essentia-dll-pe.txt"; then
+              echo "FOUND exported PE data + import thunk: $mangled"
+            else
+              echo "NOT EXPORTED PE data / import thunk: $mangled"
+              missing=1
+            fi
+          done
+          if (( missing )); then
+            # The import archive genuinely lacks core public C++ API symbols.
+            # GNU ld disables automatic exports when a DEF file or explicit
+            # dllexport is present. Force PE exports in the ORIGINAL upstream
+            # Waf shared build, without modifying any source or DSP algorithm.
+            # Capture both sides of the test and require all symbols afterward.
+            echo "=== Testing explicit MinGW PE export-all policy (original upstream Waf only) ==="
+            cp "$diagnostics/essentia-dll-pe.txt" "$diagnostics/essentia-dll-pe-before.txt"
+            cp "$diagnostics/essentia-import-nm.txt" "$diagnostics/essentia-import-nm-before.txt"
+            (
+              cd build/windows-native/essentia-source
+              test "$(git rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+              export CC=/mingw64/bin/gcc CXX=/mingw64/bin/g++
+              export PKG_CONFIG=/mingw64/bin/pkg-config
+              export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+              export LDFLAGS=-Wl,--export-all-symbols
+              /usr/bin/python3 waf configure --prefix=/mingw64 --std=gnu++14 --lightweight=libav,libsamplerate,fftw
+              /usr/bin/python3 waf -j 4
+              /usr/bin/python3 waf install
+              test -z "$(git status --porcelain)"
+            )
+            objdump -p "$dll" > "$diagnostics/essentia-dll-pe.txt"
+            nm -gC "$implib" > "$diagnostics/essentia-import-nm.txt"
+            nm -gC "$dll" > "$diagnostics/essentia-dll-nm.txt"
+          fi
+          echo "=== Require linkable original Essentia C++ public symbols ==="
+          for symbol in 'essentia::init()' 'essentia::shutdown()' \
+            'essentia::Logger::debug' 'essentia::ParameterMap::add' \
+            'essentia::nameOfType'; do
+            if ! grep -Fq "$symbol" "$diagnostics/essentia-import-nm.txt"; then
+              echo "ERROR: even after export-policy correction import archive lacks $symbol" >&2
+              exit 1
+            fi
+          done
+          for mangled in _ZN8essentia14loggerInstanceE \
+            _ZN8essentia16debugIndentLevelE \
+            _ZN8essentia20activatedDebugLevelsE; do
+            if ! grep -Fq "__imp_$mangled" "$diagnostics/essentia-import-nm.txt" \
+              || ! grep -Fq "$mangled" "$diagnostics/essentia-dll-pe.txt"; then
+              echo "ERROR: missing native PE data export or import thunk: $mangled" >&2
+              exit 1
+            fi
+          done
+          echo "PASS: native MinGW import library contains all required core API symbols"
+      - name: Compile our original Essentia C++ IPC process with MinGW x64
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export CC=/mingw64/bin/gcc
+          export CXX=/mingw64/bin/g++
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          cmake -S native -B build/windows-native/worker -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/windows-native/worker --parallel 4 --verbose
+          file build/windows-native/worker/bliss-essentia-worker.exe
+          # Waf installs the DLL in /mingw64/lib, which is not the loader PATH.
+          # Keep a byte-identical original copy beside the native smoke EXE.
+          cp /mingw64/lib/essentia.dll build/windows-native/worker/essentia.dll
+          upstream_sha=$(sha256sum /mingw64/lib/essentia.dll | cut -d ' ' -f1)
+          adjacent_sha=$(sha256sum build/windows-native/worker/essentia.dll | cut -d ' ' -f1)
+          test "$upstream_sha" = "$adjacent_sha"
+          echo "Original adjacent Essentia DLL SHA256 verified: $upstream_sha"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      - name: Test original native Essentia against real synthetic WAV
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            # Native Windows Python writes true Win32 temp paths over REQ1.
+            python scripts/test_native_essentia_protocol.py `
+              build/windows-native/worker/bliss-essentia-worker.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia audio smoke failed' }
+          }
+      - name: Stage actual original Essentia PE and all imported MinGW DLLs
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            # Native x64 Python accesses GetSystemDirectoryW; MSYS Python
+            # runs as POSIX and cannot securely identify system DLLs.
+            $mingwRoot = Join-Path $env:RUNNER_TEMP 'msys64/mingw64'
+            $packageScript = 'scripts/package_essentia_worker_windows.py'
+            python $packageScript `
+              --worker build/windows-native/worker/bliss-essentia-worker.exe `
+              --objdump (Join-Path $mingwRoot 'bin/objdump.exe') `
+              --dll-dir (Join-Path $mingwRoot 'bin') `
+              --dll-dir (Join-Path $mingwRoot 'lib') `
+              --output build/windows-native/original-essentia-closed-bundle
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia dependency closure failed' }
+            python $packageScript `
+              --verify build/windows-native/original-essentia-closed-bundle
+            if ($LASTEXITCODE -ne 0) { throw 'Original Windows Essentia bundle checksum verification failed' }
+          }
+      - name: Re-test genuine native worker from isolated DLL-closed bundle
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            # Use native Windows Python by absolute path and prevent PATH from
+            # hiding any missing packaged MinGW DLL dependencies.
+            $pythonExe = (Get-Command python -ErrorAction Stop).Source
+            $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+            & $pythonExe scripts/test_native_essentia_protocol.py `
+              build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated original Essentia bundle smoke failed' }
+          }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust Cargo dependencies and compiled libraries (both workspaces)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            native/rust-mel-reference -> target
+      - name: Build the actual production Rust decoder/Mel reference on Windows CI
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cargo build --locked --release --manifest-path native/rust-mel-reference/Cargo.toml
+            if ($LASTEXITCODE -ne 0) { throw 'Windows Rust Mel reference build failed' }
+            if (-not (Test-Path 'native/rust-mel-reference/target/release/rust-mel-reference.exe')) {
+              throw 'Windows Rust reference EXE missing'
+            }
+          }
+      - name: Generate genuine Windows WAV FLAC MP3 fixture inputs
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            python scripts/generate_audio_fixtures.py
+            if ($LASTEXITCODE -ne 0) { throw 'Windows audio fixture generation failed' }
+          }
+      - name: Compare native Windows Essentia against Rust Mel for WAV FLAC MP3
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            python scripts/compare_native_cpp_end_to_end.py `
+              --worker build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe `
+              --rust-reference native/rust-mel-reference/target/release/rust-mel-reference.exe `
+              --report-output results/windows-original-essentia-mel-parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Windows original Essentia multi-codec Mel parity failed' }
+          }
+      - name: Install independent CPU ONNX evaluator for original Windows parity
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python -m pip install --no-cache-dir 'numpy==1.26.4' 'onnxruntime==1.19.2'
+            if ($LASTEXITCODE -ne 0) { throw 'Windows ONNX evaluator install failed' }
+          }
+      - name: Download official ONNX weights and verify Linux-reference SHA256
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            New-Item -ItemType Directory -Force -Path models | Out-Null
+            $base = 'https://essentia.upf.edu/models'
+            $models = @(
+              @{ folder='feature-extractors/discogs-effnet'; file='discogs-effnet-bsdynamic-1.onnx'; sha='a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c' },
+              @{ folder='classification-heads/mtg_jamendo_genre'; file='mtg_jamendo_genre-discogs-effnet-1.onnx'; sha='637acf45315191a2c9a87d5977d48f02da6fc823192fe794a1537c55e7c7ce6a' },
+              @{ folder='classification-heads/mtg_jamendo_moodtheme'; file='mtg_jamendo_moodtheme-discogs-effnet-1.onnx'; sha='7d6270acaa5f4bba4b115a0d6849aca05ed6bd153dcb6d9da4f6ab9f99ef10ff' },
+              @{ folder='classification-heads/voice_instrumental'; file='voice_instrumental-discogs-effnet-1.onnx'; sha='20155e4c439714b0c45c08644b73c8e12d9dccb173bd4ab9934bf1e5aee837ca' }
+            )
+            foreach ($model in $models) {
+              $url = "$base/$($model.folder)/$($model.file)"
+              $destination = Join-Path 'models' $model.file
+              $fetched = $false
+              for ($attempt = 1; $attempt -le 3; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $url -OutFile $destination -TimeoutSec 100
+                  $fetched = $true
+                  break
+                } catch {
+                  Write-Warning "Official ONNX download attempt $attempt failed: $($_.Exception.Message)"
+                  if ($attempt -lt 3) { Start-Sleep -Seconds 4 }
+                }
+              }
+              if (-not $fetched) { throw "Official weight download unavailable: $url" }
+              $observed = (Get-FileHash -Algorithm SHA256 -Path $destination).Hash.ToLowerInvariant()
+              if ($observed -ne $model.sha) {
+                throw "ONNX model SHA256 mismatch for $($model.file): $observed"
+              }
+              Write-Output "Verified official SHA256 $observed $($model.file)"
+            }
+          }
+      - name: Compare original Windows Mel, 1280-D EffNet and all 87/56/2 ONNX heads
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            # The MinGW bin path contains a DIFFERENT python.exe; choose the
+            # exact setup-python interpreter that received pip/onnxruntime.
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            & $nativePython -c 'import numpy, onnxruntime; print("Validated ONNX Python:", onnxruntime.__version__)'
+            if ($LASTEXITCODE -ne 0) { throw 'Expected Windows Python ONNX environment unavailable' }
+            $env:PATH = "$(Join-Path $env:RUNNER_TEMP 'msys64/mingw64/bin');$env:PATH"
+            & $nativePython scripts/compare_native_cpp_end_to_end.py `
+              --worker build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe `
+              --rust-reference native/rust-mel-reference/target/release/rust-mel-reference.exe `
+              --models-dir models `
+              --report-output results/windows-original-essentia-all-heads-parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Windows original Essentia ONNX parity failed' }
+          }
+      - name: Build real production Rust scanner Windows x64 (MSVC)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cargo build --locked --release --target x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows Rust scanner build failed' }
+            & 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe' scan-features --help | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows scanner CLI failed to start' }
+          }
+      - name: Download original model class metadata for scanner (no weights committed)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $items = @(
+              @{ name='mtg_jamendo_genre-discogs-effnet-1.json'; folder='classification-heads/mtg_jamendo_genre'; count=87 },
+              @{ name='mtg_jamendo_moodtheme-discogs-effnet-1.json'; folder='classification-heads/mtg_jamendo_moodtheme'; count=56 },
+              @{ name='voice_instrumental-discogs-effnet-1.json'; folder='classification-heads/voice_instrumental'; count=2 }
+            )
+            foreach ($item in $items) {
+              $url = "https://essentia.upf.edu/models/$($item.folder)/$($item.name)"
+              $destination = Join-Path 'models' $item.name
+              $retrieved = $false
+              for ($attempt=1; $attempt -le 3; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $url -OutFile $destination -TimeoutSec 100
+                  $retrieved = $true
+                  break
+                } catch {
+                  Write-Warning "Official metadata $($item.name), attempt $attempt failed: $_"
+                  if ($attempt -lt 3) { Start-Sleep -Seconds 4 }
+                }
+              }
+              if (-not $retrieved) { throw "Official model metadata unavailable: $url" }
+              $metadata = Get-Content -LiteralPath $destination -Raw | ConvertFrom-Json
+              if ($metadata.classes.Count -ne $item.count) {
+                throw "Official metadata class count mismatch: $($item.name)"
+              }
+            }
+          }
+      - name: Fetch pinned PR 16 similarity evaluator read-only without modifying PR 16
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            git fetch --no-tags --depth=1 origin refs/pull/16/head
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch PR 16 evaluation tool read-only' }
+            $head = (git rev-parse FETCH_HEAD).Trim()
+            if ($head -ne '4b397c9310a7e82f0e2e723b11954475b41c3e10') {
+              throw "PR 16 head changed; evaluate compatibility explicitly before updating pinned test: $head"
+            }
+            New-Item -ItemType Directory -Force 'build/windows-native/pr16-readonly' | Out-Null
+            git show 'FETCH_HEAD:scripts/evaluate_similarity.py' |
+              Set-Content -LiteralPath 'build/windows-native/pr16-readonly/evaluate_similarity.py' -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw 'Failed reading pinned PR 16 evaluator' }
+          }
+      - name: Validate genuine Windows scanner to Essentia v3 sidecar and PR 16 similarity
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            $args = @(
+              'scripts/validate_windows_essentia_similarity_handoff.py',
+              '--scanner', 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe',
+              '--worker', 'build/windows-native/original-essentia-closed-bundle/bliss-essentia-worker.exe',
+              '--models-dir', 'models', '--fixtures-dir', 'fixtures',
+              '--evaluator', 'build/windows-native/pr16-readonly/evaluate_similarity.py',
+              '--work-dir', 'build/windows-native/pr16-compatibility'
+            )
+            & $nativePython @args
+            if ($LASTEXITCODE -ne 0) { throw 'Real Windows PR 16 similarity sidecar handoff failed' }
+          }
+      - name: Inventory installed upstream and MSYS2 native dependency licenses
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 scripts/inventory_essentia_windows_licenses.py \
+            --bundle build/windows-native/original-essentia-closed-bundle \
+            --mingw /mingw64 \
+            --essentia-source build/windows-native/essentia-source \
+            --project-license LICENSE \
+            --output build/windows-native/local-binary-notices
+      - name: Stage real Windows Essentia CLI development kit with native dependencies
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = 'build/windows-native/bliss-mood-essentia-win64-dev'
+            $worker = Join-Path $kit 'essentia-worker'
+            $scripts = Join-Path $kit 'scripts'
+            New-Item -ItemType Directory -Force -Path $worker, $scripts | Out-Null
+            Copy-Item -Path 'build/windows-native/original-essentia-closed-bundle/*' -Destination $worker -Recurse -Force
+            Copy-Item -LiteralPath 'target/x86_64-pc-windows-msvc/release/bliss-mood.exe' -Destination $kit
+            Get-ChildItem 'target/x86_64-pc-windows-msvc/release' -File -Filter 'onnxruntime*.dll' | Copy-Item -Destination $kit
+            Copy-Item -LiteralPath 'scripts/download-models.ps1' -Destination $scripts
+            Copy-Item -Path 'build/windows-native/local-binary-notices/*' -Destination $kit -Recurse -Force
+            Copy-Item -LiteralPath 'docs/windows-essentia-local-test-kit.md' -Destination (Join-Path $kit 'README.md')
+            Copy-Item -LiteralPath 'build/windows-native/pacman-package-lock-observed.txt' -Destination $kit
+            $main = Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $kit 'bliss-mood.exe')
+            $native = Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $worker 'bliss-essentia-worker.exe')
+            @(
+              "bliss-mood.exe SHA256 $($main.Hash.ToLowerInvariant())",
+              "essentia-worker/bliss-essentia-worker.exe SHA256 $($native.Hash.ToLowerInvariant())",
+              "Git commit $env:GITHUB_SHA",
+              "DEVELOPMENT ONLY - license audit and release approval incomplete"
+            ) | Set-Content -LiteralPath (Join-Path $kit 'BUILD-PROVENANCE.txt') -Encoding utf8
+            python scripts/package_essentia_worker_windows.py --verify $worker
+            if ($LASTEXITCODE -ne 0) { throw 'Staged Essentia worker DLL hashes invalid' }
+            if ((Get-ChildItem -LiteralPath $worker -File -Filter '*.dll').Count -lt 10) {
+              throw 'Staged Essentia native dependencies missing'
+            }
+            if ((Get-ChildItem -LiteralPath $kit -Recurse -File -Include '*.onnx','*.flac','*.mp3','*.db').Count -ne 0) {
+              throw 'Test kit must not embed ONNX model weights, audio, or SQLite DBs'
+            }
+          }
+      - name: Audit actual staged Essentia Windows dev kit integrity and unapproved license provenance
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = 'build/windows-native/bliss-mood-essentia-win64-dev'
+            $out = 'build/windows-native/release-audit'
+            python scripts/audit_windows_native_release.py --kit-root $kit --output-dir $out
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Actual staged native dev-kit hashes, MSYS2 ownership or notices audit failed'
+            }
+            $report = Get-Content -LiteralPath (Join-Path $out 'release-readiness-audit-private.json') -Raw | ConvertFrom-Json
+            if ($report.binary_integrity -ne 'PASS' -or $report.distribution_release_status -ne 'BLOCKED') {
+              throw 'Dev kit must pass SHA/PE audit while remaining NOT RELEASE APPROVED'
+            }
+            Write-Host ("Audited $($report.native_binary_count) real native binaries; $($report.package_count) versioned native packages; release status BLOCKED for manual legal review")
+          }
+      - name: Capture actual 17-package native license evidence backlog (no inferred license grant)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python scripts/triage_windows_native_license_gaps.py `
+              --kit-root 'build/windows-native/bliss-mood-essentia-win64-dev' `
+              --output-dir 'build/windows-native/license-evidence-backlog'
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Could not build exact-version missing-native-license evidence register'
+            }
+            $result = Get-Content 'build/windows-native/license-evidence-backlog/native-license-evidence-backlog.json' -Raw | ConvertFrom-Json
+            if ($result.binary_integrity -ne 'PASS' -or $result.distribution_release_status -ne 'BLOCKED') {
+              throw 'Must preserve technical integrity checks and distribution BLOCKED status'
+            }
+          }
+      - name: Verify exact downloadable kit using isolated Windows PATH and PR 16 evaluator
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $kit = (Resolve-Path 'build/windows-native/bliss-mood-essentia-win64-dev').Path
+            $nativePython = Join-Path $env:pythonLocation 'python.exe'
+            $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+            $workerExe = Join-Path $kit 'essentia-worker/bliss-essentia-worker.exe'
+            & $nativePython scripts/test_native_essentia_protocol.py $workerExe
+            if ($LASTEXITCODE -ne 0) { throw 'Staged worker failed isolated PATH smoke' }
+            $testArgs = @(
+              'scripts/validate_windows_essentia_similarity_handoff.py',
+              '--scanner', (Join-Path $kit 'bliss-mood.exe'),
+              '--worker', $workerExe,
+              '--models-dir', 'models', '--fixtures-dir', 'fixtures',
+              '--evaluator', 'build/windows-native/pr16-readonly/evaluate_similarity.py',
+              '--work-dir', 'build/windows-native/pr16-compatibility-staged'
+            )
+            & $nativePython @testArgs
+            if ($LASTEXITCODE -ne 0) { throw 'Actual downloadable Windows kit PR16 handoff failed' }
+          }
+      # PUBLIC GitHub Actions artifacts are distributable binaries; this
+      # package is explicitly NOT release approved. Keep building/testing,
+      # but do not issue fresh public native DLL archives until a documented
+      # license review and corresponding-source/NOTICE gate is complete.
+      - name: Upload original Essentia C++ Windows x64 kit (internal only after review)
+        if: ${{ github.event.repository.private && vars.NATIVE_BINARY_REDISTRIBUTION_REVIEWED == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bliss-mood-essentia-windows-x64-dev
+          path: build/windows-native/bliss-mood-essentia-win64-dev/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload bounded Windows numerical parity reports (no audio or weights)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-essentia-windows-numeric-parity
+          path: |
+            results/windows-original-essentia-mel-parity.json
+            results/windows-original-essentia-all-heads-parity.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload build diagnostics ONLY (not redistributable native binaries)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-essentia-windows-build-diagnostics
+          path: |
+            build/windows-native/pacman-package-lock-observed.txt
+            build/windows-native/pkg-config-essentia-libs.txt
+            build/windows-native/essentia-dll-pe.txt
+            build/windows-native/essentia-dll-pe-before.txt
+            build/windows-native/essentia-import-nm.txt
+            build/windows-native/essentia-import-nm-before.txt
+            build/windows-native/essentia-dll-nm.txt
+            build/windows-native/release-audit/release-readiness-audit-private.json
+            build/windows-native/license-evidence-backlog/native-license-evidence-backlog.json
+          if-no-files-found: warn
+          retention-days: 14

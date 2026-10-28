@@ -1,8 +1,11 @@
 mod preprocess;
+mod audio_decode;
 mod storage;
 mod engine;
 mod batch;
 mod features;
+mod song_embedding;
+mod essentia_worker;
 mod feature_lookup;
 mod parallel;
 mod resources;
@@ -10,13 +13,15 @@ mod resources;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
+use audio_decode::ffmpeg_pcm_mono_16k;
+#[cfg(test)]
+use audio_decode::essentia_linear_resample;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
 };
 
 const ENCODER: &str = "discogs-effnet-bsdynamic-1.onnx";
@@ -89,6 +94,15 @@ enum Action {
         /// Comma-separated registry model IDs (e.g. moodtheme,genre,voice).
         #[arg(long, default_value = "moodtheme,genre")]
         models: String,
+        /// Explicitly select native C++ Essentia DSP; default preserves Rust/ONNX behavior.
+        #[arg(long, default_value = "rust", value_parser = ["rust", "essentia"])]
+        audio_backend: String,
+        /// Trusted executable for original Essentia C++ DSP subprocess.
+        #[arg(long)]
+        essentia_worker: Option<PathBuf>,
+        /// Hard wall-clock limit per C++ worker request, including first handshake.
+        #[arg(long, default_value_t = 900)]
+        essentia_timeout_seconds: u64,
         #[arg(long)]
         max_patches: Option<usize>,
         #[arg(long, default_value_t = 1)]
@@ -102,8 +116,16 @@ enum Action {
     },
     /// Incremental, model-independent sidecar analysis; legacy mood_tracks remain untouched.
     ScanFeatures {
-        #[arg(long)]
-        bliss_db: PathBuf,
+        /// Read exactly one of --bliss-db or --tracks-file.
+        #[arg(long, conflicts_with = "tracks_file", required_unless_present = "tracks_file")]
+        bliss_db: Option<PathBuf>,
+        /// UTF-8 newline-delimited source-relative track identities, no Bliss DB needed.
+        #[arg(long, conflicts_with = "bliss_db", requires = "source_root")]
+        tracks_file: Option<PathBuf>,
+        /// Private directory of opaque, versioned 1280D song embedding JSON exports.
+        /// Available only for explicit manifests and never in dry-run.
+        #[arg(long, requires = "tracks_file")]
+        embedding_dir: Option<PathBuf>,
         #[arg(long)]
         db: PathBuf,
         #[arg(long, default_value = "models")]
@@ -129,15 +151,19 @@ enum Action {
         /// Parallel tracks: auto preserves interactive CPU headroom.
         #[arg(long, default_value = "1")]
         workers: String,
-        /// Opt-in system CPU/RAM-aware concurrency control.
+        /// Optional original C++ Essentia frontend per Rust worker (default rust).
+        #[arg(long, default_value = "rust", value_parser = ["rust", "essentia"])]
+        audio_backend: String,
+        /// Trusted native Essentia C++ worker executable.
         #[arg(long)]
-        adaptive_workers: bool,
-        /// Minimum active jobs during adaptive scanning.
-        #[arg(long, default_value_t = 4)]
-        min_workers: usize,
-        /// Maximum active jobs during adaptive scanning.
-        #[arg(long, default_value_t = 8)]
-        max_workers: usize,
+        essentia_worker: Option<PathBuf>,
+        /// Hard wall-clock limit per native worker song/handshake (1..7200 seconds).
+        #[arg(long, default_value_t = 900)]
+        essentia_timeout_seconds: u64,
+        /// Optional Windows process priority, independent of fixed workers.
+        /// Also applies to native Essentia children through CreateProcess flags.
+        #[arg(long, value_parser = ["normal", "below-normal", "above-normal"])]
+        priority: Option<String>,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -251,79 +277,6 @@ fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Match Essentia MonoLoader(resampleQuality=4) rather than FFmpeg's default
-/// downmix and sample-rate converter.  Essentia averages stereo samples at
-/// 0.5/0.5 and its streaming Resample uses libsamplerate SRC_LINEAR (quality 4).
-fn essentia_linear_resample(samples: &[f32], input_rate: usize) -> Vec<f32> {
-    if input_rate == preprocess::RATE {
-        return samples.to_vec();
-    }
-    if samples.is_empty() {
-        return Vec::new();
-    }
-    let count = samples.len().saturating_mul(preprocess::RATE).div_ceil(input_rate);
-    let step = input_rate as f64 / preprocess::RATE as f64;
-    let mut result = Vec::with_capacity(count);
-    for n in 0..count {
-        // libsamplerate's streaming SRC_LINEAR: first sample at 0; thereafter
-        // the interpolation phase is (n * inputRate/outputRate) - 1.
-        // The previous sample is retained between input blocks.
-        let p = if n == 0 { 0.0 } else { n as f64 * step - 1.0 };
-        if p <= 0.0 {
-            result.push(samples[0]);
-        } else {
-            let left = (p.floor() as usize).min(samples.len() - 1);
-            let right = (left + 1).min(samples.len() - 1);
-            let fraction = p - left as f64;
-            result.push((samples[left] as f64
-                + fraction * (samples[right] as f64 - samples[left] as f64)) as f32);
-        }
-    }
-    result
-}
-
-fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
-    // FFmpeg only decodes to float PCM at the *native* sample rate.
-    // Probe stream metadata once to avoid FFmpeg's different default
-    // channel weights and its incompatible sample-rate conversion.
-    let probe = ProcessCommand::new("ffprobe")
-        .args(["-v", "error", "-select_streams", "a:0",
-               "-show_entries", "stream=sample_rate,channels", "-of", "json"])
-        .arg(input).output()
-        .context("ffprobe not found; install the full FFmpeg distribution")?;
-    if !probe.status.success() {
-        bail!("ffprobe failed: {}", String::from_utf8_lossy(&probe.stderr));
-    }
-    let metadata: serde_json::Value = serde_json::from_slice(&probe.stdout)?;
-    let first = &metadata["streams"][0];
-    let input_rate: usize = first["sample_rate"]
-        .as_str().context("Missing source sample rate")?.parse()?;
-    let channels = first["channels"].as_u64().context("Missing channel count")? as usize;
-    if input_rate == 0 || !(1..=2).contains(&channels) {
-        bail!("Unsupported input audio layout: {channels} channels, {input_rate} Hz");
-    }
-    let output = ProcessCommand::new("ffmpeg")
-        .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-i"])
-        .arg(input)
-        .args(["-map", "0:a:0", "-vn", "-acodec", "pcm_f32le",
-               "-f", "f32le", "pipe:1"])
-        .output()
-        .context("FFmpeg not found; install FFmpeg and add it to PATH")?;
-    if !output.status.success() {
-        bail!("FFmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
-    if output.stdout.len() % (4 * channels) != 0 || output.stdout.is_empty() {
-        bail!("FFmpeg produced empty or malformed f32 PCM");
-    }
-    let samples: Vec<f32> = output.stdout.as_chunks::<4>().0.iter()
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
-    let mono: Vec<f32> = if channels == 2 {
-        samples.as_chunks::<2>().0.iter().map(|c| 0.5 * (c[0] + c[1])).collect()
-    } else {
-        samples
-    };
-    Ok(essentia_linear_resample(&mono, input_rate))
-}
 
 fn analyze(
     path: &Path,
@@ -387,7 +340,7 @@ fn main() -> Result<()> {
             let output = serde_json::json!({
                 "schema_version": 1,
                 "validation_status": "experimental-unvalidated",
-                "preprocessing_version": "experimental-essentia-audio-v4-unvalidated",
+                "preprocessing_version": audio_decode::RUST_PREPROCESSING,
                 "embedding_model": ENCODER,
                 "embedding_model_sha256": sha256_file(&models_dir.join(ENCODER))?,
                 "audio_sha256": sha256_file(&source)?,
@@ -405,7 +358,7 @@ fn main() -> Result<()> {
             let mel = preprocess::mel_spectrogram(&samples)?;
             let frame_count = mel.len();
             let output = serde_json::json!({
-                "preprocessing_version": "experimental-essentia-audio-v4-unvalidated",
+                "preprocessing_version": audio_decode::RUST_PREPROCESSING,
                 "sample_rate": preprocess::RATE,
                 "fft_size": preprocess::FFT,
                 "hop_size": preprocess::HOP,
@@ -447,14 +400,18 @@ fn main() -> Result<()> {
             }
         }
         Action::AnalyzeFeatures {
-            source, models_dir, registry, models, max_patches,
-            threads, json, db, track_key,
+            source, models_dir, registry, models, audio_backend,
+            essentia_worker, essentia_timeout_seconds, max_patches, threads, json, db, track_key,
         } => {
             if db.is_some() != track_key.is_some() {
                 bail!("--db and --track-key must be specified together");
             }
-            let profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
-            let mut engine = features::FeatureEngine::new(profiles, threads)?;
+            let backend = essentia_worker::BackendChoice::from_cli(
+                &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
+            )?;
+            let mut profiles = features::load_profiles(&models_dir, registry.as_deref(), &models)?;
+            features::retarget_profiles(&mut profiles, &backend)?;
+            let mut engine = features::FeatureEngine::with_backend(profiles, threads, &backend)?;
             let report = engine.analyze(&source, max_patches)?;
             if let (Some(db), Some(key)) = (db.as_deref(), track_key.as_deref()) {
                 features::persist(db, key, &report, None)?;
@@ -475,32 +432,37 @@ fn main() -> Result<()> {
             }
         }
         Action::ScanFeatures {
-            bliss_db, db, models_dir, registry, models, library_root,
+            bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
-            adaptive_workers, min_workers, max_workers, dry_run, json,
+            audio_backend, essentia_worker, essentia_timeout_seconds,
+            priority, dry_run, json,
         } => {
+            if tracks_file.is_some() && library_root.is_some() {
+                bail!("--library-root is only supported with --bliss-db");
+            }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
-            if adaptive_workers {
-                parallel::AdaptiveWorkers::new(worker_count, min_workers, max_workers)?;
-                if worker_count > 1 && threads != 1 {
-                    bail!("Adaptive analysis requires --threads 1");
-                }
-            }
-            if (is_auto || adaptive_workers) && !dry_run {
-                parallel::lower_priority_auto();
-            }
-            let summary = features::scan(features::ScanOptions {
-                bliss_db: &bliss_db, db: &db, models_dir: &models_dir,
+            let mut priority_report = parallel::configure_scan_priority(
+                priority.as_deref(), is_auto, dry_run,
+            )?;
+            let backend = essentia_worker::BackendChoice::from_cli(
+                &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
+            )?;
+            let mut summary = features::scan(features::ScanOptions {
+                bliss_db: bliss_db.as_deref(), tracks_file: tracks_file.as_deref(),
+                embedding_dir: embedding_dir.as_deref(),
+                db: &db, models_dir: &models_dir,
                 registry: registry.as_deref(), models: &models,
                 source_root: source_root.as_deref(),
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
-                adaptive_workers, min_workers, max_workers, dry_run,
+                dry_run, backend,
             })?;
+            priority_report.collect_native_workers();
+            summary.set_priority_diagnostics(priority_report);
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             } else {
@@ -574,6 +536,86 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod manifest_cli_tests {
+    use super::{Action, Cli};
+    use clap::Parser;
+
+    #[test]
+    fn legacy_dynamic_flags_are_rejected_not_silently_ignored() {
+        for extra in [
+            vec!["--adaptive-workers"],
+            vec!["--adaptive-policy", "resource"],
+            vec!["--adaptive-policy", "autotune"],
+            vec!["--min-workers", "2"],
+            vec!["--max-workers", "6"],
+            vec!["--adaptive-min-completed-songs", "8"],
+        ] {
+            let mut args = vec!["bliss-mood", "scan-features",
+                "--bliss-db", "cohort.db", "--db", "features.db"];
+            args.extend(extra);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
+
+    #[test]
+    fn fixed_worker_cli_keeps_opt_in_auto_and_priority() {
+        for workers in ["1", "2", "4", "auto"] {
+            for priority in ["normal", "below-normal", "above-normal"] {
+                let args = ["bliss-mood", "scan-features",
+                    "--bliss-db", "cohort.db", "--db", "features.db",
+                    "--workers", workers, "--priority", priority];
+                let cli = Cli::try_parse_from(args).unwrap();
+                match cli.action {
+                    Action::ScanFeatures { workers: selected, priority: p, .. } => {
+                        assert_eq!(selected, workers);
+                        assert_eq!(p.as_deref(), Some(priority));
+                    }
+                    _ => panic!("Expected feature scan"),
+                }
+            }
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--priority", "realtime",
+        ]).is_err());
+        let cli = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db",
+        ]).unwrap();
+        assert!(matches!(cli.action, Action::ScanFeatures { workers, .. } if workers == "1"));
+    }
+
+    #[test]
+    fn source_selection_is_exclusive_and_manifest_requires_root() {
+        let valid = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--db", "features.db",
+            "--workers", "2", "--threads", "1"
+        ]).unwrap();
+        match valid.action {
+            Action::ScanFeatures { bliss_db, tracks_file, .. } => {
+                assert!(bliss_db.is_none());
+                assert_eq!(tracks_file.unwrap(), std::path::PathBuf::from("cohort.txt"));
+            }
+            _ => panic!("Expected scan-features"),
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_err());
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "bliss.db", "--db", "features.db",
+        ]).is_ok());
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,18 @@
 # Adaptive feature scanner — performance and investigation handover
 
+> **Historical investigation only (28 October 2026):** Adaptive worker resizing and throughput autotune are deliberately excluded from the static worker scan CLI prepared in [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20). The user selected `--workers N` or explicit one-time `--workers auto`, retaining default 1. Four 100-song real-music benchmark campaigns (40 scans) are archived in [PR #19](https://github.com/chrober/bliss-mood-poc/blob/feat/ram-safe-online-autotune/docs/autotune-real-music-e2e-findings-20261028.md). The following adaptive recommendations are **not current product behavior**; consult [final architecture](multi-worker-song-analysis-final.md).
+
+
+> **LATEST HANDOVER (28 OCTOBER 2026):**
+> [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
+> plus [new-session prompt](handover-prompt-adaptive-host-sizing-20261028.md).
+> The following October 19 results were obtained using different scanner
+> generations/backends and are preserved as historical evidence. Native
+> 100-song 30-priority-scan and 10-policy-scan results, current host CPU
+> ceiling, model/parity status, and completed CI live in the latest handover.
+> Older notes such as fixed auto max=8 and "native performance unmeasured"
+> must **not** be treated as current PR #18 implementation statements.
+
 **Captured:** 2026-10-19, Europe/Vienna.
 **Repository:** https://github.com/chrober/bliss-mood-poc
 **Implementation baseline:** main `55b35dab1a873c3e61ecd639b7430caf0b09034c`,
@@ -8,6 +21,16 @@ This document records *reported experiments*, code-verified control rules, and
 hypotheses separately. Re-read current code before implementing a change.
 See [chat-handover.md](chat-handover.md) for the full project handover.
 
+> **22 October 2026 addendum:** The parallel scanner's additional
+> `--tracks-file` source and optional `--embedding-dir` pooled 1280D
+> export are being developed in [Draft PR #18](https://github.com/chrober/bliss-mood-poc/pull/18),
+> stacked on the original Essentia-C++ backend Draft PR #17 without
+> modifying either PR #17 or the separate similarity experiment PR #16.
+> See [manifest-batch-adaptive-analysis.md](manifest-batch-adaptive-analysis.md)
+> for the new implementation, verified synthetic ONNX results, and its
+> distinct *unmeasured* production performance questions. Historical
+> 2026-10-19 scanner timing figures below refer to other experiments.
+>
 ## Objective
 
 Make offline three-head music analysis fast, correct, incremental, and

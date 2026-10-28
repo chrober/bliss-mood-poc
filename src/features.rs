@@ -11,8 +11,9 @@ use std::{
 };
 
 use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
+use crate::essentia_worker::{BackendChoice, EssentiaWorker};
 
-const PREPROCESSING: &str = "experimental-essentia-audio-v4-unvalidated";
+const PREPROCESSING: &str = crate::audio_decode::RUST_PREPROCESSING;
 const AGGREGATION: &str = "arithmetic_mean_of_per_patch_sigmoid_scores";
 const SOFTMAX_AGGREGATION: &str = "arithmetic_mean_of_per_patch_softmax_scores";
 
@@ -170,6 +171,34 @@ pub fn load_profiles(
     Ok(profiles)
 }
 
+/// Profile model keys must differ for alternative preprocessing code and each
+/// exact native-worker binary. Never alias the default Rust frontend cache.
+pub fn retarget_profiles(profiles: &mut [Profile], backend: &BackendChoice) -> Result<()> {
+    if let Some(worker_hash) = backend.worker_hash() {
+        for profile in profiles {
+            profile.hashes.insert(
+                "essentia_cpp_worker_binary_sha256".to_owned(),
+                worker_hash.to_owned(),
+            );
+            if let Some(deployment_hash) = backend.deployment_hash() {
+                profile.hashes.insert(
+                    "essentia_cpp_native_deployment_manifest_sha256".to_owned(),
+                    deployment_hash.to_owned(),
+                );
+            }
+            profile.model_key = storage::model_key_for(
+                &profile.descriptor.embedding_model,
+                &profile.descriptor.classification_model,
+                &profile.hashes,
+                backend.preprocessing(),
+                profile.descriptor.output_type.aggregation(),
+                &profile.labels, false,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Serialize)]
 pub struct ClassificationResult {
     pub capability: String,
@@ -200,9 +229,13 @@ pub struct FeatureReport {
 pub struct FeatureEngine {
     encoder: Session,
     heads: Vec<(Profile, Session)>,
+    embedding_enabled: bool,
+    last_song_embedding: Option<crate::song_embedding::SongEmbedding>,
     load_secs: f64,
     counted_load: bool,
     threads: usize,
+    frontend: Option<EssentiaWorker>,
+    preprocessing: &'static str,
 }
 
 fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
@@ -230,7 +263,14 @@ fn feature_environment() -> Result<&'static ort::environment::Environment> {
 }
 
 impl FeatureEngine {
+    #[allow(dead_code)] // Retain legacy constructor for code paths using the Rust frontend.
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
+        Self::with_backend(profiles, threads, &BackendChoice::Rust)
+    }
+
+    pub fn with_backend(
+        profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
+    ) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
         }
@@ -248,23 +288,52 @@ impl FeatureEngine {
                 .commit_from_file(&profile.head_path)?;
             heads.push((profile, session));
         }
+        let frontend = match backend {
+            BackendChoice::Rust => None,
+            BackendChoice::Essentia { executable, timeout_seconds, .. } =>
+                Some(EssentiaWorker::with_timeout(
+                    executable.clone(), std::time::Duration::from_secs(*timeout_seconds),
+                )),
+        };
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
-            counted_load: false, threads })
+            counted_load: false, threads, frontend,
+            embedding_enabled: false, last_song_embedding: None,
+            preprocessing: backend.preprocessing() })
+    }
+
+    /// An opt-in f64 pooled 1280D song embedding. Legacy scans never enable it.
+    pub fn request_song_embedding(&mut self) {
+        self.embedding_enabled = true;
+    }
+
+    pub fn take_song_embedding(&mut self) -> Option<crate::song_embedding::SongEmbedding> {
+        self.last_song_embedding.take()
     }
 
     pub fn analyze(&mut self, path: &Path, max_patches: Option<usize>) -> Result<FeatureReport> {
+        self.last_song_embedding = None;
         if !path.is_file() {
             bail!("Audio file does not exist: {}", path.display());
         }
         let started = Instant::now();
-        let at = Instant::now();
-        let audio = ffmpeg_pcm_mono_16k(path)?;
-        let decode_seconds = at.elapsed().as_secs_f64();
-        let at = Instant::now();
-        let mel = preprocess::mel_spectrogram(&audio)?;
-        let patches = preprocess::patches(&mel, max_patches)?;
-        let features_seconds = at.elapsed().as_secs_f64();
+        let (patches, decode_seconds, features_seconds) = match self.frontend.as_mut() {
+            Some(worker) => {
+                let native = worker.analyze(path, max_patches)?;
+                (native.patches, native.decode_seconds, native.features_seconds)
+            }
+            None => {
+                let at = Instant::now();
+                let audio = ffmpeg_pcm_mono_16k(path)?;
+                let decode_seconds = at.elapsed().as_secs_f64();
+                let at = Instant::now();
+                let mel = preprocess::mel_spectrogram(&audio)?;
+                let patches = preprocess::patches(&mel, max_patches)?;
+                (patches, decode_seconds, at.elapsed().as_secs_f64())
+            }
+        };
         let count = patches.len();
+        let mut embedding_sums = self.embedding_enabled
+            .then(|| vec![0.0_f64; crate::song_embedding::DIMENSIONS]);
         let mut sums: Vec<Vec<f64>> = self.heads.iter()
             .map(|(profile, _)| vec![0.0; profile.labels.len()]).collect();
         let at = Instant::now();
@@ -280,6 +349,9 @@ impl FeatureEngine {
                 }
             }
             let vector = vector.context("EffNet did not output a 1280-dimensional embedding")?;
+            if let Some(ref mut embedding_sums) = embedding_sums {
+                crate::song_embedding::add_patch(embedding_sums, &vector)?;
+            }
             for (i, (profile, session)) in self.heads.iter_mut().enumerate() {
                 let scores = classify(session, &vector, profile.labels.len(), profile.descriptor.output_type)?;
                 for (sum, value) in sums[i].iter_mut().zip(scores) {
@@ -309,9 +381,18 @@ impl FeatureEngine {
         }
         let at_hash = Instant::now();
         let audio_hash = sha256_file(path)?;
+        if let Some(ref embedding_sums) = embedding_sums {
+            let profile = &self.heads[0].0;
+            let model = &profile.descriptor.embedding_model;
+            let model_sha = profile.hashes.get(model)
+                .context("No encoder SHA256 for embedding export")?;
+            self.last_song_embedding = Some(crate::song_embedding::build(
+                embedding_sums, count, model, model_sha, self.preprocessing, &audio_hash,
+            )?);
+        }
         let hash_seconds = at_hash.elapsed().as_secs_f64();
         Ok(FeatureReport {
-            schema_version: 3, preprocessing_version: PREPROCESSING,
+            schema_version: 3, preprocessing_version: self.preprocessing,
             aggregation: AGGREGATION,
             audio_path: path.display().to_string(),
             audio_sha256: audio_hash,
@@ -487,9 +568,17 @@ pub struct ScanSummary {
     model_sessions_initialized: bool,
     experimental_results: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<crate::parallel::PriorityDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<ScanDiagnostics>,
 }
 
+
+impl ScanSummary {
+    pub fn set_priority_diagnostics(&mut self, report: crate::parallel::PriorityDiagnostics) {
+        self.priority = Some(report);
+    }
+}
 
 #[derive(Debug, Default, Serialize)]
 struct ScanDiagnostics {
@@ -513,21 +602,32 @@ struct ScanDiagnostics {
     system_available_ram_min_mib: Option<f64>,
     process_working_set_max_mib: Option<f64>,
     process_private_bytes_max_mib: Option<f64>,
+    /// Observed high-water estimate for the Rust process plus registered
+    /// Essentia worker subprocesses. Shared pages may be counted twice.
+    process_tree_working_set_max_mib: Option<f64>,
+    process_tree_private_bytes_max_mib: Option<f64>,
+    native_child_working_set_max_mib: Option<f64>,
+    native_child_private_bytes_max_mib: Option<f64>,
+    native_child_processes_max: usize,
+    /// Transient child exits may race with resource enumeration: samples
+    /// missing child counters are recorded but not treated as complete.
+    process_tree_incomplete_samples: usize,
     /// Difference between first and last sampled Windows page-fault counter.
     /// Includes soft faults; is NOT disk page-ins or paging-file I/O.
     process_page_fault_delta: Option<u64>,
     #[serde(skip)]
+    #[cfg_attr(not(windows), allow(dead_code))]
     process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
+    logical_cpu_capacity: usize,
+    /// Effective pool capacity after limits and bounded cohort size.
+    configured_max_workers: usize,
     final_workers: usize,
     peak_workers: usize,
     /// Max number of jobs dispatched but not yet collected by coordinator.
     peak_in_flight: usize,
     /// Actual worker threads inside a song's analysis path simultaneously.
     peak_active_analyses: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    controller_decisions: Option<crate::parallel::WorkerDecisionCounters>,
-    adjustments: Vec<crate::parallel::WorkerAdjustment>,
     #[serde(skip)]
     cpu_sum: f64,
 }
@@ -558,10 +658,33 @@ impl ScanDiagnostics {
                 .unwrap_or(0.0).max(process.working_set_mib));
             self.process_private_bytes_max_mib = Some(self.process_private_bytes_max_mib
                 .unwrap_or(0.0).max(process.private_bytes_mib));
-            let first = *self.process_first_page_fault_count
-                .get_or_insert(process.page_fault_count);
-            self.process_page_fault_delta =
-                Some(process.page_fault_count.wrapping_sub(first));
+            #[cfg(windows)]
+            {
+                let first = *self.process_first_page_fault_count
+                    .get_or_insert(process.page_fault_count);
+                self.process_page_fault_delta =
+                    Some(process.page_fault_count.wrapping_sub(first));
+            }
+        }
+        if let Some(tree) = crate::resources::process_tree_memory_diagnostics() {
+            self.native_child_processes_max =
+                self.native_child_processes_max.max(tree.registered_children);
+            if tree.complete {
+                self.process_tree_working_set_max_mib = Some(
+                    self.process_tree_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.total_working_set_mib));
+                self.process_tree_private_bytes_max_mib = Some(
+                    self.process_tree_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.total_private_bytes_mib));
+                self.native_child_working_set_max_mib = Some(
+                    self.native_child_working_set_max_mib.unwrap_or(0.0)
+                        .max(tree.child_working_set_mib));
+                self.native_child_private_bytes_max_mib = Some(
+                    self.native_child_private_bytes_max_mib.unwrap_or(0.0)
+                        .max(tree.child_private_bytes_mib));
+            } else {
+                self.process_tree_incomplete_samples += 1;
+            }
         }
         if let Some(memory) = crate::resources::memory_diagnostics() {
             self.system_available_ram_min_mib = Some(self.system_available_ram_min_mib
@@ -572,7 +695,9 @@ impl ScanDiagnostics {
 }
 
 pub struct ScanOptions<'a> {
-    pub bliss_db: &'a Path,
+    pub bliss_db: Option<&'a Path>,
+    pub tracks_file: Option<&'a Path>,
+    pub embedding_dir: Option<&'a Path>,
     pub db: &'a Path,
     pub models_dir: &'a Path,
     pub registry: Option<&'a Path>,
@@ -584,10 +709,119 @@ pub struct ScanOptions<'a> {
     pub max_errors: usize,
     pub threads: usize,
     pub workers: usize,
-    pub adaptive_workers: bool,
-    pub min_workers: usize,
-    pub max_workers: usize,
     pub dry_run: bool,
+    pub backend: BackendChoice,
+}
+
+/// Keep explicit research cohorts independent of Bliss's catalog while using
+/// the same scanner, worker scheduling and SQLite persistence code.
+fn read_track_manifest(path: &Path) -> Result<Vec<String>> {
+    use std::io::Read;
+    const MAX_MANIFEST_BYTES: u64 = 32 * 1024 * 1024;
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Cannot open track manifest {}", path.display()))?;
+    let mut content = String::new();
+    file.take(MAX_MANIFEST_BYTES + 1).read_to_string(&mut content)
+        .with_context(|| format!("Cannot read UTF-8 track manifest {}", path.display()))?;
+    if content.len() as u64 > MAX_MANIFEST_BYTES {
+        bail!("Track manifest exceeds 32 MiB input limit");
+    }
+    let mut tracks = Vec::new();
+    let mut unique = HashSet::new();
+    for (index, raw) in content.lines().enumerate() {
+        let key = raw.strip_suffix('\r').unwrap_or(raw);
+        if key.is_empty() { continue; }
+        if key.trim() != key || key.chars().any(|c| matches!(c, '\\' | ':' | '\0'))
+            || key.starts_with('/')
+            || key.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            bail!("Unsafe manifest track identity on line {}", index + 1);
+        }
+        if !unique.insert(key.to_owned()) {
+            bail!("Duplicate manifest track identity on line {}", index + 1);
+        }
+        if tracks.len() >= 100_000 {
+            bail!("Track manifest exceeds the 100000-song safety limit");
+        }
+        tracks.push(key.to_owned());
+    }
+    if tracks.is_empty() {
+        bail!("Track manifest contains no song identities");
+    }
+    Ok(tracks)
+}
+
+fn selected_tracks(options: &ScanOptions<'_>) -> Result<Vec<String>> {
+    let mut tracks = match (options.bliss_db, options.tracks_file) {
+        (Some(db), None) => storage::bliss_files(db)?,
+        (None, Some(manifest)) => {
+            let root = options.source_root.context("--tracks-file requires --source-root")?;
+            if options.library_root.is_some() {
+                bail!("--library-root is incompatible with --tracks-file");
+            }
+            let root_real = std::fs::canonicalize(root)
+                .context("Cannot resolve manifest --source-root")?;
+            let tracks = read_track_manifest(manifest)?;
+            // Deny any existing symlink that escapes the permitted local audio root.
+            // Unavailable files are handled by the scanner's usual missing-file policy.
+            for track in &tracks {
+                let path = crate::batch::source_path(track, None, Some(root))?;
+                if let Ok(resolved) = std::fs::canonicalize(&path) {
+                    if !resolved.starts_with(&root_real) {
+                        bail!("Manifest track resolves outside --source-root");
+                    }
+                }
+            }
+            tracks
+        }
+        _ => bail!("Specify exactly one of --bliss-db and --tracks-file"),
+    };
+    if let Some(exact) = options.only_track {
+        tracks.retain(|key| key == exact);
+        if tracks.is_empty() {
+            bail!("Exact --only-track not found in selected tracks");
+        }
+    }
+    Ok(tracks)
+}
+
+fn is_scan_complete(
+    conn: &Connection, track: &str, profiles: &[Profile], state: (i64, i64),
+    embedding_dir: Option<&Path>, preprocessing: &str,
+) -> Result<bool> {
+    if !is_current(conn, track, profiles, state)? { return Ok(false); }
+    let Some(dir) = embedding_dir else { return Ok(true); };
+    let profile = &profiles[0];
+    let model = &profile.descriptor.embedding_model;
+    let encoder_sha = profile.hashes.get(model)
+        .context("Encoder SHA256 missing from model metadata")?;
+    let (audio_sha, patches): (String, i64) = conn.query_row(
+        "SELECT audio_sha256, patches_analyzed FROM feature_tracks
+          WHERE track_file=?1 AND model_id=?2 AND model_key=?3",
+        params![track, &profile.descriptor.id, &profile.model_key],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if patches <= 0 { return Ok(false); }
+    crate::song_embedding::cached_matches(
+        &crate::song_embedding::track_output_path(dir, track),
+        track, &audio_sha, patches as usize, model, encoder_sha, preprocessing,
+    )
+}
+
+fn persist_scan_output(
+    conn: &mut Connection, track: &str, state: (i64, i64),
+    report: &FeatureReport,
+    embedding: Option<crate::song_embedding::SongEmbedding>,
+    embedding_dir: Option<&Path>,
+) -> Result<()> {
+    if let Some(dir) = embedding_dir {
+        let mut embedding = embedding.context("Requested 1280D embedding was not returned")?;
+        embedding.track_file = Some(track.to_owned());
+        crate::song_embedding::write_or_verify(
+            &crate::song_embedding::track_output_path(dir, track), &embedding,
+        )?;
+    }
+    persist_into(conn, track, report, Some(state))
 }
 
 pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
@@ -595,30 +829,32 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     if options.threads == 0 || options.max_new == Some(0) || options.max_errors == 0 {
         bail!("--threads, --max-new and --max-errors must be positive");
     }
-    let profiles = load_profiles(options.models_dir, options.registry, options.models)?;
-    if options.workers == 0 || options.workers > 64 {
-        bail!("Worker count must be 1..=64");
+    let tracks = selected_tracks(&options)?;
+    if let Some(out) = options.embedding_dir {
+        if options.tracks_file.is_none() || options.dry_run {
+            bail!("--embedding-dir requires --tracks-file and forbids --dry-run");
+        }
+        if !out.is_dir() {
+            bail!("--embedding-dir must be an existing private directory");
+        }
+        let out_real = std::fs::canonicalize(out)?;
+        for protected in [options.source_root, Some(options.models_dir)].into_iter().flatten() {
+            if out_real.starts_with(std::fs::canonicalize(protected)?) {
+                bail!("Embedding output directory must be outside audio and model roots");
+            }
+        }
+    }
+    let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
+    retarget_profiles(&mut profiles, &options.backend)?;
+    let cpu_cap = crate::parallel::available_worker_capacity();
+    if !options.dry_run && (options.workers == 0 || options.workers > cpu_cap) {
+        bail!("Worker count must be within 1..={cpu_cap} logical CPUs available to this process");
     }
     if options.workers > 1 && options.threads > 1 {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
     }
-    if options.adaptive_workers {
-        crate::parallel::AdaptiveWorkers::new(
-            options.workers, options.min_workers, options.max_workers,
-        )?;
-        if options.dry_run {
-            bail!("--adaptive-workers cannot be used with --dry-run");
-        }
-    }
     if options.workers > 1 && !options.dry_run {
-        return scan_parallel(options, profiles, started);
-    }
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(track) = options.only_track {
-        tracks.retain(|key| key == track);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
+        return scan_parallel(options, profiles, tracks, started);
     }
     let mut conn = if options.dry_run {
         storage::open_readonly_scan_db(options.db)?
@@ -634,7 +870,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
-        diagnostics: None,
+        priority: None, diagnostics: None,
     };
     for track in tracks {
         // Bound attempted songs, not just successful writes. A broken ONNX
@@ -667,8 +903,10 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
                 continue;
             }
         };
-        if conn.as_ref().map(|db| is_current(db, &track, &profiles, state))
-            .transpose()?.unwrap_or(false) {
+        if conn.as_ref().map(|db| is_scan_complete(
+            db, &track, &profiles, state, options.embedding_dir,
+            options.backend.preprocessing(),
+        )).transpose()?.unwrap_or(false) {
             summary.up_to_date += 1;
             continue;
         }
@@ -679,13 +917,22 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             break;
         }
         if engine.is_none() {
-            engine = Some(FeatureEngine::new(profiles.clone(), options.threads)?);
+            let mut created = FeatureEngine::with_backend(
+                profiles.clone(), options.threads, &options.backend,
+            )?;
+            if options.embedding_dir.is_some() {
+                created.request_song_embedding();
+            }
+            engine = Some(created);
             summary.model_sessions_initialized = true;
         }
-        let outcome = engine.as_mut().expect("engine available").analyze(&path, None)
-            .and_then(|report| persist_into(
-                conn.as_mut().expect("writable feature database"), &track, &report, Some(state),
-            ));
+        let engine = engine.as_mut().expect("engine available");
+        let outcome = engine.analyze(&path, None).and_then(|report| {
+            persist_scan_output(
+                conn.as_mut().expect("writable feature database"), &track, state,
+                &report, engine.take_song_embedding(), options.embedding_dir,
+            )
+        });
         match outcome {
             Ok(()) => {
                 summary.analyzed += 1;
@@ -708,7 +955,16 @@ struct FeatureJob {
     state: (i64, i64),
 }
 
-type FeatureCompletion = (FeatureJob, Result<FeatureReport>);
+type FeatureCompletion = (
+    FeatureJob,
+    Result<(FeatureReport, Option<crate::song_embedding::SongEmbedding>)>,
+);
+
+#[derive(Clone, Copy)]
+struct CompletionPolicy<'a> {
+    expected: Option<usize>,
+    embedding_dir: Option<&'a Path>,
+}
 
 fn save_completion(
     rx: &std::sync::mpsc::Receiver<FeatureCompletion>,
@@ -716,16 +972,17 @@ fn save_completion(
     summary: &mut ScanSummary,
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
-    adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
-    expected: Option<usize>,
+    policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
     match result {
-        Ok(report) => match persist_into(conn, &job.track, &report, Some(job.state)) {
+        Ok((report, embedding)) => match persist_scan_output(
+            conn, &job.track, job.state, &report, embedding, policy.embedding_dir,
+        ) {
             Ok(()) => {
                 diagnostics.add(&report);
                 summary.analyzed += 1;
-                if let Some(max) = expected {
+                if let Some(max) = policy.expected {
                     eprintln!("ANALYZED {} ({}/{})", job.track, summary.analyzed, max);
                 } else {
                     eprintln!("ANALYZED {} (completed={}, attempted={})",
@@ -744,10 +1001,6 @@ fn save_completion(
     }
     if let Some(load) = monitor.sample() {
         diagnostics.sample(load);
-        if let Some(controller) = adaptive.as_mut() {
-            controller.observe(summary.analyzed, load);
-            diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
-        }
     }
     Ok(())
 }
@@ -758,50 +1011,34 @@ fn save_completion(
 fn scan_parallel(
     options: ScanOptions<'_>,
     profiles: Vec<Profile>,
+    tracks: Vec<String>,
     started: Instant,
 ) -> Result<ScanSummary> {
     use std::sync::{mpsc, Arc, Mutex};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let mut tracks = storage::bliss_files(options.bliss_db)?;
-    if let Some(exact) = options.only_track {
-        tracks.retain(|key| key == exact);
-        if tracks.is_empty() {
-            bail!("Exact --only-track not found in TracksV2");
-        }
-    }
     let mut conn = storage::open_scan_db(options.db)?;
-    let pool_size = if options.adaptive_workers {
-        options.max_workers.min(tracks.len()).max(1)
-    } else {
-        options.workers.min(tracks.len()).max(1)
-    };
-    let initial = options.workers.min(pool_size);
-    // Sample before starting the adaptive controller's cooldown clock;
-    // the one-second CPU baseline must not shorten its 20-second guard.
+    // Scan capacity is fixed at startup, independent of the number of
+    // remaining songs or temporarily idle workers.
+    let pool_size = options.workers.min(tracks.len()).max(1);
     let baseline = crate::resources::scan_resource_baseline();
-    let mut adaptive = if options.adaptive_workers {
-        Some(crate::parallel::AdaptiveWorkers::new(
-            initial, options.min_workers.min(initial), pool_size,
-        )?)
-    } else {
-        None
-    };
     let mut diagnostics = ScanDiagnostics {
-        initial_workers: initial,
-        final_workers: initial,
-        peak_workers: initial,
+        initial_workers: pool_size,
+        logical_cpu_capacity: crate::parallel::available_worker_capacity(),
+        configured_max_workers: pool_size,
+        final_workers: pool_size,
+        peak_workers: pool_size,
         baseline: Some(baseline),
         ..ScanDiagnostics::default()
     };
     let mut monitor = crate::resources::ResourceMonitor::new();
     let mut summary = ScanSummary {
         model_ids: profiles.iter().map(|p| p.descriptor.id.clone()).collect(),
-        workers: initial, bliss_tracks: tracks.len(),
+        workers: pool_size, bliss_tracks: tracks.len(),
         checked: 0, up_to_date: 0, pending: 0, analyzed: 0,
         missing_files: 0, failures: 0, limit_reached: false,
         elapsed_seconds: 0.0, model_sessions_initialized: false,
         experimental_results: true,
-        diagnostics: None,
+        priority: None, diagnostics: None,
     };
 
     // A single bounded task channel; only up to active jobs in flight.
@@ -816,6 +1053,7 @@ fn scan_parallel(
             let rx = Arc::clone(&task_rx);
             let tx = result_tx.clone();
             let profiles = profiles.clone();
+            let backend = options.backend.clone();
             let active_analyses = Arc::clone(&active_analyses);
             let peak_active_analyses = Arc::clone(&peak_active_analyses);
             scope.spawn(move || {
@@ -831,11 +1069,19 @@ fn scan_parallel(
                     let active = active_analyses.fetch_add(1, Ordering::SeqCst) + 1;
                     peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
-                        Some(engine) => engine.analyze(&task.path, None),
-                        None => match FeatureEngine::new(profiles.clone(), options.threads) {
-                            Ok(created) => {
+                        Some(engine) => engine.analyze(&task.path, None)
+                            .map(|report| (report, engine.take_song_embedding())),
+                        None => match FeatureEngine::with_backend(
+                            profiles.clone(), options.threads, &backend,
+                        ) {
+                            Ok(mut created) => {
+                                if options.embedding_dir.is_some() {
+                                    created.request_song_embedding();
+                                }
+                                let result = created.analyze(&task.path, None)
+                                    .map(|report| (report, created.take_song_embedding()));
                                 engine = Some(created);
-                                engine.as_mut().expect("initialized").analyze(&task.path, None)
+                                result
                             }
                             Err(err) => Err(err),
                         },
@@ -879,17 +1125,20 @@ fn scan_parallel(
                     continue;
                 }
             };
-            if is_current(&conn, &track, &profiles, state)? {
+            if is_scan_complete(
+                &conn, &track, &profiles, state, options.embedding_dir,
+                options.backend.preprocessing(),
+            )? {
                 summary.up_to_date += 1;
                 continue;
             }
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
-            while in_flight >= adaptive.as_ref().map_or(pool_size, |a| a.active) {
+            while in_flight >= pool_size {
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                    &mut monitor, &mut adaptive, options.max_new,
+                    &mut monitor, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -899,7 +1148,7 @@ fn scan_parallel(
                     while in_flight > 0 {
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                            &mut monitor, &mut adaptive, options.max_new,
+                            &mut monitor, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
                         )?;
                         in_flight -= 1;
                     }
@@ -924,18 +1173,13 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                &mut monitor, &mut adaptive, options.max_new,
+                &mut monitor, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
             )?;
             in_flight -= 1;
         }
         Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
     diagnostics.peak_active_analyses = peak_active_analyses.load(Ordering::SeqCst);
-    if let Some(controller) = adaptive {
-        diagnostics.final_workers = controller.active;
-        diagnostics.controller_decisions = Some(controller.decisions);
-        diagnostics.adjustments = controller.adjustments;
-    }
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
     summary.diagnostics = Some(diagnostics);
     if aborted {
@@ -952,6 +1196,96 @@ fn scan_parallel(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn manifest_selection_reuses_scan_options_and_filters_exact_identity() {
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-cohort-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Artist")).unwrap();
+        std::fs::write(music.join("Artist").join("one.flac"), b"synthetic").unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "Artist/one.flac\nArtist/missing.flac\n").unwrap();
+        let mut options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            embedding_dir: None, db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre",
+            source_root: Some(music.as_path()), library_root: None,
+            only_track: None, max_new: None, max_errors: 5,
+            threads: 1, workers: 2, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        // Missing audio is a scanner-stage error, not silently lost in the manifest.
+        assert_eq!(selected_tracks(&options).unwrap(),
+            vec!["Artist/one.flac", "Artist/missing.flac"]);
+        options.only_track = Some("Artist/one.flac");
+        assert_eq!(selected_tracks(&options).unwrap(), vec!["Artist/one.flac"]);
+        options.only_track = Some("Artist/not-selected.flac");
+        assert!(selected_tracks(&options).is_err());
+        options.only_track = None;
+        options.library_root = Some("/wrong");
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_rejects_existing_symlink_outside_source_root() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-symlink-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let music = dir.join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let outside = dir.join("outside.wav");
+        std::fs::write(&outside, b"synthetic").unwrap();
+        symlink(&outside, music.join("linked.wav")).unwrap();
+        let manifest = dir.join("selected.txt");
+        std::fs::write(&manifest, "linked.wav\n").unwrap();
+        let options = ScanOptions {
+            bliss_db: None, tracks_file: Some(manifest.as_path()),
+            embedding_dir: None, db: std::path::Path::new("unused.db"),
+            models_dir: std::path::Path::new("unused-models"),
+            registry: None, models: "genre", source_root: Some(music.as_path()),
+            library_root: None, only_track: None, max_new: None,
+            max_errors: 5, threads: 1, workers: 2, dry_run: true,
+            backend: BackendChoice::Rust,
+        };
+        assert!(selected_tracks(&options).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn manifest_preserves_order_and_rejects_aliases_or_duplicates() {
+        let file = std::env::temp_dir().join(format!(
+            "bliss-mood-manifest-{}-{}.txt", std::process::id(),
+            std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&file, "Artist/B.flac\nArtist/A.flac\n").unwrap();
+        assert_eq!(read_track_manifest(&file).unwrap(),
+            vec!["Artist/B.flac", "Artist/A.flac"]);
+        for contents in [
+            "Artist/A.flac\nArtist/A.flac\n",
+            "../outside.mp3\n",
+            "Artist/./song.flac\n",
+            "Artist//song.mp3\n",
+            "C:/escape.mp3\n",
+            "Artist\\song.mp3\n",
+            "/outside/song.mp3\n",
+        ] {
+            std::fs::write(&file, contents).unwrap();
+            assert!(read_track_manifest(&file).is_err(), "{contents:?}");
+        }
+        std::fs::write(&file, vec![b'a'; 32 * 1024 * 1024 + 1]).unwrap();
+        assert!(read_track_manifest(&file).is_err());
+        std::fs::remove_file(&file).unwrap();
+    }
+
+
 
     fn fake_result(model_id: &str, capability: &str, count: usize) -> ClassificationResult {
         let embedding_model = "encoder.onnx".to_owned();
@@ -1133,6 +1467,59 @@ mod tests {
             assert!(!safe_model_name(name));
         }
         assert!(safe_model_name("head.onnx"));
+    }
+
+    #[test]
+    fn native_frontend_has_distinct_cached_model_key_per_worker_binary() {
+        let descriptor = Descriptor {
+            id: "genre".to_owned(), capability: "genre".to_owned(),
+            embedding_model: "encoder.onnx".to_owned(),
+            classification_model: "genre.onnx".to_owned(),
+            metadata: "genre.json".to_owned(), embedding_dimensions: 1280,
+            expected_classes: 2, output_type: OutputType::Sigmoid,
+        };
+        let hashes = BTreeMap::from([
+            ("encoder.onnx".to_owned(), "a".repeat(64)),
+            ("genre.onnx".to_owned(), "b".repeat(64)),
+        ]);
+        let labels = vec!["a".to_owned(), "b".to_owned()];
+        let original_key = storage::model_key_for(
+            "encoder.onnx", "genre.onnx", &hashes, PREPROCESSING,
+            AGGREGATION, &labels, false,
+        ).unwrap();
+        let original = Profile {
+            descriptor, labels, encoder_path: PathBuf::from("encoder.onnx"),
+            head_path: PathBuf::from("genre.onnx"), hashes,
+            model_key: original_key.clone(),
+        };
+        let mut untouched = vec![original.clone()];
+        retarget_profiles(&mut untouched, &BackendChoice::Rust).unwrap();
+        assert_eq!(untouched[0].model_key, original_key);
+        let mk_backend = |fingerprint: &str| BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: fingerprint.repeat(64),
+            deployment_sha256: None, timeout_seconds: 900,
+        };
+        let mut first = vec![original.clone()];
+        let mut second = vec![original];
+        retarget_profiles(&mut first, &mk_backend("c")).unwrap();
+        retarget_profiles(&mut second, &mk_backend("d")).unwrap();
+        assert_ne!(first[0].model_key, original_key);
+        assert_ne!(second[0].model_key, first[0].model_key);
+        assert_eq!(first[0].hashes["essentia_cpp_worker_binary_sha256"], "c".repeat(64));
+        let mut with_dependencies = vec![first[0].clone()];
+        let installed = BackendChoice::Essentia {
+            executable: PathBuf::from("test-only-worker"),
+            worker_sha256: "c".repeat(64),
+            deployment_sha256: Some("d".repeat(64)),
+            timeout_seconds: 900,
+        };
+        retarget_profiles(&mut with_dependencies, &installed).unwrap();
+        assert_eq!(
+            with_dependencies[0].hashes["essentia_cpp_native_deployment_manifest_sha256"],
+            "d".repeat(64)
+        );
+        assert_ne!(with_dependencies[0].model_key, first[0].model_key);
     }
 
     #[test]

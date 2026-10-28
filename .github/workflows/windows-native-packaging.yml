@@ -1,0 +1,72 @@
+name: Windows native DLL package smoke (fixture only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/package_essentia_worker_windows.py"
+      - "tests/test_package_essentia_worker_windows.py"
+      - "native/protocol_fixture.cpp"
+      - "native/protocol-fixture/**"
+      - ".github/workflows/windows-native-packaging.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-real-windows-pe-dll-closure:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-binutils
+      - name: Discover GNU PE objdump from the actual MSYS2 installation
+        shell: msys2 {0}
+        run: |
+          tool="$(command -v objdump)"
+          test -x "$tool"
+          echo "PE_OBJDUMP=$(cygpath -w "$tool")" >> "$GITHUB_ENV"
+      - name: Build a Windows PE executable (synthetic worker, NOT Essentia)
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cmake -S native/protocol-fixture -B build/win-pe -A x64
+            if ($LASTEXITCODE -ne 0) { throw 'Windows CMake configure failed' }
+            cmake --build build/win-pe --config Release
+            if ($LASTEXITCODE -ne 0) { throw 'Windows C++ build failed' }
+          }
+      - name: Inspect actual Windows PE imports and package transitive DLLs
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $exe = (Resolve-Path 'build/win-pe/Release/essentia-protocol-fixture.exe').Path
+            $objdump = $env:PE_OBJDUMP
+            if (-not (Test-Path $objdump)) { throw 'MSYS2 MinGW64 objdump was not installed' }
+            & $objdump -p $exe | Select-String -Pattern 'DLL Name:'
+            if ($LASTEXITCODE -ne 0) { throw 'GNU objdump failed to inspect Windows PE' }
+            python scripts/package_essentia_worker_windows.py `
+              --worker $exe `
+              --objdump $objdump `
+              --dll-dir 'build/win-pe/Release' `
+              --dll-dir "$env:WINDIR\System32" `
+              --output 'build/win-pe-package'
+            if ($LASTEXITCODE -ne 0) { throw 'Windows real-PE dependency packaging failed' }
+            python scripts/package_essentia_worker_windows.py --verify 'build/win-pe-package'
+            if ($LASTEXITCODE -ne 0) { throw 'Windows real-PE checksum verification failed' }
+            python -c "import json,pathlib; p=pathlib.Path('build/win-pe-package/worker-dependencies.json'); x=json.loads(p.read_text()); assert x['release_approved'] is False; assert 'essentia-pe-fixture-dependency.dll' in x['files']; print('Imported DLL closure:',list(x['files']))"
+            if ($LASTEXITCODE -ne 0) { throw 'Windows license/provenance gates failed' }
+          }
+      - name: Start packaged PE fixture without MSYS2 PATH
+        shell: pwsh
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python -c "from pathlib import Path; import subprocess; p=Path('build/win-pe-package/essentia-protocol-fixture.exe'); r=subprocess.run([str(p)],input=b'',stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=15,check=True); assert r.stdout==b'EFW1', repr(r.stdout); print('Native PE packaging smoke PASS (mock, not Essentia)')"
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged real Windows PE failed to run' }
+          }

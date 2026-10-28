@@ -1,6 +1,10 @@
 # Deferred platform-neutral resource architecture
 
-**Status:** Deferred roadmap — not the current implementation priority.
+**Status:** Roadmap; CPU-capacity discovery partly implemented in PR #18
+as of 28 October 2026. **Memory-aware sizing, ARM/Raspberry Pi native
+inference validation, and throughput feedback remain unimplemented.**
+See [current host-sizing handover](handover-adaptive-host-sizing-20261028.md)
+before relying on the historical task sequence below.
 **Recorded:** 2026-10-19.
 **Current priority:** [Bliss + Mood/Genre in Lyrion](lyrion-bliss-mood-genre-integration.md).
 **Source of truth:** existing scanner implementation, CI, and experiment handovers.

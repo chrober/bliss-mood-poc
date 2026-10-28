@@ -5,16 +5,26 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "native/protocol_fixture.cpp"
+      - "native/protocol-fixture/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
+      - "scripts/benchmark_native_adaptive_manifest.py"
+      - "tests/test_benchmark_native_adaptive_manifest.py"
   push:
     branches: [main]
     paths:
       - "src/**"
+      - "native/protocol_fixture.cpp"
+      - "native/protocol-fixture/**"
       - "Cargo.toml"
+      - "Cargo.lock"
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
+      - "scripts/benchmark_native_adaptive_manifest.py"
+      - "tests/test_benchmark_native_adaptive_manifest.py"
 
 permissions:
   contents: read
@@ -29,6 +39,13 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify native adaptive benchmark regression tests on Windows
+        run: |
+          python -m unittest discover -s tests -p 'test_benchmark_native_adaptive_manifest.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native benchmark regression tests failed on Windows' }
       - name: Set up Rust stable (MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -42,10 +59,21 @@ jobs:
           if (Test-Path $vswhere) {
             & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           }
-      - name: Run Rust tests
-        run: cargo test --target x86_64-pc-windows-msvc
+      - name: Build MSVC C++ mock and test real Windows subprocess IPC
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cmake -S native/protocol-fixture -B build/native-protocol-fixture -A x64
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture configuration failed' }
+            cmake --build build/native-protocol-fixture --config Release
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture compilation failed' }
+            $fixture = Resolve-Path 'build/native-protocol-fixture/Release/essentia-protocol-fixture.exe'
+            $env:ESSENTIA_IPC_FIXTURE_EXE = $fixture.Path
+            cargo test --locked --target x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw 'Windows Rust/native worker regression failed' }
+          }
       - name: Build release binary
-        run: cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
       - name: Smoke-test executable
         run: |
           & .\target\x86_64-pc-windows-msvc\release\bliss-mood.exe --help
@@ -82,7 +110,14 @@ jobs:
           Numerical reference parity has passed for synthetic fixtures.
           Real-music quality and production use remain unvalidated.
           '@ | Set-Content -Path (Join-Path $dist "README-WINDOWS.txt") -Encoding utf8
-          "Commit: $env:GITHUB_SHA" | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
+          # Pull-request jobs checkout refs/pull/N/merge, not the PR branch HEAD.
+          # Record BOTH commits so downstream verification can distinguish them.
+          $prHead = '${{ github.event.pull_request.head.sha }}'
+          if (-not $prHead) { $prHead = $env:GITHUB_SHA }
+          @(
+            "Commit: $env:GITHUB_SHA"
+            "Source PR head commit: $prHead"
+          ) | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
           $checksum = (Get-FileHash -LiteralPath (Join-Path $dist "bliss-mood.exe") -Algorithm SHA256).Hash
           "$checksum *bliss-mood.exe" | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
           Get-ChildItem -LiteralPath $dist | Select-Object Name,Length
