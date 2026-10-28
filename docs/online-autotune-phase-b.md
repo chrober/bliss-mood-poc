@@ -56,3 +56,38 @@ The proposed **hard-kill ONNX feature-worker process architecture** is documente
 3. Improve online measurement beyond the implemented forward/reverse repeated coarse sweeps: use randomized/interleaved candidate windows, robust uncertainty estimation and change detection, explicitly accounting for exploration overhead and remaining scan size.
 4. Exercise a mixed-duration, private local manifest with no raw private data committed. Compare to best safe fixed setting **per host** solely for validation; no host-specific tuning rules.
 5. Only after cross-platform, RAM pressure, throughput and parity validation consider making autotune the default.
+
+## Algorithm-first development in PR #19 (28 October 2026)
+
+The project's priority is **safe, hardware-independent, nonmonotonic online throughput optimization**, not further ONNX-process infrastructure. Only opt-in adaptive-policy autotune is changed. The legacy resource controller, original Essentia and ONNX math, SQLite single-writer and PR #16 are unchanged.
+
+### Current integration and findings
+
+The scan_parallel coordinator in src/features.rs instantiates OnlineAutotuner only when autotune is explicitly enabled. On each persisted completion, save_completion sends cumulative successfully analyzed songs, EffNet patch counts, effective available RAM and remaining scan size to observe(). A changed worker capacity stops new admission until prior in-flight work drains; settle() resets measurement attribution. The RAM watchdog and CPU/cgroup upper bounds remain safety guards.
+
+The existing coarse candidate schedule **does not stop at local declines**. For 6..12 workers it visits 6, 8, 10 and 12. Its existing forward/reverse sweeps, >=8-song / >=12-second measurement windows, rolling median of up to eight observations and 5% improvement hysteresis are preserved.
+
+### Prioritized algorithm changes
+
+| Priority | Weakness | Current response |
+|---|---|---|
+| P0 | Long exploration can consume a short scan | **Implemented:** after each real probe, budget further search against observed songs/window and remaining scan work, reserving roughly two windows worth of work per outstanding candidate; stop exploring when that is unaffordable. This is a bounded heuristic, not an ROI proof. |
+| P0 | Previously fastest count can be unsafe after free RAM falls | **Implemented:** exploitation and scan-tail fallback recheck incremental-worker RAM admissibility and choose only a safe sampled count. Never bypass the watchdog. |
+| P1 | Coarse stride can miss a narrow local maximum | **Implemented:** after two nonmonotone coarse sweeps, and only when budget allows, probe at most the two previously unsampled immediate neighbors of the replicated winner, twice each. No requirement of monotonicity or special hardware constants. |
+| P1 | Song mix, NAS caches, warmup and changing background load distort comparisons | **Next:** paired/interleaved incumbent reference windows, per-window patch/song mix and load covariates, startup and drain accounting, explicit drift detection with bounded resampling. Existing reverse sweep/rolling median alone do not establish an unbiased comparison. |
+| P1 | Patch/s is not end-to-end total scan speed | **Next:** benchmark matched complete scans against safe fixed-worker baselines, recording wall-clock seconds, completed songs/min, patches/s, startup/drain, RAM, CPU, IO and errors. |
+| P2 | Narrow peaks beyond immediate neighbors or changing workload regimes | Consider multi-resolution/local stochastic probing after the bounded first refinement, driven by remaining-work payback and time-aware uncertainty; no endless sweeps. |
+
+### Deterministic evidence and acceptance
+
+New Rust simulations use the actual observe()/settle() production state transitions, with virtual time and no music or model data. The concrete **6:70.98, 8:70.42, 10:63.75, 12:88.17 songs/min** curve reaches 12 despite both intermediate declines and selects 12 with sufficient remaining workload and RAM. Separate tests cover monotone increasing/decreasing, flat/noisy curves, rolling evidence after sustained load drift, falling/recovering effective RAM, short scans that stop exploration, long scans that afford repeated sweeps, and a sharp optimum at 11 between coarse candidates 10 and 12. A 400-song synthetic whole-scan calculation includes an illustrative two-second switching penalty and is expressly **not a measured end-to-end speedup**.
+
+**Verified:** source commit 205c592f, Rust Actions run 40695839304: **96 unit tests, 15 integration tests, zero failures**, including the narrow-11 peak; earlier commit d954d3b8 run 40695116657: 95 unit and 15 integration tests PASS. These establish deterministic *algorithm behavior only*. Other CI at the latest exact source SHA must be checked independently.
+
+### Next experiments before performance claims
+
+1. Add explicit observed drain, session-warmup, preprocessing and persistent-write costs to search accounting. Test mixed song lengths and patches/song; compare incumbent and challenger on interleaved work rather than trusting separated consecutive windows.
+2. Test switching under synthetic background-load regime changes and RAM drops/recovery, with bounded candidate revisits. Report regret/uncertainty and stop conditions, not simply the highest instantaneous sample.
+3. Run bounded, matched-order full-scan A/B studies for autotune versus safe fixed counts on Ryzen, Pi 4B and CPU-/RAM-limited hosts. Use identical model hashes, audio metadata, scan manifests and cache conditions; record all stages and complete elapsed time. No single hardware-specific optimum is assumed.
+4. Preserve existing process-isolation progress but do not extend that architecture until directly required by a demonstrated autotuning safety or measurement problem. Default resource remains unchanged.
+
