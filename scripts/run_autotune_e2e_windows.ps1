@@ -20,8 +20,8 @@ param(
 & {
     $ErrorActionPreference = 'Stop'
     $repository = 'chrober/bliss-mood-poc'
-    $codeSha = '32cba98c229bbfbbeb329badb84212446c3b3721'
-    $windowsRun = 40697871147
+    $codeSha = '091842b347f910e40a6b81b4b1aca3aa873575c8'
+    $windowsRun = 40717250640
     if (-not $CohortDb) {
         $CohortDb = Join-Path $Repo 'benchmark-workers-20261019-060347\sample-100.db'
     }
