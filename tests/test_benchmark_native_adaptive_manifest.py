@@ -69,6 +69,40 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench.mode_configuration("adaptive99_gate0")
 
+    def test_native_scaling_matrix_is_balanced_and_never_adaptive(self):
+        plan = bench.schedule(2, 20261028, "native-scaling")
+        self.assertEqual(len(plan), 8)
+        self.assertEqual(plan[:4], [(1, m) for _, m in reversed(plan[4:])])
+        self.assertEqual({mode for _, mode in plan}, set(bench.SCALING_MODES))
+        for workers in (6, 8, 10, 12):
+            self.assertEqual(bench.mode_configuration(f"fixed{workers}"),
+                             (workers, False, 1, 24))
+
+    def test_ram_guard_fails_closed_and_preserves_healthy_sample(self):
+        healthy = {"available_mib": 2100., "total_mib": 16384.,
+                   "ram_percent": 85.}
+        self.assertIsNone(bench.memory_guard_reason(healthy, 1536, 90))
+        self.assertIn("Unable to read",
+                      bench.memory_guard_reason(None, 1536, 90))
+        self.assertIn("below safety reserve",
+                      bench.memory_guard_reason({**healthy, "available_mib": 1500},
+                                                1536, 90))
+        self.assertIn("at/above safety limit",
+                      bench.memory_guard_reason({**healthy, "ram_percent": 90},
+                                                1536, 90))
+        self.assertIn("Invalid",
+                      bench.memory_guard_reason({**healthy, "ram_percent": float("nan")},
+                                                1536, 90))
+
+    def test_ram_guard_rejects_before_spawning_if_reserve_is_violated(self):
+        good = {"available_mib": 2000., "total_mib": 16000., "ram_percent": 85.}
+        with patch.object(bench, "windows_memory_snapshot",
+                          return_value={**good, "available_mib": 1000}):
+            with patch.object(bench.subprocess, "Popen") as spawn:
+                with self.assertRaisesRegex(RuntimeError, "preflight"):
+                    bench.run_scanner_guarded(["ignored"], None, None, 1536, 90)
+                spawn.assert_not_called()
+
     def test_policy_modes_emit_exact_requested_gate_and_start_workers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -76,13 +110,14 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 analyzer=root / "bliss-mood.exe", essentia_worker=root / "worker.exe",
                 source_root=root / "music", manifest_file=root / "tracks.txt",
                 models_dir=root / "models", models="moodtheme,genre,voice",
-                timeout_seconds=900, scan_priority="normal", output_dir=root,
+                timeout_seconds=900, scan_priority="normal",
+                min_available_ram_mib=1536, max_system_ram_percent=90, output_dir=root,
             )
             class Captured(Exception):
                 pass
             for mode in bench.POLICY_MODES:
                 workers, adaptive, minimum, gate = bench.mode_configuration(mode)
-                with patch.object(bench.subprocess, "run", side_effect=Captured) as run:
+                with patch.object(bench, "run_scanner_guarded", side_effect=Captured) as run:
                     with self.assertRaises(Captured):
                         bench.analyze(opts, 1, mode, 100)
                 cmd = run.call_args.args[0]
@@ -93,6 +128,32 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                     self.assertEqual(cmd[cmd.index("--adaptive-min-completed-songs") + 1], str(gate))
                 else:
                     self.assertNotIn("--adaptive-min-completed-songs", cmd)
+
+    def test_scaling_commands_use_exact_fixed_worker_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opts = argparse.Namespace(
+                analyzer=root / "bliss-mood.exe", essentia_worker=root / "worker.exe",
+                source_root=root / "music", manifest_file=root / "tracks.txt",
+                models_dir=root / "models", models="moodtheme,genre,voice",
+                timeout_seconds=900, scan_priority="normal",
+                min_available_ram_mib=1536, max_system_ram_percent=90,
+                output_dir=root,
+            )
+            class Captured(Exception):
+                pass
+            for mode in bench.SCALING_MODES:
+                with self.subTest(mode=mode):
+                    with patch.object(bench, "run_scanner_guarded",
+                                      side_effect=Captured) as run:
+                        with self.assertRaises(Captured):
+                            bench.analyze(opts, 1, mode, 100)
+                    cmd = run.call_args.args[0]
+                    self.assertNotIn("--adaptive-workers", cmd)
+                    self.assertEqual(cmd[cmd.index("--workers") + 1],
+                                     mode.removeprefix("fixed"))
+                    self.assertEqual(cmd[cmd.index("--priority") + 1], "normal")
+                    self.assertEqual(run.call_args.args[3:], (1536, 90))
 
     def test_preflight_rejects_missing_music_and_symlink_escapes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -121,12 +182,13 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 source_root=root / "music", manifest_file=root / "tracks.txt",
                 models_dir=root / "models", models="moodtheme,genre,voice",
                 timeout_seconds=900, scan_priority="normal",
+                min_available_ram_mib=1536, max_system_ram_percent=90,
                 output_dir=root / "results",
             )
             options.output_dir.mkdir()
             class Capture(Exception):
                 pass
-            with patch.object(bench.subprocess, "run", side_effect=Capture) as run:
+            with patch.object(bench, "run_scanner_guarded", side_effect=Capture) as run:
                 with self.assertRaises(Capture):
                     bench.analyze(options, 1, "adaptive2", 100)
                 arguments = run.call_args.args[0]
@@ -194,7 +256,8 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 analyzer=root / "analyzer.exe", essentia_worker=root / "worker.exe",
                 source_root=root / "music", manifest_file=root / "tracks.txt",
                 models_dir=root / "models", models="moodtheme",
-                timeout_seconds=900, scan_priority="normal", output_dir=root / "out",
+                timeout_seconds=900, scan_priority="normal",
+                min_available_ram_mib=1536, max_system_ram_percent=90, output_dir=root / "out",
             )
             opts.output_dir.mkdir()
             fake = {
@@ -213,8 +276,8 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                 (opts.output_dir / "round-01-fixed2.scanner.json").write_text(
                     __import__("json").dumps(fake), encoding="utf-8"
                 )
-                return result
-            with patch.object(bench.subprocess, "run", side_effect=fake_run):
+                return (result.returncode, 2000.0)
+            with patch.object(bench, "run_scanner_guarded", side_effect=fake_run):
                 with self.assertRaisesRegex(AssertionError, "native Essentia worker priority"):
                     bench.analyze(opts, 1, "fixed2", 100)
 
