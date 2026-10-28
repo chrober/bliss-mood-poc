@@ -418,11 +418,13 @@ jobs:
         run: |
           & {
             $ErrorActionPreference = 'Stop'
-            git fetch --no-tags --depth=1 origin refs/pull/16/head
+            # PR #16 is an independent, actively updated research branch.
+            # Fetch the immutable evaluator snapshot, never a moving PR head.
+            git fetch --no-tags --depth=1 origin 4b397c9310a7e82f0e2e723b11954475b41c3e10
             if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch PR 16 evaluation tool read-only' }
             $head = (git rev-parse FETCH_HEAD).Trim()
             if ($head -ne '4b397c9310a7e82f0e2e723b11954475b41c3e10') {
-              throw "PR 16 head changed; evaluate compatibility explicitly before updating pinned test: $head"
+              throw "Immutable PR 16 evaluator snapshot mismatch: $head"
             }
             New-Item -ItemType Directory -Force 'build/windows-native/pr16-readonly' | Out-Null
             git show 'FETCH_HEAD:scripts/evaluate_similarity.py' |
