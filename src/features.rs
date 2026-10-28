@@ -996,7 +996,6 @@ type FeatureCompletion = (
     Result<(FeatureReport, Option<crate::song_embedding::SongEmbedding>)>,
 );
 
-#[derive(Clone, Copy)]
 struct CompletionPolicy<'a> {
     expected: Option<usize>,
     tracks_total: usize,
@@ -1011,7 +1010,7 @@ fn save_completion(
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
-    mut policy: CompletionPolicy<'_>,
+    policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
     match result {
