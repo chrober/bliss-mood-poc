@@ -6,7 +6,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant},
 };
 use crate::{preprocess, sha256_file};
@@ -169,6 +169,7 @@ pub struct EssentiaWorker {
     executable: PathBuf,
     child: Option<ChildIo>,
     timeout: Duration,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 impl EssentiaWorker {
@@ -178,7 +179,15 @@ impl EssentiaWorker {
     }
 
     pub fn with_timeout(executable: PathBuf, timeout: Duration) -> Self {
-        Self { executable, child: None, timeout }
+        Self { executable, child: None, timeout, cancellation: None }
+    }
+
+    pub fn set_cancellation(&mut self, flag: Arc<AtomicBool>) {
+        self.cancellation = Some(flag);
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancellation.as_ref().is_some_and(|token| token.load(Ordering::Acquire))
     }
 
     fn start(&mut self) -> Result<()> {
@@ -214,7 +223,7 @@ impl EssentiaWorker {
         if cap > MAX_PATCHES || max_patches == Some(0) {
             bail!("Essentia patch limit must be between 1 and {MAX_PATCHES}, or omitted");
         }
-        if crate::resources::native_cancellation_requested() {
+        if self.cancelled() {
             bail!("Native Essentia worker cancelled by RAM watchdog");
         }
         self.start()?;
@@ -247,7 +256,7 @@ impl EssentiaWorker {
         });
         let started = Instant::now();
         loop {
-            if crate::resources::native_cancellation_requested() {
+            if self.cancelled() {
                 // The owner drops and reaps the real Child handle, avoiding
                 // PID-reuse races. Killing it releases blocked IPC reads.
                 drop(io);
@@ -411,6 +420,27 @@ mod tests {
         assert!(worker.child.is_none(), "native crashes must not poison future jobs");
         assert_eq!(worker.analyze(Path::new("good-restarted.flac"), None)
             .unwrap().patches.len(), 1);
+    }
+
+    #[test]
+    fn scan_local_cancellation_interrupts_hung_native_ipc_and_reaps_child() {
+        let Some(exe) = std::env::var_os("ESSENTIA_IPC_FIXTURE_EXE") else { return };
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut worker = EssentiaWorker::with_timeout(
+            PathBuf::from(exe), Duration::from_secs(10),
+        );
+        worker.set_cancellation(Arc::clone(&flag));
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(160));
+            flag.store(true, Ordering::Release);
+        });
+        let started = Instant::now();
+        let error = worker.analyze(Path::new("hang.flac"), None)
+            .err().expect("RAM signal must terminate blocked native IPC");
+        canceller.join().unwrap();
+        assert!(format!("{error:#}").contains("cancelled by RAM watchdog"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(worker.child.is_none(), "the child must be killed and reaped");
     }
 
     #[test]
