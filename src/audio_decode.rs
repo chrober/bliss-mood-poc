@@ -307,6 +307,54 @@ mod tests {
     }
 
     #[test]
+    fn supervised_and_legacy_decoders_produce_identical_synthetic_pcm() {
+        use std::sync::atomic::AtomicBool;
+        if std::process::Command::new("ffmpeg").arg("-version").output().is_err()
+            || std::process::Command::new("ffprobe").arg("-version").output().is_err()
+            || crate::resources::memory_diagnostics().is_none() {
+            // FFmpeg is an explicitly documented runtime prerequisite; unit
+            // builds without it still exercise subprocess supervision tests.
+            return;
+        }
+        const SAMPLES: usize = 8000;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36_u32 + SAMPLES as u32 * 2).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1_u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&16000_u32.to_le_bytes());
+        wav.extend_from_slice(&32000_u32.to_le_bytes());
+        wav.extend_from_slice(&2_u16.to_le_bytes());
+        wav.extend_from_slice(&16_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(SAMPLES as u32 * 2).to_le_bytes());
+        for index in 0..SAMPLES {
+            let wave = ((index as f64 * 0.071).sin() * 16000.0) as i16;
+            wav.extend_from_slice(&wave.to_le_bytes());
+        }
+        let path = std::env::temp_dir().join(format!(
+            "bliss-autotune-ffmpeg-parity-{}-{}.wav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&path, wav).unwrap();
+        let baseline = super::ffmpeg_pcm_mono_16k(&path);
+        let token = AtomicBool::new(false);
+        let guarded = super::ffmpeg_pcm_mono_16k_cancelable(&path, Some(&token), 1);
+        let _ = std::fs::remove_file(&path);
+        let baseline = baseline.unwrap();
+        let guarded = guarded.unwrap();
+        assert_eq!(baseline.len(), guarded.len());
+        for (old, new) in baseline.iter().zip(guarded.iter()) {
+            assert_eq!(old.to_bits(), new.to_bits(),
+                "supervised FFmpeg must not change reference DSP output");
+        }
+    }
+
+    #[test]
     fn src_linear_matches_upstream_libsamplerate_float32_ratio_on_twelve_seconds() {
         // SRC_LINEAR 4, mono 44,100 -> 16,000 Hz; reference values were
         // generated with original libsamplerate src_simple (not from our Rust
