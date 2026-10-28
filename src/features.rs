@@ -886,7 +886,10 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             bail!("--adaptive-workers cannot be used with --dry-run");
         }
     }
-    if (options.workers > 1 || options.adaptive_workers) && !options.dry_run {
+    // Preserve the legacy single-worker execution path unless the new
+    // opt-in online tuner explicitly needs the parallel coordinator.
+    if (options.workers > 1 || (options.adaptive_workers
+        && options.adaptive_policy == "autotune")) && !options.dry_run {
         return scan_parallel(options, profiles, tracks, started);
     }
     let mut conn = if options.dry_run {
