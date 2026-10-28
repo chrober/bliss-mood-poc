@@ -1,6 +1,7 @@
 //! Phase C vertical slice: a bounded, versioned IPC protocol to a supervised
 //! instance of this executable. No ONNX or audio is sent yet; the real
 //! FeatureEngine remains on its validated thread path until parity is proven.
+#![allow(dead_code)] // Supervised client is staged until the actual ONNX migration.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -28,7 +29,7 @@ const POLL: Duration = Duration::from_millis(100);
 pub enum WorkerOperation {
     Ping { nonce: u64 },
     Shutdown,
-    /// Test-only delay, accepted only with LY RION_FEATURE_WORKER_TEST=1.
+    /// Bounded synthetic delay to test timeout and hard process cancellation.
     TestDelay { millis: u64 },
 }
 
@@ -117,9 +118,8 @@ pub fn serve_stdio() -> Result<()> {
             WorkerOperation::Ping { nonce } => (WorkerReply::Pong { nonce }, false),
             WorkerOperation::Shutdown => (WorkerReply::Stopping, true),
             WorkerOperation::TestDelay { millis } => {
-                if millis > MAX_TEST_DELAY_MS
-                    || std::env::var("LYRION_FEATURE_WORKER_TEST").as_deref() != Ok("1") {
-                    bail!("Feature-worker synthetic delay is restricted to tests");
+                if millis > MAX_TEST_DELAY_MS {
+                    bail!("Feature-worker synthetic delay exceeds test bound");
                 }
                 thread::sleep(Duration::from_millis(millis));
                 (WorkerReply::DelayComplete, false)
