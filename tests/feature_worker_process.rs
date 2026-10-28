@@ -60,6 +60,12 @@ fn owned_worker_is_hard_killed_on_timeout() {
     assert!(format!("{error:#}").contains("timeout"));
     assert!(start.elapsed() < Duration::from_secs(3));
     assert!(child.request(WorkerRequest::ping(2, 0)).is_err());
+    // Retiring the timed-out process must not poison a newly started one.
+    let mut replacement = FeatureWorkerProcess::spawn(
+        binary(), Duration::from_secs(3), Arc::new(AtomicBool::new(false)),
+    ).unwrap();
+    assert_eq!(replacement.request(WorkerRequest::ping(1, 123)).unwrap().reply,
+        WorkerReply::Pong { nonce: 123 });
 }
 
 #[test]
