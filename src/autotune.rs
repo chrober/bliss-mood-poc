@@ -76,6 +76,7 @@ pub struct OnlineAutotuner {
     counters: TuningCounters,
     last_available_mib: f64,
     exploit_epochs: usize,
+    draining: bool,
 }
 
 fn candidate_schedule(minimum: usize, maximum: usize, initial: usize) -> Vec<usize> {
@@ -119,14 +120,23 @@ impl OnlineAutotuner {
             epoch_patches: 0, epoch_baseline_completed: 0,
             epoch_baseline_patches: 0, best: None, probes: Vec::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
-            last_available_mib: available, exploit_epochs: 0,
+            last_available_mib: available, exploit_epochs: 0, draining: false,
         })
     }
 
     pub fn reserve_mib(&self) -> f64 { self.reserve_mib }
 
     pub fn permits_dispatch(&self, in_flight: usize) -> bool {
-        in_flight < self.active
+        !self.draining && in_flight < self.active
+    }
+
+    pub fn draining(&self) -> bool { self.draining }
+
+    /// Called only after all previously admitted jobs have completed. This
+    /// avoids attributing old-capacity work to the next throughput probe.
+    pub fn settle(&mut self, completed: usize, patches: usize, now: Instant) {
+        self.draining = false;
+        self.reset_epoch(now, completed, patches);
     }
 
     pub fn observe(
@@ -162,6 +172,11 @@ impl OnlineAutotuner {
             return Ok(());
         }
 
+        if self.draining {
+            // Maintain the RAM governor while in-flight old-capacity work
+            // finishes, but do not score that work under the new capacity.
+            return Ok(());
+        }
         // Account for work completed in each measurement epoch. Call once per
         // persisted completion, including completion that was unsuccessful.
         // Diagnostics totals only advance on successful analysis.
@@ -248,6 +263,7 @@ impl OnlineAutotuner {
         if target > from { self.counters.expansions += 1; }
         else { self.counters.reductions += 1; }
         self.active = target;
+        self.draining = true;
         eprintln!("ONLINE AUTOTUNE {from} -> {target} after {completed} songs: {reason}");
         self.adjustments.push(TuningAdjustment {
             after_completed_songs: completed, from_workers: from,
@@ -280,6 +296,10 @@ mod tests {
         *patches += count * 5;
         *now += Duration::from_secs(elapsed);
         t.observe(*total, *patches, Some(4000.0), remaining, *now).unwrap();
+        if t.draining() {
+            // A real coordinator must first drain all old-capacity jobs.
+            t.settle(*total, *patches, *now);
+        }
     }
 
     #[test]
