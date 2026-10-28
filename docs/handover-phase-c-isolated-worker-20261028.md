@@ -1,0 +1,64 @@
+# Current technical handover — Phase C isolated ONNX worker (2026-10-28)
+
+> **Current workstream:** [Draft PR #19](https://github.com/chrober/bliss-mood-poc/pull/19), branch `feat/ram-safe-online-autotune`, stacked on [PR #18](https://github.com/chrober/bliss-mood-poc/pull/18) (`feat/manifest-batch-adaptive-worker-analysis`), which is stacked on native Essentia C++ PR #17. Similarity methodology PR #16 is independent and must not be changed.
+>
+> **Source/CI snapshot at handover:** `e2b1a0a4bd256d88e8704abcc8bf158878296ddc`, inspected on **28 October 2026**. This is the *last inspected implementation head before any subsequent documentation commits*. **Re-fetch the live PR head and checks**; documentation commits change SHA and create new workflow runs. Do not claim the new head is green merely because the inspected source SHA passed some checks.
+
+## What is implemented today
+
+**Phase A — original native Essentia C++ frontend:** the Rust coordinator handles source selection, persistent native DSP child sessions, selected ONNX heads and a single SQLite sidecar writer. Official Discogs-EffNet creates shared **1280D** embeddings; Jamendo Mood/Theme has 56 labels, Genre 87, and Voice/Instrumental 2. Source audio, Lyrion/Bliss database and private benchmark inputs are read-only. Exact identity, patch counts, head labels/scores, selected model fingerprints and optional normalized pooled 1280D embeddings must be preserved.
+
+**Phase B — opt-in host-independent resource-safe online worker search:** `--adaptive-workers --adaptive-policy autotune --workers auto --min-workers 1 --max-workers auto --threads 1`. Legacy `--adaptive-policy resource` remains the **default**. The tuner obeys detected host CPU capacity and memory headroom, uses a fail-closed 250-ms RAM watchdog and scan-specific cancellation, drains in-flight old-capacity jobs before timing a new worker count, explores even across nonmonotonic valleys, performs reversed repeated sweeps and ranks bounded repeated probes using rolling median EffNet patches/s. Logs distinguish sampled, replicated and descriptively separated ranges; none proves a population-level optimum. Effective free-RAM limits include visible cgroup ancestors on standard Linux mounts. In opt-in Rust decoding, ffprobe/FFmpeg are supervised with output budgets and direct child cleanup. These are **heuristic risk controls**, not an OOM guarantee. See [Phase B](online-autotune-phase-b.md).
+
+**Phase C — executable isolated FeatureEngine, currently hidden and NOT wired to `scan-features`:**
+
+- `src/feature_worker_process.rs`: one `bliss-mood` subprocess launched via hidden `internal-feature-worker`, framed protocol (`FWP1` hello, `REQ1` requests, `RES1` responses; 64 KiB maximum JSON frame; version and request-ID checks); persistent session reuse; timeout and scan-local cancellation. Synthetic Ping, Shutdown and TestDelay exercises remain.
+- Hidden `Initialize` request loads the **existing** `FeatureEngine`, chosen Mood/Genre/Voice model set, original EffNet and selected native Essentia or Rust audio backend, with model fingerprint and validation checks. Hidden `AnalyzeSong` calls the **existing** analysis code and returns the report plus optional pooled 1280D embedding. No separate ONNX arithmetic is introduced, and worker never persists a DB entry.
+- `src/main.rs`: diagnostic `internal-isolated-analyze-features` (isolated child) and `internal-direct-analyze-features` (same in-process engine) are hidden. They are for controlled numerical comparisons, **not the scan's normal execution path**.
+- `tests/feature_worker_process.rs`: compiled-binary IPC integration for repeated requests, timeout/cancellation, restart, malformed/duplicate IDs and fail-closed attempts without models. `scripts/compare_isolated_feature_worker.py` and its Python tests verify exact **f32 bits** of selected classifier scores and cache/model/report identity; with `--embedding` they compare every one of the **1280 pooled f32 vector bits** and associated normalization/representation fingerprints against a hidden in-process reference. Runtime timings intentionally differ across processes and are excluded from numerical equality.
+- Child/process-tree termination: **Unix** parent launches its worker in a process group and sends a group signal before reaping on abort, so members that remain in that group are targeted. This is *not* a cross-platform hard-kill guarantee: Windows Job Objects, macOS tests, descendants escaping the group, OOM races and Raspberry Pi validation are still open.
+
+## Exact GitHub Actions status at inspected implementation SHA
+
+| Check | Result | Run |
+| --- | --- | --- |
+| Rust tests / strict Clippy | **PASS**, two runs | [40674323791](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323791), [40674316120](https://github.com/chrober/bliss-mood-poc/actions/runs/40674316120) |
+| Windows x64 binary | **PASS** | [40674323805](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323805) |
+| Genre ONNX vs TensorFlow parity workflow | **PASS** | [40674323881](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323881) |
+| Voice ONNX vs TensorFlow parity workflow | **PASS** | [40674324005](https://github.com/chrober/bliss-mood-poc/actions/runs/40674324005) |
+| Original native Essentia C++ Linux smoke | **FAIL** | [40674323816](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323816) |
+| Original native Essentia C++ Windows experimental build | **FAIL** | [40674323927](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323927) |
+
+**Linux native failure is diagnosed:** the subcrate `native/rust-mel-reference` includes `src/audio_decode.rs` by `#[path = "..."]`. Recent autotune-only FFmpeg RAM budgeting introduced `crate::resources::memory_diagnostics()` in this shared decoder. The small ONNX-free `rust-mel-reference` executable has no `crate::resources`; it fails at compile time with **E0433: cannot find `resources` in the crate root** in `src/audio_decode.rs` (CI job `original-essentia`, step `Compile existing Rust Mel source without heavyweight ONNX Runtime`). **Fix source modularity while preserving the reference decoder's bit-exact numerical semantics and keeping `rust-mel-reference` ONNX-free**. Candidate design: inject effective-memory telemetry or the computed per-decoder byte budget into the cancelable helper from the main scanner so the shared audio module has no mandatory `crate::resources` reference; keep default `ffmpeg_pcm_mono_16k` untouched. Re-run the exact Linux native workflow after the patch.
+
+**Windows native failure location, root cause not yet established:** job `original-essentia-win64` fails in `Verify pinned original MTG sources or fetch on cache miss` (exit 1). The logged step checks the pinned upstream Essentia git revision, remote URL and clean tree; it stops before native compiler verification. The inspected log does **not** reliably identify which check failed. Inspect the full run, cache restoration, fetched upstream revision and worktree status before modifying any pin/check or blaming a specific dependency. Do not disable SHA/remote integrity checks merely to achieve green. Its diagnostic artifact was uploaded, but its contents were **not** inspected here.
+
+**Important distinction:** passing the existing Genre/Voice CI checks and synthetic isolated-worker tests does **not** mean the private real-audio direct-versus-isolated all-three-head/1280D gate has passed. **No such measured PASS is recorded.** Likewise no hardware-independent throughput win or complete OOM safety has been established.
+
+## Next steps, in strict priority order
+
+1. **Re-fetch live PR #19 head, commit-matched checks and branch diff.** Fix the deterministic Linux `rust-mel-reference` E0433 regression without altering decoding math. Diagnose the separately red Windows native source-cache/pin verification from logs and diagnostic artifact, then rerun the exact checks. Do not merge or promote while CI is red.
+2. Once CI is green, perform a **bounded local read-only real-model parity gate** on identical audio/source/model bytes, both native Essentia and (where supported) Rust frontend. Sample invocation (replace placeholders with private local paths):
+   ```text
+   python scripts/compare_isolated_feature_worker.py --exe "<verified bliss-mood executable>" --source "<read-only local song>" --models-dir "<official model dir>" --models moodtheme,genre,voice --audio-backend essentia --essentia-worker "<matching original native worker>" --embedding
+   ```
+   Check f32-bit exact 56/87/2 heads, all 1280 pooled embedding components, model/cache fingerprints, SHA256, patch counts and no DB writes. Use more than one diverse song before expanding to cohorts. Never upload audio, model weights, private manifests, embeddings, raw per-track output or sidecar databases.
+3. **Harden parent supervision cross-platform:** Windows Job Object with kill-on-close for worker plus native/FFmpeg descendants, macOS/Linux process-group fixture tests, safe teardown/restart after crashes and timeouts, RAM headroom tests in constrained Linux cgroups / Raspberry Pi 4B. Avoid asserting that one `Child::kill` kills a process tree.
+4. **Only after full numerical parity and isolation tests:** wire the supervised `FeatureWorkerProcess` pool into `scan-features` as **experimental autotune-only** option. Coordinator continues as the **sole SQLite writer**, honors scan-local cancellation, prevents partial persistence, preserves the existing `resource` and fixed worker behavior and keeps original model fingerprints. Evaluate IPC frame sizes (64 KiB) and dynamic model-head counts before using on large registry sets.
+5. **Compare end-to-end scan performance / RAM** on bounded diverse private cohorts, several CPU/memory caps, Pi/ARM where available. Include model startup, process resets/drain, NAS variability and workload differences; record explicit statistical uncertainty. Coarse 6/8/10/12 earlier samples demonstrated nonmonotonicity and are not a globally valid worker optimum.
+
+## Do not change
+
+- Never commit or publish proprietary/private audio, Bliss/Lyrion DBs, ONNX model weights, private song-pair/benchmark outputs, raw embeddings or local secrets. Original music/Bliss data must be read-only; write only private local *sidecar* outputs when explicitly requested.
+- Preserve original Essentia C++ model preprocessing, selected head predictions and 1280D embedding parity; do not soften the strict comparator to mask differences.
+- Do not change PR #16 similarity methodology, production Lyrion/Bliss integration, PR #17/18 scope or default `--adaptive-policy resource`. No Ryzen-specific hardcoded optimum.
+- Windows Rust binary builds are through **commit-matched GitHub Actions**; use verified source SHA and artifact identity. Do not claim a Windows artifact or local measurement unless inspected.
+- This branch remains **Draft PR #19** until current exact-head checks, real-model parity and platform-specific failure modes are resolved.
+
+## Reading order
+
+1. This file (most recent Phase C status).
+2. [Phase C architecture and IPC](onnx-worker-process-isolation.md).
+3. [Current Phase B governor](online-autotune-phase-b.md).
+4. [Historical native/worker benchmark handover](handover-adaptive-host-sizing-20261028.md).
+5. [Ready-to-paste new-chat prompt](handover-prompt-adaptive-host-sizing-20261028.md) and [older chat background](chat-handover.md).
