@@ -32,6 +32,15 @@ pub struct TuningCounters {
 }
 
 #[derive(Debug, Serialize)]
+pub struct TuningAdjustment {
+    pub after_completed_songs: usize,
+    pub from_workers: usize,
+    pub to_workers: usize,
+    pub reason: String,
+    pub available_ram_mib: f64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct TuningDiagnostics {
     pub strategy: &'static str,
     pub initial_workers: usize,
@@ -43,7 +52,7 @@ pub struct TuningDiagnostics {
     pub estimated_incremental_worker_mib: f64,
     pub probes: Vec<Probe>,
     pub counters: TuningCounters,
-    pub adjustments: Vec<crate::parallel::WorkerAdjustment>,
+    pub adjustments: Vec<TuningAdjustment>,
 }
 
 pub struct OnlineAutotuner {
@@ -63,8 +72,10 @@ pub struct OnlineAutotuner {
     epoch_baseline_patches: usize,
     best: Option<(usize, f64)>,
     probes: Vec<Probe>,
-    adjustments: Vec<crate::parallel::WorkerAdjustment>,
+    adjustments: Vec<TuningAdjustment>,
     counters: TuningCounters,
+    last_available_mib: f64,
+    exploit_epochs: usize,
 }
 
 fn candidate_schedule(minimum: usize, maximum: usize, initial: usize) -> Vec<usize> {
@@ -108,6 +119,7 @@ impl OnlineAutotuner {
             epoch_patches: 0, epoch_baseline_completed: 0,
             epoch_baseline_patches: 0, best: None, probes: Vec::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
+            last_available_mib: available, exploit_epochs: 0,
         })
     }
 
@@ -124,6 +136,7 @@ impl OnlineAutotuner {
             .ok_or_else(|| anyhow::anyhow!(
                 "Online autotune lost effective free-RAM telemetry; stop new admission"
             ))?;
+        self.last_available_mib = available;
         if available <= self.reserve_mib {
             bail!(
                 "Online autotune RAM safety stop: free {available:.0} MiB <= reserve {:.0} MiB",
@@ -185,8 +198,21 @@ impl OnlineAutotuner {
             }
             return Ok(());
         }
-        // Explore the entire bounded coarse set, even if one intermediate
-        // step is worse. A single local peak is not a stopping criterion.
+        // After completing the coarse search, periodically revisit the
+        // bounded candidate set. This is deliberately budgeted exploration,
+        // not a local-neighbour hill climb.
+        if self.next_candidate >= self.candidates.len() {
+            self.exploit_epochs += 1;
+            if self.exploit_epochs.is_multiple_of(4) {
+                self.next_candidate = 0;
+            } else {
+                if let Some((best, _)) = self.best {
+                    self.change(best, completed, "exploit best sampled throughput");
+                }
+                return Ok(());
+            }
+        }
+        // A bad intermediate probe must not suppress higher worker counts.
         while self.next_candidate < self.candidates.len() {
             let target = self.candidates[self.next_candidate];
             self.next_candidate += 1;
@@ -221,10 +247,10 @@ impl OnlineAutotuner {
         else { self.counters.reductions += 1; }
         self.active = target;
         eprintln!("ONLINE AUTOTUNE {from} -> {target} after {completed} songs: {reason}");
-        self.adjustments.push(crate::parallel::WorkerAdjustment {
+        self.adjustments.push(TuningAdjustment {
             after_completed_songs: completed, from_workers: from,
             to_workers: target, reason: reason.to_owned(),
-            system_cpu_percent: 0.0, system_ram_percent: 0.0,
+            available_ram_mib: self.last_available_mib,
         });
     }
 
