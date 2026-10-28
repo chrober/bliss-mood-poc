@@ -72,8 +72,9 @@ jobs:
           else
             test ! -e "$source"
             git clone --quiet https://github.com/MTG/essentia.git "$source"
-            # This commit currently lives in an unmerged upstream PR.
-            git -C "$source" fetch --no-tags --depth=1 origin refs/pull/1540/head
+            # Pin the exact, immutable upstream revision. The external
+            # PR head is mutable and has already moved independently.
+            git -C "$source" fetch --no-tags --depth=1 origin b0661db99be4a8e2c6fabbe90a996f89786fdd8e
             git -C "$source" checkout --detach FETCH_HEAD
           fi
           test "$(git -C "$source" rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
