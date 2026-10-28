@@ -24,6 +24,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn parse_adaptive_min_completed_songs(value: &str) -> std::result::Result<usize, String> {
+    let parsed = value.parse::<usize>()
+        .map_err(|_| "Expected a positive integer adaptive song gate".to_owned())?;
+    if !(1..=100_000).contains(&parsed) {
+        return Err("Adaptive song gate must be within 1..=100000".to_owned());
+    }
+    Ok(parsed)
+}
+
 const ENCODER: &str = "discogs-effnet-bsdynamic-1.onnx";
 const CLASSIFIER: &str = "mtg_jamendo_moodtheme-discogs-effnet-1.onnx";
 const LABELS: &str = "mtg_jamendo_moodtheme-discogs-effnet-1.json";
@@ -176,7 +185,7 @@ enum Action {
         max_workers: usize,
         /// Minimum completed songs before either adaptive up/down adjustment.
         /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
-        #[arg(long, requires = "adaptive_workers", value_parser = clap::value_parser!(usize).range(1..=100_000))]
+        #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
         adaptive_min_completed_songs: Option<usize>,
         #[arg(long)]
         dry_run: bool,
