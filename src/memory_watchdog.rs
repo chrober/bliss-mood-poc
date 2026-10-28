@@ -30,21 +30,21 @@ fn fault_for(available: Option<f64>, reserve_mib: f64) -> Option<String> {
 
 pub struct MemoryWatchdog {
     stop: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
     state: Arc<Mutex<WatchdogDiagnostics>>,
     handle: Option<JoinHandle<()>>,
-    stop_native: bool,
 }
 
 impl MemoryWatchdog {
     pub fn start(reserve_mib: f64) -> Result<Self> {
         Self::start_with_sampler(
-            reserve_mib, POLL_INTERVAL, true,
+            reserve_mib, POLL_INTERVAL,
             || crate::resources::memory_diagnostics().map(|m| m.available_physical_mib),
         )
     }
 
     fn start_with_sampler(
-        reserve_mib: f64, period: Duration, stop_native: bool,
+        reserve_mib: f64, period: Duration,
         sampler: impl Fn() -> Option<f64> + Send + 'static,
     ) -> Result<Self> {
         if !reserve_mib.is_finite() || reserve_mib <= 0.0 || period.is_zero() {
@@ -52,6 +52,8 @@ impl MemoryWatchdog {
         }
         let state = Arc::new(Mutex::new(WatchdogDiagnostics::default()));
         let stop = Arc::new(AtomicBool::new(false));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_for_thread = Arc::clone(&cancel);
         let state_for_thread = Arc::clone(&state);
         let stop_for_thread = Arc::clone(&stop);
         let handle = thread::spawn(move || {
@@ -69,23 +71,37 @@ impl MemoryWatchdog {
                 }
                 if let Some(reason) = fault {
                     state.fault = Some(reason);
-                    if stop_native {
-                        crate::resources::request_native_cancellation();
-                    }
+                    // A per-scan token prevents cancellation leaking into
+                    // another independent concurrent feature analysis.
+                    cancel_for_thread.store(true, Ordering::Release);
                     break;
                 }
                 drop(state);
                 thread::sleep(period);
             }
         });
-        Ok(Self { stop, state, handle: Some(handle), stop_native })
+        Ok(Self { stop, cancel, state, handle: Some(handle) })
     }
 
     pub fn check(&self) -> Result<()> {
-        if let Some(reason) = self.snapshot().fault {
+        let snapshot = self.snapshot();
+        if let Some(reason) = snapshot.fault {
             bail!("{reason}");
         }
+        if self.cancel.load(Ordering::Acquire) {
+            bail!("Online autotune scan cancelled by resource governor");
+        }
         Ok(())
+    }
+
+    pub fn cancellation_token(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel)
+    }
+
+    /// The completion-triggered admission governor shares this cancellation
+    /// boundary with the independent watchdog.
+    pub fn request_cancel(&self) {
+        self.cancel.store(true, Ordering::Release);
     }
 
     pub fn snapshot(&self) -> WatchdogDiagnostics {
@@ -99,9 +115,6 @@ impl Drop for MemoryWatchdog {
         self.stop.store(true, Ordering::Release);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
-        }
-        if self.stop_native {
-            crate::resources::reset_native_cancellation();
         }
     }
 }
@@ -119,7 +132,7 @@ mod tests {
         assert!(fault_for(Some(512.0), 512.0).is_some());
         assert!(fault_for(Some(512.01), 512.0).is_none());
         assert!(MemoryWatchdog::start_with_sampler(
-            0.0, Duration::from_millis(1), false, || Some(1000.0)
+            0.0, Duration::from_millis(1), || Some(1000.0)
         ).is_err());
     }
 
@@ -130,7 +143,7 @@ mod tests {
         ])));
         let copy = Arc::clone(&measurements);
         let watch = MemoryWatchdog::start_with_sampler(
-            512.0, Duration::from_millis(2), false,
+            512.0, Duration::from_millis(2),
             move || copy.lock().unwrap().pop_front().unwrap_or(Some(500.0))
         ).unwrap();
         for _ in 0..100 {
@@ -142,12 +155,13 @@ mod tests {
         assert!(stats.samples >= 3);
         assert_eq!(stats.minimum_available_mib, Some(500.0));
         assert!(stats.fault.unwrap().contains("reserve"));
+        assert!(watch.cancellation_token().load(Ordering::Acquire));
     }
 
     #[test]
     fn watchdog_stops_cleanly_without_spurious_fault() {
         let watch = MemoryWatchdog::start_with_sampler(
-            512.0, Duration::from_millis(2), false, || Some(2000.0)
+            512.0, Duration::from_millis(2), || Some(2000.0)
         ).unwrap();
         thread::sleep(Duration::from_millis(9));
         assert!(watch.check().is_ok());
