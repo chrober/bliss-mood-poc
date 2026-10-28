@@ -619,6 +619,9 @@ struct ScanDiagnostics {
     #[cfg_attr(not(windows), allow(dead_code))]
     process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
+    logical_cpu_capacity: usize,
+    /// Effective pool capacity after limits and bounded cohort size.
+    configured_max_workers: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     adaptive_min_completed_songs: Option<usize>,
     final_workers: usize,
@@ -852,8 +855,13 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     }
     let mut profiles = load_profiles(options.models_dir, options.registry, options.models)?;
     retarget_profiles(&mut profiles, &options.backend)?;
-    if options.workers == 0 || options.workers > 64 {
-        bail!("Worker count must be 1..=64");
+    let cpu_cap = crate::parallel::available_worker_capacity();
+    if !options.dry_run && (options.workers == 0 || options.workers > cpu_cap) {
+        bail!("Worker count must be within 1..={cpu_cap} logical CPUs available to this process");
+    }
+    if options.adaptive_workers && options.max_workers > cpu_cap {
+        bail!("Adaptive maximum {} exceeds the {} logical CPUs available to this process",
+            options.max_workers, cpu_cap);
     }
     if options.workers > 1 && options.threads > 1 {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
@@ -1055,6 +1063,8 @@ fn scan_parallel(
     };
     let mut diagnostics = ScanDiagnostics {
         initial_workers: initial,
+        logical_cpu_capacity: crate::parallel::available_worker_capacity(),
+        configured_max_workers: pool_size,
         adaptive_min_completed_songs: options.adaptive_workers
             .then_some(options.adaptive_min_completed_songs),
         final_workers: initial,

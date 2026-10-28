@@ -3,16 +3,20 @@
 
 use anyhow::{bail, Result};
 
-pub fn worker_count(spec: &str) -> Result<(usize, bool)> {
-    let available = std::thread::available_parallelism()
-        .map(|n| n.get()).unwrap_or(2);
+/// Logical CPUs available to this process (not physical core count or a
+/// measured performance optimum). Respect CPU affinity/container restrictions.
+pub fn available_worker_capacity() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get()).unwrap_or(1).clamp(1, 64)
+}
+
+fn worker_count_for(spec: &str, permitted: usize) -> Result<(usize, bool)> {
+    let cap = permitted.clamp(1, 64);
     if spec.eq_ignore_ascii_case("auto") {
-        // Leave at least 2 logical CPUs (where possible) and roughly a
-        // quarter of the reported CPU capacity for interactive applications.
-        // Avoid many concurrent ONNX sessions and simultaneous NAS reads.
-        let reserve = (available / 4).max(2);
-        let workers = available.saturating_sub(reserve).clamp(1, 8);
-        Ok((workers, true))
+        // Keep the existing conservative initial policy: reserve CPU headroom.
+        // The *maximum* adaptive cap may be higher than this starting point.
+        let reserve = (cap / 4).max(2);
+        Ok((cap.saturating_sub(reserve).clamp(1, 8), true))
     } else {
         let workers: usize = spec.parse().map_err(|_| {
             anyhow::anyhow!("--workers must be 'auto' or a positive integer")
@@ -20,10 +24,37 @@ pub fn worker_count(spec: &str) -> Result<(usize, bool)> {
         if !(1..=64).contains(&workers) {
             bail!("--workers must be between 1 and 64");
         }
+        if workers > cap {
+            bail!("--workers {workers} exceeds the {cap} logical CPUs available to this process");
+        }
         Ok((workers, false))
     }
 }
 
+pub fn worker_count(spec: &str) -> Result<(usize, bool)> {
+    worker_count_for(spec, available_worker_capacity())
+}
+
+fn max_worker_count_for(spec: &str, permitted: usize) -> Result<usize> {
+    let cap = permitted.clamp(1, 64);
+    if spec.eq_ignore_ascii_case("auto") {
+        return Ok(cap);
+    }
+    let maximum: usize = spec.parse().map_err(|_| {
+        anyhow::anyhow!("--max-workers must be 'auto' or a positive integer")
+    })?;
+    if !(1..=64).contains(&maximum) {
+        bail!("--max-workers must be between 1 and 64");
+    }
+    if maximum > cap {
+        bail!("--max-workers {maximum} exceeds the {cap} logical CPUs available to this process; use auto or a smaller value");
+    }
+    Ok(maximum)
+}
+
+pub fn max_worker_count(spec: &str) -> Result<usize> {
+    max_worker_count_for(spec, available_worker_capacity())
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WorkerAdjustment {
@@ -547,9 +578,29 @@ mod tests {
         let (auto, enabled) = worker_count("auto").unwrap();
         assert!(enabled && (1..=8).contains(&auto));
         assert_eq!(worker_count("1").unwrap(), (1, false));
-        assert_eq!(worker_count("4").unwrap(), (4, false));
         for spec in ["0", "65", "-1", "NaN", "4.5", ""] {
             assert!(worker_count(spec).is_err(), "{spec}");
+            assert!(max_worker_count(spec).is_err(), "{spec}");
         }
+        let available = available_worker_capacity();
+        assert_eq!(max_worker_count("auto").unwrap(), available);
+        assert!(worker_count(&(available + 1).to_string()).is_err());
+        assert!(max_worker_count(&(available + 1).to_string()).is_err());
+    }
+
+    #[test]
+    fn limits_scale_with_permitted_logical_cpus() {
+        assert_eq!(max_worker_count_for("auto", 4).unwrap(), 4);
+        assert_eq!(worker_count_for("auto", 4).unwrap(), (2, true));
+        assert_eq!(worker_count_for("4", 4).unwrap(), (4, false));
+        assert!(worker_count_for("6", 4).is_err());
+        assert!(max_worker_count_for("6", 4).is_err());
+        assert_eq!(max_worker_count_for("auto", 16).unwrap(), 16);
+        assert_eq!(worker_count_for("auto", 16).unwrap(), (8, true));
+        assert_eq!(max_worker_count_for("12", 16).unwrap(), 12);
+        assert!(max_worker_count_for("17", 16).is_err());
+        assert_eq!(max_worker_count_for("auto", 1).unwrap(), 1);
+        assert_eq!(worker_count_for("auto", 1).unwrap(), (1, true));
+        assert_eq!(max_worker_count_for("auto", 96).unwrap(), 64);
     }
 }

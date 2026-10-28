@@ -183,3 +183,36 @@ Windows process priority *during* a scan are **not** implemented and must
 not be mixed into the policy experiment. A future independent study might
 measure process-tree CPU entitlement, competing foreground latency and
 throughput before considering a hysteretic priority governor.
+
+## Host-dependent worker ceiling (28 October 2026)
+
+The default `--max-workers auto` now resolves from
+`std::thread::available_parallelism()` (logical CPUs available to the
+**process**, including affinity/container restrictions), capped by the
+existing 64-worker technical maximum. For example, a Raspberry Pi 4B
+with four permitted CPUs has a maximum of **4** and a 16-logical-CPU
+Ryzen has a maximum of **16**. These are hardware ceilings, **not**
+measurements of optimal song throughput.
+
+The existing `--workers auto` initial-sizing formula is unchanged:
+reserve the larger of two CPUs or one-quarter of CPU capacity, and cap
+the initial worker count at eight. On a 4-CPU host the initial count is
+**2** with max **4**; on a 16-CPU host initial **8** with max **16**.
+The adaptive `--min-workers` default is now **1** (previously 4),
+allowing `--workers auto --adaptive-workers` on smaller devices.
+Explicit `--workers N` or `--max-workers N` exceeding the permitted
+CPU count fail with an error rather than silently clamping. The
+`--max-workers` option only governs adaptive pool limits, while
+`--workers` sets the initial or fixed count.
+
+Parallel scan JSON diagnostics include `logical_cpu_capacity` and
+`configured_max_workers` (actual allocated pool size, also bounded
+by the cohort size). The CPU count does not constitute a RAM budget:
+available memory, model sessions and native process overhead remain
+resource constraints to validate independently. In particular, old
+fixed-six research cohorts are intentionally not valid benchmark
+configurations on a four-CPU Raspberry Pi.
+
+The historical Windows 100-song performance results remain unchanged.
+New host-dependent settings require a new matching Windows binary;
+do not reuse pre-change artifacts for auto max-worker experiments.

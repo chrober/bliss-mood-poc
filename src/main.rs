@@ -177,12 +177,13 @@ enum Action {
         /// flags. AboveNormal is not automatically inherited by Windows.
         #[arg(long, value_parser = ["normal", "below-normal", "above-normal"])]
         priority: Option<String>,
-        /// Minimum active jobs during adaptive scanning.
-        #[arg(long, default_value_t = 4)]
+        /// Minimum active jobs during adaptive scanning (default 1 for small systems).
+        #[arg(long, default_value_t = 1)]
         min_workers: usize,
-        /// Maximum active jobs during adaptive scanning.
-        #[arg(long, default_value_t = 8)]
-        max_workers: usize,
+        /// Adaptive maximum: auto = logical CPUs available to this process (max 64).
+        /// Explicit limits above the host capacity fail instead of oversubscribing.
+        #[arg(long, default_value = "auto")]
+        max_workers: String,
         /// Minimum completed songs before either adaptive up/down adjustment.
         /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
         #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
@@ -465,6 +466,7 @@ fn main() -> Result<()> {
                 bail!("--library-root is only supported with --bliss-db");
             }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
+            let max_workers = parallel::max_worker_count(&max_workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
@@ -603,6 +605,24 @@ mod manifest_cli_tests {
             "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
             "--db", "features.db", "--adaptive-min-completed-songs", "8",
         ]).is_err());
+    }
+
+    #[test]
+    fn hardware_bound_max_workers_cli_supports_auto_and_explicit_limits() {
+        for value in ["auto", "2", "4", "12"] {
+            let parsed = Cli::try_parse_from([
+                "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+                "--db", "features.db", "--adaptive-workers",
+                "--max-workers", value,
+            ]).unwrap();
+            match parsed.action {
+                Action::ScanFeatures { max_workers, min_workers, .. } => {
+                    assert_eq!(max_workers, value);
+                    assert_eq!(min_workers, 1);
+                }
+                _ => panic!("Expected feature scan"),
+            }
+        }
     }
 
     #[test]
