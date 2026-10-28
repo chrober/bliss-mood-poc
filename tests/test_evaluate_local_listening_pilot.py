@@ -133,10 +133,10 @@ class LocalListeningPilotTests(unittest.TestCase):
 
     def test_reject_untrusted_scores(self):
         ratings, audit = make_fixture(self.root)
-        payload = json.loads(audit.read_text())
+        payload = json.loads(audit.read_text(encoding="utf-8"))
         payload["pairs_private_do_not_open_before_review"][0][
             "similarity_scores_not_probabilities"]["genre_cosine"] = float("nan")
-        audit.write_text(json.dumps(payload))
+        audit.write_text(json.dumps(payload), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Invalid similarity score"):
             pilot.evaluate(ratings, audit, self.root / "unsafe")
         self.assertFalse((self.root / "unsafe").exists())
