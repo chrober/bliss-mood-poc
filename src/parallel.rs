@@ -35,15 +35,14 @@ pub fn worker_count(spec: &str) -> Result<(usize, bool)> {
     worker_count_for(spec, available_worker_capacity())
 }
 
-fn max_worker_count_for(spec: &str, permitted: usize) -> Result<usize> {
+fn max_worker_count_for(maximum: usize, permitted: usize) -> Result<usize> {
     let cap = permitted.clamp(1, 64);
-    if spec.eq_ignore_ascii_case("auto") {
+    // CLI maps --max-workers auto to zero; never use this sentinel as a
+    // worker count once resolved.
+    if maximum == 0 {
         return Ok(cap);
     }
-    let maximum: usize = spec.parse().map_err(|_| {
-        anyhow::anyhow!("--max-workers must be 'auto' or a positive integer")
-    })?;
-    if !(1..=64).contains(&maximum) {
+    if maximum > 64 {
         bail!("--max-workers must be between 1 and 64");
     }
     if maximum > cap {
@@ -52,7 +51,7 @@ fn max_worker_count_for(spec: &str, permitted: usize) -> Result<usize> {
     Ok(maximum)
 }
 
-pub fn max_worker_count(spec: &str) -> Result<usize> {
+pub fn max_worker_count(spec: usize) -> Result<usize> {
     max_worker_count_for(spec, available_worker_capacity())
 }
 
@@ -580,27 +579,27 @@ mod tests {
         assert_eq!(worker_count("1").unwrap(), (1, false));
         for spec in ["0", "65", "-1", "NaN", "4.5", ""] {
             assert!(worker_count(spec).is_err(), "{spec}");
-            assert!(max_worker_count(spec).is_err(), "{spec}");
+            assert!(spec.parse::<usize>().is_err() || max_worker_count(spec.parse::<usize>().unwrap()).is_err(), "{spec}");
         }
         let available = available_worker_capacity();
-        assert_eq!(max_worker_count("auto").unwrap(), available);
+        assert_eq!(max_worker_count(0).unwrap(), available);
         assert!(worker_count(&(available + 1).to_string()).is_err());
-        assert!(max_worker_count(&(available + 1).to_string()).is_err());
+        assert!(max_worker_count(available + 1).is_err());
     }
 
     #[test]
     fn limits_scale_with_permitted_logical_cpus() {
-        assert_eq!(max_worker_count_for("auto", 4).unwrap(), 4);
+        assert_eq!(max_worker_count_for(0, 4).unwrap(), 4);
         assert_eq!(worker_count_for("auto", 4).unwrap(), (2, true));
         assert_eq!(worker_count_for("4", 4).unwrap(), (4, false));
         assert!(worker_count_for("6", 4).is_err());
-        assert!(max_worker_count_for("6", 4).is_err());
-        assert_eq!(max_worker_count_for("auto", 16).unwrap(), 16);
+        assert!(max_worker_count_for(6, 4).is_err());
+        assert_eq!(max_worker_count_for(0, 16).unwrap(), 16);
         assert_eq!(worker_count_for("auto", 16).unwrap(), (8, true));
-        assert_eq!(max_worker_count_for("12", 16).unwrap(), 12);
-        assert!(max_worker_count_for("17", 16).is_err());
-        assert_eq!(max_worker_count_for("auto", 1).unwrap(), 1);
+        assert_eq!(max_worker_count_for(12, 16).unwrap(), 12);
+        assert!(max_worker_count_for(17, 16).is_err());
+        assert_eq!(max_worker_count_for(0, 1).unwrap(), 1);
         assert_eq!(worker_count_for("auto", 1).unwrap(), (1, true));
-        assert_eq!(max_worker_count_for("auto", 96).unwrap(), 64);
+        assert_eq!(max_worker_count_for(0, 96).unwrap(), 64);
     }
 }
