@@ -23,12 +23,17 @@ const DECODE_OUTPUT_HARD_CAP: usize = 512 * 1024 * 1024;
 
 /// Unlike std::process::Child, this owner always kills and reaps its direct
 /// FFmpeg/ffprobe process if any early error exits the supervising function.
-struct OwnedChild(std::process::Child);
+struct OwnedChild {
+    child: std::process::Child,
+    reaped: bool,
+}
 
 impl Drop for OwnedChild {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if !self.reaped {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -63,9 +68,12 @@ fn subprocess_output_cancelable(
         bail!("FFmpeg subprocess cancelled before launch by RAM watchdog");
     }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = OwnedChild(command.spawn().context("Unable to start FFmpeg subprocess")?);
-    let stdout = child.0.stdout.take().context("Missing FFmpeg child stdout")?;
-    let stderr = child.0.stderr.take().context("Missing FFmpeg child stderr")?;
+    let mut child = OwnedChild {
+        child: command.spawn().context("Unable to start FFmpeg subprocess")?,
+        reaped: false,
+    };
+    let stdout = child.child.stdout.take().context("Missing FFmpeg child stdout")?;
+    let stderr = child.child.stderr.take().context("Missing FFmpeg child stderr")?;
     let (overflow_tx, overflow_rx) = mpsc::channel();
     let stdout_handle = capture_limited(stdout, stdout_limit, overflow_tx.clone());
     let stderr_handle = capture_limited(stderr, STDERR_LIMIT, overflow_tx);
@@ -79,10 +87,16 @@ fn subprocess_output_cancelable(
             limit_exceeded = true;
         }
         if cancelled || limit_exceeded {
-            let _ = child.0.kill();
-            break child.0.wait().context("Unable to reap cancelled FFmpeg subprocess")?;
+            let _ = child.child.kill();
+            let status = child.child.wait()
+                .context("Unable to reap cancelled FFmpeg subprocess")?;
+            child.reaped = true;
+            break status;
         }
-        if let Some(status) = child.0.try_wait()? { break status; }
+        if let Some(status) = child.child.try_wait()? {
+            child.reaped = true;
+            break status;
+        }
         thread::sleep(PROCESS_POLL_INTERVAL);
     };
     let output_bytes = stdout_handle.join()
@@ -239,6 +253,27 @@ mod tests {
         cancel.join().unwrap();
         assert!(format!("{err:#}").contains("cancelled"));
         assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cancel_windows_powershell_child_during_blocked_operation() {
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+        let token = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&token);
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            signal.store(true, Ordering::Release);
+        });
+        let started = std::time::Instant::now();
+        let err = super::subprocess_output_cancelable(
+            std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 15"]),
+            Some(&token), super::PROBE_OUTPUT_LIMIT,
+        ).unwrap_err();
+        canceller.join().unwrap();
+        assert!(format!("{err:#}").contains("cancelled"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(8));
     }
 
     #[cfg(unix)]
