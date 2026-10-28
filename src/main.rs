@@ -11,6 +11,7 @@ mod parallel;
 mod resources;
 mod autotune;
 mod memory_watchdog;
+mod feature_worker_process;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -68,6 +69,9 @@ enum AdaptivePolicy {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Internal versioned feature-worker IPC; not part of the public CLI.
+    #[command(name = "internal-feature-worker", hide = true)]
+    InternalFeatureWorker,
     /// Classify diagnostic 1280-D embeddings using the ONNX 56-class head.
     /// This command does not read or modify music or SQLite databases.
     ClassifyEmbeddings {
@@ -343,6 +347,7 @@ fn analyze(
 
 fn main() -> Result<()> {
     match Cli::parse().action {
+        Action::InternalFeatureWorker => feature_worker_process::serve_stdio()?,
         Action::ClassifyEmbeddings { input_json, models_dir, threads } => {
             let diagnostic: serde_json::Value =
                 serde_json::from_reader(File::open(&input_json)?)?;
