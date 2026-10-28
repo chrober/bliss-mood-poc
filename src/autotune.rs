@@ -59,6 +59,8 @@ pub struct OnlineAutotuner {
     epoch_start: Instant,
     epoch_songs: usize,
     epoch_patches: usize,
+    epoch_baseline_completed: usize,
+    epoch_baseline_patches: usize,
     best: Option<(usize, f64)>,
     probes: Vec<Probe>,
     adjustments: Vec<crate::parallel::WorkerAdjustment>,
@@ -103,7 +105,8 @@ impl OnlineAutotuner {
             incremental_worker_mib: WORKER_MEMORY_FLOOR_MIB,
             candidates: candidate_schedule(minimum, maximum, actual_initial),
             next_candidate: 0, epoch_start: now, epoch_songs: 0,
-            epoch_patches: 0, best: None, probes: Vec::new(),
+            epoch_patches: 0, epoch_baseline_completed: 0,
+            epoch_baseline_patches: 0, best: None, probes: Vec::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
         })
     }
@@ -140,22 +143,16 @@ impl OnlineAutotuner {
             }
             self.change(self.active - 1, completed, "memory pressure: reduce admissions");
             self.counters.memory_pressure_reductions += 1;
-            self.reset_epoch(now);
+            self.reset_epoch(now, completed, total_patches);
             return Ok(());
         }
 
         // Account for work completed in each measurement epoch. Call once per
         // persisted completion, including completion that was unsuccessful.
         // Diagnostics totals only advance on successful analysis.
-        let increment = completed.saturating_sub(
-            self.probes.iter().map(|p| p.completed_songs).sum::<usize>()
-                .saturating_add(self.epoch_songs)
-        );
-        self.epoch_songs += increment;
+        self.epoch_songs = completed.saturating_sub(self.epoch_baseline_completed);
         // Patches are the shared EffNet work unit for all selected heads.
-        self.epoch_patches = total_patches.saturating_sub(
-            self.probes.iter().map(|p| p.patches).sum::<usize>()
-        );
+        self.epoch_patches = total_patches.saturating_sub(self.epoch_baseline_patches);
         let elapsed = now.saturating_duration_since(self.epoch_start);
         if self.epoch_songs < MIN_EPOCH_SONGS || elapsed < MIN_EPOCH_DURATION {
             return Ok(());
@@ -163,7 +160,7 @@ impl OnlineAutotuner {
         let seconds = elapsed.as_secs_f64();
         let measure = self.epoch_patches as f64 / seconds;
         if !measure.is_finite() || measure <= 0.0 {
-            self.reset_epoch(now);
+            self.reset_epoch(now, completed, total_patches);
             return Ok(());
         }
         self.probes.push(Probe {
@@ -178,7 +175,7 @@ impl OnlineAutotuner {
         if self.best.map_or(true, |(_, speed)| measure > speed * (1.0 + IMPROVEMENT_MARGIN)) {
             self.best = Some((self.active, measure));
         }
-        self.reset_epoch(now);
+        self.reset_epoch(now, completed, total_patches);
         // Preserve enough outstanding work for a useful epoch; otherwise use
         // the best already observed configuration rather than thrash at the end.
         if remaining_hint < MIN_EPOCH_SONGS {
@@ -208,10 +205,12 @@ impl OnlineAutotuner {
         Ok(())
     }
 
-    fn reset_epoch(&mut self, now: Instant) {
+    fn reset_epoch(&mut self, now: Instant, completed: usize, patches: usize) {
         self.epoch_start = now;
         self.epoch_songs = 0;
         self.epoch_patches = 0;
+        self.epoch_baseline_completed = completed;
+        self.epoch_baseline_patches = patches;
     }
 
     fn change(&mut self, target: usize, completed: usize, reason: &str) {
@@ -235,7 +234,8 @@ impl OnlineAutotuner {
             initial_workers: self.initial, final_workers: self.active,
             best_tested_workers: self.best.map(|p| p.0),
             best_observed_patches_per_second: self.best.map(|p| p.1),
-            search_completed: self.next_candidate >= self.candidates.len(),
+            search_completed: self.candidates.iter().all(|candidate|
+                self.probes.iter().any(|probe| probe.workers == *candidate)),
             reserve_mib: self.reserve_mib,
             estimated_incremental_worker_mib: self.incremental_worker_mib,
             probes: self.probes, counters: self.counters, adjustments: self.adjustments,
@@ -260,15 +260,19 @@ mod tests {
         let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
         let (mut done, mut patches) = (0, 0);
         let mut tried = Vec::new();
-        for _ in 0..5 {
+        for elapsed in [12, 13, 18, 8] {
             tried.push(t.active);
-            run_epoch(&mut t, &mut done, &mut patches, 8, 12, 120, &mut now);
+            run_epoch(&mut t, &mut done, &mut patches, 8, elapsed, 120, &mut now);
         }
         // Six/eight/ten/twelve are visited regardless of their scores.
         assert!(tried.contains(&6));
         assert!(tried.contains(&8));
         assert!(tried.contains(&10));
         assert!(tried.contains(&12));
+        let result = t.into_diagnostics();
+        assert_eq!(result.best_tested_workers, Some(12));
+        assert!(result.search_completed);
+        assert!(result.probes[2].patches_per_second < result.probes[0].patches_per_second);
     }
 
     #[test]
