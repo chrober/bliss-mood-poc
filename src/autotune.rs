@@ -614,6 +614,141 @@ mod tests {
         assert!(!diag.search_completed);
     }
 
+    // Pure deterministic simulations use the same admission/observation API
+    // as production. 20 songs per epoch keeps every duration >=12s even
+    // for 88 songs/min; no audio files, wall-clock sleeps or fixed host count.
+    fn simulate_rate(t: &mut OnlineAutotuner, total: &mut usize,
+        patches: &mut usize, now: &mut Instant, songs_per_min: f64,
+        remaining: usize, free_mib: f64) -> f64 {
+        const SONGS: usize = 20;
+        let seconds = SONGS as f64 * 60.0 / songs_per_min;
+        *total += SONGS;
+        *patches += SONGS * 5;
+        *now += Duration::from_secs_f64(seconds);
+        t.observe(*total, *patches, Some(free_mib), remaining, *now).unwrap();
+        if t.draining() { t.settle(*total, *patches, *now); }
+        seconds
+    }
+
+    #[test]
+    fn benchmark_curve_reaches_twelve_past_both_local_declines() {
+        let mut now = Instant::now();
+        let mut tuner = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        let (mut songs, mut patches) = (0, 0);
+        let rates = [(6, 70.98), (8, 70.42), (10, 63.75), (12, 88.17)];
+        for (worker, rate) in rates {
+            assert_eq!(tuner.active, worker);
+            let remaining = 400 - (songs + 20);
+            simulate_rate(&mut tuner, &mut songs, &mut patches,
+                &mut now, rate, remaining, 6500.0);
+        }
+        let diagnostics = tuner.into_diagnostics();
+        assert_eq!(diagnostics.best_tested_workers, Some(12));
+        assert!(diagnostics.search_completed);
+        assert!(!diagnostics.replication_completed);
+        assert_eq!(diagnostics.probes.len(), 4);
+        // This synthetic winner is conditional on RAM and horizon, not
+        // a universal optimum for a Ryzen or any other machine.
+        assert!(diagnostics.probes[3].songs_per_minute
+            > diagnostics.probes[0].songs_per_minute);
+        assert!(diagnostics.probes[2].songs_per_minute
+            < diagnostics.probes[1].songs_per_minute);
+    }
+
+    #[test]
+    fn monotone_up_down_and_flat_noise_choose_safely() {
+        for (curve, expected) in [
+            ([55.0, 65.0, 75.0, 85.0], 12),
+            ([85.0, 75.0, 65.0, 55.0], 6),
+            ([70.0, 70.5, 69.9, 70.7], 6),
+        ] {
+            let mut now = Instant::now();
+            let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+            let (mut songs, mut patches) = (0, 0);
+            for rate in curve {
+                let remaining = 400 - (songs + 20);
+                simulate_rate(&mut t, &mut songs, &mut patches,
+                    &mut now, rate, remaining, 6500.0);
+            }
+            assert_eq!(t.best.unwrap().0, expected);
+            assert!(t.visited.contains(&12));
+        }
+    }
+
+    #[test]
+    fn short_horizon_stops_search_but_long_horizon_can_amortize_it() {
+        let mut now = Instant::now();
+        let mut short = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        let (mut done, mut patches) = (0, 0);
+        simulate_rate(&mut short, &mut done, &mut patches,
+            &mut now, 70.98, 20, 6500.0);
+        assert_eq!(short.active, 6);
+        assert!(short.exploration_budget_exhausted);
+        assert_eq!(short.counters.exploration_budget_holds, 1);
+        assert!(!short.draining());
+        let mut long_time = Instant::now();
+        let mut long = OnlineAutotuner::new(6, 6, 12, Some(8000.0), long_time).unwrap();
+        let (mut completed, mut p) = (0, 0);
+        let mut scan_seconds = 0.0;
+        for rate in [70.98, 70.42, 63.75, 88.17,
+                     88.17, 63.75, 70.42, 70.98] {
+            let remaining = 400 - (completed + 20);
+            scan_seconds += simulate_rate(&mut long, &mut completed,
+                &mut p, &mut long_time, rate, remaining, 6500.0);
+        }
+        assert!(long.counters.completed_coarse_sweeps >= 2);
+        assert_eq!(long.best.unwrap().0, 12);
+        long.exploit_safe_best(completed, 5000.0, "synthetic exploitation");
+        assert_eq!(long.active, 12);
+        // Illustrative whole-scan model with 2 s switching overhead, not
+        // empirical wall-time. Tuning can beat fixed 6 on this *long*
+        // synthetic scan yet still lose to a prescient fixed-12 oracle.
+        let hypothetical_seconds = scan_seconds
+            + 240.0 * 60.0 / 88.17 + long.adjustments.len() as f64 * 2.0;
+        assert!(hypothetical_seconds < 400.0 * 60.0 / 70.98);
+        assert!(hypothetical_seconds > 400.0 * 60.0 / 88.17);
+    }
+
+    #[test]
+    fn measured_memory_gate_is_rechecked_during_exploitation() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(6000.0), now).unwrap();
+        for (worker, score) in [(6, 70.0), (8, 72.0), (10, 64.0), (12, 88.0)] {
+            t.evidence.insert(worker, VecDeque::from(vec![score, score]));
+        }
+        t.counters.probes = 8;
+        t.select_best_observed();
+        assert_eq!(t.best.unwrap().0, 12);
+        t.exploit_safe_best(80, 600.0, "synthetic low-RAM");
+        assert_eq!(t.active, 8); // two extra slots fit; six do not
+        assert_eq!(t.counters.unsafe_best_holds, 1);
+        t.settle(80, 400, now);
+        t.exploit_safe_best(80, 3000.0, "synthetic RAM recovery");
+        assert_eq!(t.active, 12);
+    }
+
+    #[test]
+    fn drifted_and_noisy_rolling_evidence_can_reselect_winner() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        t.counters.probes = 8;
+        t.evidence.insert(6, VecDeque::from(vec![70.0, 71.0]));
+        t.evidence.insert(12, VecDeque::from(vec![88.0, 87.0]));
+        t.select_best_observed();
+        assert_eq!(t.best.unwrap().0, 12);
+        // An eight-sample rolling window replaces stale observations after
+        // a sustained change of load; isolated single outliers are not enough.
+        for i in 0..RECENT_SAMPLES_PER_WORKER {
+            for (worker, score) in [(6, 96.0), (12, 59.0)] {
+                let samples = t.evidence.get_mut(&worker).unwrap();
+                if samples.len() == RECENT_SAMPLES_PER_WORKER { samples.pop_front(); }
+                samples.push_back(score + (i % 3) as f64 * 0.2);
+            }
+        }
+        t.select_best_observed();
+        assert_eq!(t.best.unwrap().0, 6);
+    }
+
     #[test]
     fn candidate_schedule_covers_beyond_a_bad_local_peak() {
         assert_eq!(candidate_schedule(6, 12, 6), [6, 8, 10, 12]);
