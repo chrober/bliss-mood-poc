@@ -998,6 +998,7 @@ struct CompletionPolicy<'a> {
     expected: Option<usize>,
     tracks_total: usize,
     embedding_dir: Option<&'a Path>,
+    tuner: &'a mut Option<crate::autotune::OnlineAutotuner>,
 }
 
 fn save_completion(
@@ -1007,8 +1008,7 @@ fn save_completion(
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
-    tuner: &mut Option<crate::autotune::OnlineAutotuner>,
-    policy: CompletionPolicy<'_>,
+    mut policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
     match result {
@@ -1042,7 +1042,7 @@ fn save_completion(
             diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
         }
     }
-    if let Some(controller) = tuner.as_mut() {
+    if let Some(controller) = policy.tuner.as_mut() {
         controller.observe(
             summary.analyzed, diagnostics.cumulative_patches,
             crate::resources::memory_diagnostics().map(|m| m.available_physical_mib),
@@ -1206,14 +1206,14 @@ fn scan_parallel(
             }
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
-            while !(adaptive.as_ref().map_or(true, |a| a.permits_dispatch(in_flight))
-                && tuner.as_ref().map_or(true, |a| a.permits_dispatch(in_flight))
+            while !(adaptive.as_ref().is_none_or(|a| a.permits_dispatch(in_flight))
+                && tuner.as_ref().is_none_or(|a| a.permits_dispatch(in_flight))
                 && in_flight < pool_size) {
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                    &mut monitor, &mut adaptive, &mut tuner,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
+                    &mut monitor, &mut adaptive,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -1223,8 +1223,8 @@ fn scan_parallel(
                     while in_flight > 0 {
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                            &mut monitor, &mut adaptive, &mut tuner,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
+                            &mut monitor, &mut adaptive,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
                         )?;
                         in_flight -= 1;
                     }
@@ -1249,8 +1249,8 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                &mut monitor, &mut adaptive, &mut tuner,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
+                &mut monitor, &mut adaptive,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
             )?;
             in_flight -= 1;
         }
