@@ -159,3 +159,59 @@ See [algorithmic audit, remaining weaknesses and experiment plan](online-autotun
 ## Measurement-methodology milestone, after algorithm redirection (2026-10-28)
 
 Rather than add more worker-count-specific synthetic optimizer cases, the native local real-music benchmark runner now has `--experiment autotune-e2e`. It runs the **actual** original Essentia C++ / three-head ONNX scanner with full new SQLite and embeddings for each of balanced fixed-worker versus opt-in autotune trials, preserving exact f32 score/1280D embedding parity, model fingerprints, Windows process-tree RAM guard, external elapsed wall time including setup/drain and deterministic reverse-order repetitions. The experiment exposes user-selected min/initial/max workers and fixed baselines; there is no fixed optimum assumed for Ryzen/Pi. Round-paired total-wall-time speedup ratios and descriptive win counts are emitted only after completing all runs. Full protocol and local, plan-first PowerShell invocation: [online-autotune-phase-b.md](online-autotune-phase-b.md). Existing baseline/adaptive-policy/native-scaling benchmark modes are preserved. The current harness is Windows-only for its tested independent RAM guard. No private cohort is present in CI or this environment: **there is no measured real-music end-to-end speedup to report yet**. New pure tests validate commands/bounds/pair arithmetic; check the exact-head GitHub Rust/Python CI before claiming these additions passed.
+
+## Kopierbarer PowerShell-Block: realer Autotune-End-to-End-Benchmark (28.10.2026)
+
+Das bisherige historische 100-Song-Windows-/NAS-Testsetup wird hier fuer den neuen **PR-19-Autotune-E2E-Vergleich** wiederverwendet. Das vollstaendige, versionierte PowerShell-Ausfuehrungsskript liegt in [scripts/run_autotune_e2e_windows.ps1](../scripts/run_autotune_e2e_windows.ps1). Es enthaelt dieselben harten Schutzpruefungen wie die frueheren selbststaendigen PowerShell-Bloecke, statt sie bei jedem Versuch neu zu kopieren. Der folgende kopierbare Block konfiguriert es und startet standardmaessig **nur** die Vorpruefung.
+
+**Nachgewiesene Binary-Herkunft:** Code-Commit [32cba98c](https://github.com/chrober/bliss-mood-poc/commit/32cba98c229bbfbbeb329badb84212446c3b3721), [Windows-x64-CI #40697871147](https://github.com/chrober/bliss-mood-poc/actions/runs/40697871147) PASS und GitHub-Artefakt **bliss-mood-windows-x64** (am 28.10.2026 noch gueltig, mit zeitlich begrenzter Aufbewahrung). Das Skript prueft Branch PR #19, Commit-Abstammung, fehlende Aenderungen an Scanner-/Benchmark-Code, die CI-Source-SHA, BUILD.txt, SHA256SUMS.txt und den echten SHA256 der heruntergeladenen EXE. Reine spaetere Dokumentations-Commits sind zulaessig; veraenderter Scanner-Code wird abgelehnt. Kein unkontrollierter Rueckgriff auf ein altes lokales bin/bliss-mood.exe.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+
+    $repo = 'D:\LMS\bliss-mood-poc'
+    $runner = Join-Path $repo 'scripts\run_autotune_e2e_windows.ps1'
+
+    if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) {
+        throw 'Bitte zuerst den aktuellen PR-19-Branch holen: PowerShell-Skript fehlt'
+    }
+    Set-Location -LiteralPath $repo
+    if ((git branch --show-current).Trim() -ne 'feat/ram-safe-online-autotune') {
+        throw 'Bitte zuerst auf PR #19 / feat/ram-safe-online-autotune wechseln'
+    }
+
+    # Nur diesen Schalter nach bestandenem Plan bewusst aendern:
+    $execute = $false
+
+    $options = @{
+        Repo = $repo
+        CohortDb = (Join-Path $repo 'benchmark-workers-20261019-060347\sample-100.db')
+        SourceRoot = '\\192.168.1.100\music'
+        NativeWorker = 'D:\LMS\essentia-cli-test\essentia-worker\bliss-essentia-worker.exe'
+        ModelsDir = (Join-Path $repo 'models')
+        FixedWorkers = '6,8,10,12'
+        MinWorkers = 6
+        InitialWorkers = 6
+        MaxWorkers = 12
+        ExpectedTracks = 100
+        Repeats = 2
+    }
+
+    Write-Host '=== PR #19: ECHTER AUTOTUNE END-TO-END-VERGLEICH ==='
+    if ($execute) {
+        & $runner @options -Execute
+    } else {
+        & $runner @options
+    }
+
+    Write-Host '=== FERTIG ==='
+    if (-not $execute) {
+        Write-Host 'Nur Plan ausgefuehrt. Fuer echten Benchmark $execute auf $true setzen.'
+    }
+}
+```
+
+**Ausfuehrung:** 1. Den Block mit **$execute = $false** laufen lassen: `--plan-only` prueft den 100-Song-Cohort, alle Quell-Audiodateien und die Run-Matrix ohne Musikscans/Sidecars. 2. Bei erfolgreichem Plan den **gesamten Block erneut** mit **$execute = $true** starten. Das erzeugt 10 echte, frische Scans (fixed 6/8/10/12 und opt-in autotune von 6 bis 12, je zwei invers-balancierte Runden). Im Bericht stehen vollständige Wall-Clock-Zeit, Songs/min, RAM, Suchdiagnostik und die paarweise prozentuelle Beschleunigung, mit exakten 145 ONNX-Klassifikationswerten sowie kompletten 1280D-Embeddings pro Song als bitgenauer Paritaetspruefung. Wegen des dedizierten unabhaengigen Windows-RAM-Watchdogs ist dieser Launcher derzeit **Windows-only**. Die Auswahl der festen Worker ist eine Vergleichsmatrix aus dem bestehenden Ryzen-Experiment, keine generische Optimalzahl.
+
+**Wichtig:** Bei aelteren oder abgelaufenen GitHub-Artefakten wird der Download **nicht** stillschweigend ersetzt. Cohort-DB, NAS-Mount, native C++-Worker-/DLL-Umgebung und Modelle muessen lokal verfuegbar sein; bei anderen Pfaden nur die Werte in $options anpassen. Sind die Datei-Keys im TracksV2-Cohort absolut statt relativ, optional **LibraryRoot** im Hashtable mit dem urspruenglichen gespeicherten Pfad-Praefix angeben. Die Quelle, die Original-Bliss-DB, alle ONNX-Dateien sowie Modell-/Musikdateien bleiben unveraendert. Die neuen SQLite-Sidecars, Embeddings, selected-tracks.txt, runs.csv und summary.json bleiben im Git-ignorierten **benchmark-***-Verzeichnis; keine privaten Rohdaten committen oder nach GitHub hochladen. Es wurde **noch kein** lokaler End-to-End-Benchmark durch diese Dokumentation ausgefuehrt; synthetische Paritaet und CI fuer die Harness-Tests sind kein realer Durchsatznachweis.

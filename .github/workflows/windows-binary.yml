@@ -12,6 +12,7 @@ on:
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
       - "scripts/benchmark_native_adaptive_manifest.py"
+      - "scripts/run_autotune_e2e_windows.ps1"
       - "tests/test_benchmark_native_adaptive_manifest.py"
   push:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - "model-registry.json"
       - ".github/workflows/windows-binary.yml"
       - "scripts/benchmark_native_adaptive_manifest.py"
+      - "scripts/run_autotune_e2e_windows.ps1"
       - "tests/test_benchmark_native_adaptive_manifest.py"
 
 permissions:
@@ -42,6 +44,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Parse-check local PR19 autotune PowerShell launcher without executing music
+        run: |
+          $tokens = $null
+          $errors = $null
+          $source = (Resolve-Path 'scripts/run_autotune_e2e_windows.ps1').Path
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $source, [ref]$tokens, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            throw ("PowerShell syntax errors: " + ($errors -join "; "))
+          }
+          Write-Host 'PASS: local-only autotune PowerShell syntax; no private media accessed'
       - name: Verify native adaptive benchmark regression tests on Windows
         run: |
           python -m unittest discover -s tests -p 'test_benchmark_native_adaptive_manifest.py' -v
