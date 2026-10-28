@@ -91,6 +91,14 @@ Successful checks on that exact code commit:
 
 Local workflow: **no Rust build on Windows laptop**; build via CI. Use a complete self-contained PowerShell `& { ... }` block with verified literal run ID, `gh run download`, `BUILD.txt` source-commit identity, SHA256 verification, clean detached worktree, 100-song bounded input, explicit `--threads 1`, `--priority normal`, native worker prerequisite and new/empty result dir. No login access to private local Windows/NAS from remote GitHub Actions. Use `--experiment adaptive-policy` for the earlier 2/4/6 and 8/24-song controller study; its study modes deliberately cap at 6. Do not present that experiment as a validation of host-`auto` on a Pi. Use the CI-backed binary from a **matching commit** and confirm green Windows + Rust + native/model parity workflows. Separate all code changes from experiment result claims.
 
+> **Phase A implementation update (28 October 2026):** The independent
+> [native 6/8/10/12 fixed-worker scaling study](native-worker-scaling-study.md)
+> documents the new `--experiment native-scaling` mode, Windows physical-RAM
+> safety guard, eight balanced scans, additional diagnostics, local-only data
+> restrictions and still-unmeasured performance question. The original code
+> baseline and prior 30+10 local measurements remain historical evidence;
+> consult the live PR/CI before treating a newer binary as qualified.
+>
 ## 6. Recommended next work (do not skip controls)
 
 1. **Native throughput-versus-memory scaling:** On the 16-logical-CPU Windows host, compare **fixed 6/8/10/12** (or an incremental stop-on-memory-pressure schedule), two balanced repetitions with identical 100-song sample, priority `Normal`, clean sidecars. Preserve exact 3-head scores and 1280D embeddings, measure wall/songs-min, system CPU/RAM, available memory, process-tree private MiB, real active concurrency and native child count. These are *not yet measured* for this native C++ cohort beyond six. Avoid oversubscribing Raspberry Pi hardware.
