@@ -2,7 +2,7 @@
 
 **Prepared 28 October 2026.** This file is the integration handback for the separate [Similarity Metric Evaluation PR #16](https://github.com/chrober/bliss-mood-poc/pull/16). PR #16's source, metrics, human listening comparisons and measurements are **not modified** by this work.
 
-> **Release status is derived from the verified final `main` SHA, never from a draft feature branch.** Once the integration PR is merged, this handback must be updated with the actual `main` commit, successful workflow IDs, source/build fingerprint and artifact download instructions. Until that verification is recorded, the technical examples below describe the intended integration CLI rather than claim that `main` already contains it.
+> **Integration complete and source-tree verified (28 October 2026):** Static native multi-worker CLI was squash-merged to `main` as [`783b05761b6b322a85753acded63ffe336874a6d`](https://github.com/chrober/bliss-mood-poc/commit/783b05761b6b322a85753acded63ffe336874a6d) in [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20). The merged Git *tree SHA* (`60695657fad43d00e6a080ba3a617d428e172f97`) was compared through GitHub against the complete CI-verified PR head `da8fecee23930c2e52abcb473a62b8178b2d5474`, and **they are identical**. This establishes source-tree identity for the tested scanner, despite the different squash-merge commit SHA. Native third-party DLL redistribution remains BLOCKED; source merge is not license clearance.
 
 ## What is integrated and what is deferred
 
@@ -13,12 +13,15 @@ The source integration combines [native Essentia C++ backend PR #17](https://git
 ## Version and binary chain of custody
 
 - **Integration PR:** #20; original stable source base `c4db3a5aa948f67ecbdeece435f479871ab9f496` (PR #18, which contains PR #17).
-- **Final `main` commit:** **PENDING MERGE VERIFICATION** (do not infer an SHA).
-- **Final verified Windows x64 source SHA and CI workflow run:** **PENDING**. The GitHub workflow builds `bliss-mood-windows-x64`; only use the artifact from a successful workflow tied to the final `main` code.
+- **Actual integrated source commit on `main`:** `783b05761b6b322a85753acded63ffe336874a6d`, which has Git tree `60695657fad43d00e6a080ba3a617d428e172f97`.
+- **Exactly source-tree-identical verified PR head:** `da8fecee23930c2e52abcb473a62b8178b2d5474`; this was the successful GitHub Actions checkout source for the CLI and native Linux checks. `main` squash merge changes the Git commit identity but **not one file in the tree**. Later documentation-only commits will change `main` HEAD, not the originally qualified scanner code.
+- **Windows x64 binary:** [Windows CI run #40758319812](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319812) **SUCCESS**, artifact `bliss-mood-windows-x64`, source-HEAD exactly `da8fecee23930c2e52abcb473a62b8178b2d5474`. Artifact ZIP SHA256 (not EXE) `d8a34f8448c6db8faff2e2560f0c332997c875c2c2ae6628a4094a3f643c200d`. Download the artifact from that run (not simply the latest branch build), verify `BUILD.txt` and `SHA256SUMS.txt` against the actual executable. **EXE SHA256 has not been independently extracted in this handback and must not be invented.**
+- **Rust + Clippy:** [#40758319810](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319810) **SUCCESS**; **native original Essentia C++ Linux** [#40758319837](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319837) **SUCCESS**, including fixed-worker concurrency/parity; **Genre** [#40758319838](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319838) **SUCCESS**; **Voice** [#40758319821](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319821) **SUCCESS**; **Windows native DLL packaging fixture (no native library distribution)** [#40758319841](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319841) **SUCCESS**.
+- **Experimental original Essentia C++ native Windows integration gate:** [#40758319829](https://github.com/chrober/bliss-mood-poc/actions/runs/40758319829) was still in progress at the time of this handback update. Its initial iteration failed because external Essentia PR #1540 HEAD moved away from the pinned revision. The revised workflow explicitly fetches immutable upstream `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` instead. **Do not call this gate PASS unless GitHub later confirms its successful conclusion.**
 - **Executable SHA256:** read from the verified artifact's `SHA256SUMS.txt` and compare locally with `Get-FileHash`; do not substitute the GitHub ZIP artifact digest for the executable digest.
 - **`BUILD.txt` checkout/source SHAs:** must agree with the verified source / build provenance for that exact artifact, including any merge-commit semantics.
 - **Native worker EXE, models and label mappings:** independently fingerprint with SHA256 and record versions on the private machine. The scanner ZIP does **not** authorize or guarantee distribution of original Essentia native third-party dependencies.
-- **Numeric parity:** require the actual final-commit Windows/Linux CI evidence below before interpreting results as validated. Old PR #17/18 CI are important provenance but not tests of the final static-only code.
+- **Numeric parity:** use only the explicit scopes of the successful workflow IDs above. Historical PR #17/18 and PR #19 results are separate provenance; they do not substitute for this source-tree verification.
 
 ## Windows provisioning and safe run
 

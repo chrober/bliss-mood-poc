@@ -1,6 +1,6 @@
 # Final native multi-worker song analysis (static worker capacity)
 
-**Integration target:** `main` through [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20), superseding the stable parts of stacked PR [#17](https://github.com/chrober/bliss-mood-poc/pull/17) and [#18](https://github.com/chrober/bliss-mood-poc/pull/18). **Draft PR [#19](https://github.com/chrober/bliss-mood-poc/pull/19) is experimental and must not be merged.** This document describes the static-worker source design; check the actual merged commit and successful workflow IDs in the [Similarity handback](handback-multi-worker-to-similarity-20261028.md) before using any binary. As of its preparation it does not by itself assert a completed merge.
+**Source integration completed:** [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) was squash-merged to `main` at [`783b05761b6b322a85753acded63ffe336874a6d`](https://github.com/chrober/bliss-mood-poc/commit/783b05761b6b322a85753acded63ffe336874a6d), replacing the stable native/manifest portions of stacked PR [#17](https://github.com/chrober/bliss-mood-poc/pull/17) and [#18](https://github.com/chrober/bliss-mood-poc/pull/18). These historical PRs and experimental [PR #19](https://github.com/chrober/bliss-mood-poc/pull/19) were deliberately closed **without separate merges**, preserving all branch history. The qualified PR20 head and the actual source-tree contents of main are byte-for-byte identical at Git tree level (tree `60695657fad43d00e6a080ba3a617d428e172f97`). See [Similarity handback](handback-multi-worker-to-similarity-20261028.md) for the exact Windows CI build, numerical evidence, and remaining native Windows experimental gate.
 
 ## Supported CLI contract
 
@@ -83,3 +83,7 @@ For the archived experimental exploration, four private real-music campaigns (40
 ## Similarity handback
 
 For the exact approved scanner build, final main commit, hashes, Windows download instructions and safe reuse of the manifest/embedding output in similarity PR #16, consult [handback-multi-worker-to-similarity-20261028.md](handback-multi-worker-to-similarity-20261028.md). The similarity branch, its human listening judgments, methodology and benchmark files are **not changed** by this integration.
+
+## Final integration and research disposition
+
+The main source merge is completed under the user's explicit authorization even though native binary redistribution rights/notice collection are still unapproved. **Do not confuse source code publication with legal clearance for packaging compiled native dependencies.** PR #17/#18 are closed as superseded by the controlled squash integration; PR #19 is closed **without merge** and its branch is retained. [Backlog #21](https://github.com/chrober/bliss-mood-poc/issues/21) tracks possible future long-scan online tuning and ONNX-process isolation. Source paths to the archived experimental benchmark reports remain available on PR #19; no private user audio, databases, models, or reports were committed by this handback.
