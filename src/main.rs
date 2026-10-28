@@ -174,6 +174,10 @@ enum Action {
         /// Maximum active jobs during adaptive scanning.
         #[arg(long, default_value_t = 8)]
         max_workers: usize,
+        /// Minimum completed songs before either adaptive up/down adjustment.
+        /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
+        #[arg(long, requires = "adaptive_workers", value_parser = clap::value_parser!(usize).range(1..=100_000))]
+        adaptive_min_completed_songs: Option<usize>,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -445,7 +449,8 @@ fn main() -> Result<()> {
             bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
-            adaptive_workers, priority, min_workers, max_workers, dry_run, json,
+            adaptive_workers, priority, min_workers, max_workers,
+            adaptive_min_completed_songs, dry_run, json,
         } => {
             if tracks_file.is_some() && library_root.is_some() {
                 bail!("--library-root is only supported with --bliss-db");
@@ -454,8 +459,11 @@ fn main() -> Result<()> {
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
+            let adaptive_gate = adaptive_min_completed_songs.unwrap_or(24);
             if adaptive_workers {
-                parallel::AdaptiveWorkers::new(worker_count, min_workers, max_workers)?;
+                parallel::AdaptiveWorkers::with_min_completed_songs(
+                    worker_count, min_workers, max_workers, adaptive_gate,
+                )?;
                 if worker_count > 1 && threads != 1 {
                     bail!("Adaptive analysis requires --threads 1");
                 }
@@ -475,7 +483,8 @@ fn main() -> Result<()> {
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
-                adaptive_workers, min_workers, max_workers, dry_run, backend,
+                adaptive_workers, min_workers, max_workers,
+                adaptive_min_completed_songs: adaptive_gate, dry_run, backend,
             })?;
             priority_report.collect_native_workers();
             summary.set_priority_diagnostics(priority_report);
@@ -558,6 +567,34 @@ fn main() -> Result<()> {
 mod manifest_cli_tests {
     use super::{Action, Cli};
     use clap::Parser;
+
+    #[test]
+    fn adaptive_song_gate_is_explicit_only_and_validated() {
+        let parsed = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
+            "--source-root", "music", "--db", "features.db",
+            "--workers", "2", "--adaptive-workers",
+            "--min-workers", "2", "--max-workers", "6",
+            "--adaptive-min-completed-songs", "8",
+        ]).unwrap();
+        match parsed.action {
+            Action::ScanFeatures { adaptive_min_completed_songs, .. } =>
+                assert_eq!(adaptive_min_completed_songs, Some(8)),
+            _ => panic!("Expected scan-features"),
+        }
+        for invalid in ["0", "100001", "-1", "banana"] {
+            let args = [
+                "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+                "--db", "features.db", "--adaptive-workers",
+                "--adaptive-min-completed-songs", invalid,
+            ];
+            assert!(Cli::try_parse_from(args).is_err(), "{invalid}");
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--adaptive-min-completed-songs", "8",
+        ]).is_err());
+    }
 
     #[test]
     fn priority_is_independent_from_adaptive_flag_and_rejects_unsafe_values() {

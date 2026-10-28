@@ -109,8 +109,30 @@ def exact_feature_rows(db: Path, track_keys: list[str],
     }
 
 
-def schedule(repeats: int, seed: int) -> list[tuple[int, str]]:
-    modes = ["fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"]
+POLICY_MODES = ("fixed6", "adaptive2_gate24", "adaptive4_gate24",
+                "adaptive6_gate24", "adaptive2_gate8")
+
+
+def mode_configuration(mode: str) -> tuple[int, bool, int, int]:
+    """workers, adaptive, min_workers, completed-song gate."""
+    if mode in POLICY_MODES[1:]:
+        # Separate policy study; all adaptive runs share min=2 and max=6.
+        parts = mode.removeprefix("adaptive").split("_gate")
+        workers, gate = map(int, parts)
+        return workers, True, 2, gate
+    if mode == "adaptive2":
+        return 2, True, 1, 24
+    if mode in ("fixed1", "fixed2", "fixed4", "fixed6"):
+        return int(mode.removeprefix("fixed")), False, 1, 24
+    raise ValueError(f"Unknown bounded benchmark mode: {mode}")
+
+
+def schedule(repeats: int, seed: int, experiment: str = "baseline") -> list[tuple[int, str]]:
+    modes = list(POLICY_MODES) if experiment == "adaptive-policy" else [
+        "fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"
+    ]
+    if experiment not in ("baseline", "adaptive-policy"):
+        raise ValueError("Unknown experiment")
     rng = random.Random(seed)
     rng.shuffle(modes)
     return [
@@ -122,8 +144,7 @@ def schedule(repeats: int, seed: int) -> list[tuple[int, str]]:
 
 def analyze(args: argparse.Namespace, round_no: int, mode: str,
             expected: int) -> tuple[dict, dict, dict]:
-    is_adaptive = mode == "adaptive2"
-    workers = 2 if is_adaptive else int(mode.removeprefix("fixed"))
+    workers, is_adaptive, min_workers, completed_gate = mode_configuration(mode)
     stem = f"round-{round_no:02d}-{mode}"
     db = args.output_dir / f"{stem}.sqlite"
     embedding_dir = args.output_dir / f"{stem}-embeddings"
@@ -148,7 +169,11 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "--max-new", str(expected), "--max-errors", "1", "--json",
     ]
     if is_adaptive:
-        cmd.extend(["--adaptive-workers", "--min-workers", "1", "--max-workers", "6"])
+        cmd.extend([
+            "--adaptive-workers", "--min-workers", str(min_workers),
+            "--max-workers", "6",
+            "--adaptive-min-completed-songs", str(completed_gate),
+        ])
     start = time.perf_counter()
     with stdout_path.open("w", encoding="utf-8") as out, stderr_path.open(
         "w", encoding="utf-8"
@@ -182,16 +207,31 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     if not isinstance(adjustments, list):
         raise AssertionError("Malformed native adaptive diagnostics")
     if is_adaptive:
-        if diag.get("initial_workers") != 2 or not 1 <= diag.get("final_workers", 0) <= 6:
-            raise AssertionError("Invalid adaptive worker bounds")
-    elif adjustments:
-        raise AssertionError("Fixed worker run unexpectedly changed worker count")
+        if (diag.get("initial_workers") != workers
+                or not min_workers <= diag.get("final_workers", 0) <= 6
+                or diag.get("adaptive_min_completed_songs") != completed_gate):
+            raise AssertionError("Adaptive mode, gate, or worker bounds do not match requested experiment")
+        if any(not min_workers <= event.get("to_workers", 0) <= 6
+               or event.get("after_completed_songs", 0) < completed_gate
+               for event in adjustments):
+            raise AssertionError("Adaptive controller violated gate or worker bounds")
+    elif adjustments or diag.get("adaptive_min_completed_songs") is not None:
+        raise AssertionError("Fixed worker run unexpectedly changed worker count or gate")
     record = {
         "round": round_no, "mode": mode,
         "requested_priority": args.scan_priority,
         "observed_scanner_priority": priority["effective_scanner"],
         "observed_native_child_priorities": ",".join(child_classes),
         "initial_workers": workers,
+        "adaptive_min_completed_songs": completed_gate if is_adaptive else None,
+        "first_resize_after_completed_songs": (
+            adjustments[0]["after_completed_songs"] if adjustments else None),
+        "resize_song_positions": ",".join(
+            str(event["after_completed_songs"]) for event in adjustments),
+        "controller_gate_holds": (diag.get("controller_decisions") or {})
+            .get("minimum_song_gate_holds"),
+        "controller_cooldown_holds": (diag.get("controller_decisions") or {})
+            .get("cooldown_holds"),
         "tracks": expected, "wall_seconds": round(elapsed, 3),
         "songs_per_minute": round(expected * 60 / elapsed, 3),
         "preworker_cpu_baseline_seconds": round(baseline_s, 3),
@@ -250,6 +290,9 @@ def main() -> None:
     parser.add_argument("--models", default="moodtheme,genre,voice")
     parser.add_argument("--expected-tracks", type=int,
                         help="Fail if the deliberate sample has a different song count")
+    parser.add_argument("--experiment", choices=("baseline", "adaptive-policy"),
+                        default="baseline",
+                        help="Baseline fixed 1/2/4/6 vs adaptive 2, or controlled 5-mode adaptive policy study")
     parser.add_argument("--scan-priority", choices=("normal", "below-normal", "above-normal"),
                         default="normal",
                         help="Apply identical observed Windows priority to all scan modes")
@@ -290,9 +333,10 @@ def main() -> None:
                       args.cohort_db.resolve()):
         if out_real == protected or out_real.is_relative_to(protected):
             parser.error("Benchmark output must be outside source audio, model, and cohort paths")
-    plan = schedule(args.repeats, args.seed)
+    plan = schedule(args.repeats, args.seed, args.experiment)
     print("Local, private, bounded experiment plan:")
     print(json.dumps({"tracks": len(cohort), "order": plan,
+                      "experiment": args.experiment,
                       "scan_priority": args.scan_priority,
                       "validated_audio_paths": len(mapped),
                       "manifest": "generated locally from bounded TracksV2 cohort",
@@ -324,6 +368,7 @@ def main() -> None:
         "analyzer_sha256": digest(args.analyzer),
         "native_worker_sha256": digest(args.essentia_worker),
         "models": args.models,
+        "experiment": args.experiment,
         "scan_priority": args.scan_priority,
         "schedule": plan,
         "note": "PRIVATE LOCAL BENCHMARK; never commit or upload outputs",
@@ -360,7 +405,7 @@ def main() -> None:
         writer = csv.DictWriter(csvout, fieldnames=list(records[0]))
         writer.writeheader()
         writer.writerows(records)
-    print(f"PASS balanced fixed/adaptive benchmark, exact parity: {args.output_dir}")
+    print(f"PASS {args.experiment} fixed/adaptive benchmark, exact parity: {args.output_dir}")
 
 
 if __name__ == "__main__":

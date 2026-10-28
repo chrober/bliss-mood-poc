@@ -55,6 +55,45 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
             "fixed1", "fixed2", "fixed4", "fixed6", "adaptive2",
         })
 
+    def test_policy_matrix_is_balanced_and_mappings_are_correct(self):
+        plan = bench.schedule(2, 20261022, "adaptive-policy")
+        self.assertEqual(len(plan), 10)
+        self.assertEqual(plan[:5], [(1, m) for _, m in reversed(plan[5:])])
+        self.assertEqual({mode for _, mode in plan}, set(bench.POLICY_MODES))
+        self.assertEqual(bench.mode_configuration("fixed6"), (6, False, 1, 24))
+        self.assertEqual(bench.mode_configuration("adaptive2"), (2, True, 1, 24))
+        self.assertEqual(bench.mode_configuration("adaptive2_gate24"), (2, True, 2, 24))
+        self.assertEqual(bench.mode_configuration("adaptive4_gate24"), (4, True, 2, 24))
+        self.assertEqual(bench.mode_configuration("adaptive6_gate24"), (6, True, 2, 24))
+        self.assertEqual(bench.mode_configuration("adaptive2_gate8"), (2, True, 2, 8))
+        with self.assertRaises(ValueError):
+            bench.mode_configuration("adaptive99_gate0")
+
+    def test_policy_modes_emit_exact_requested_gate_and_start_workers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opts = argparse.Namespace(
+                analyzer=root / "bliss-mood.exe", essentia_worker=root / "worker.exe",
+                source_root=root / "music", manifest_file=root / "tracks.txt",
+                models_dir=root / "models", models="moodtheme,genre,voice",
+                timeout_seconds=900, scan_priority="normal", output_dir=root,
+            )
+            class Captured(Exception):
+                pass
+            for mode in bench.POLICY_MODES:
+                workers, adaptive, minimum, gate = bench.mode_configuration(mode)
+                with patch.object(bench.subprocess, "run", side_effect=Captured) as run:
+                    with self.assertRaises(Captured):
+                        bench.analyze(opts, 1, mode, 100)
+                cmd = run.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("--workers") + 1], str(workers))
+                self.assertEqual("--adaptive-workers" in cmd, adaptive)
+                if adaptive:
+                    self.assertEqual(cmd[cmd.index("--min-workers") + 1], str(minimum))
+                    self.assertEqual(cmd[cmd.index("--adaptive-min-completed-songs") + 1], str(gate))
+                else:
+                    self.assertNotIn("--adaptive-min-completed-songs", cmd)
+
     def test_preflight_rejects_missing_music_and_symlink_escapes(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

@@ -619,6 +619,8 @@ struct ScanDiagnostics {
     #[cfg_attr(not(windows), allow(dead_code))]
     process_first_page_fault_count: Option<u64>,
     initial_workers: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adaptive_min_completed_songs: Option<usize>,
     final_workers: usize,
     peak_workers: usize,
     /// Max number of jobs dispatched but not yet collected by coordinator.
@@ -710,6 +712,7 @@ pub struct ScanOptions<'a> {
     pub threads: usize,
     pub workers: usize,
     pub adaptive_workers: bool,
+    pub adaptive_min_completed_songs: usize,
     pub min_workers: usize,
     pub max_workers: usize,
     pub dry_run: bool,
@@ -856,8 +859,9 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
     }
     if options.adaptive_workers {
-        crate::parallel::AdaptiveWorkers::new(
+        crate::parallel::AdaptiveWorkers::with_min_completed_songs(
             options.workers, options.min_workers, options.max_workers,
+            options.adaptive_min_completed_songs,
         )?;
         if options.dry_run {
             bail!("--adaptive-workers cannot be used with --dry-run");
@@ -1042,14 +1046,17 @@ fn scan_parallel(
     // the one-second CPU baseline must not shorten its 20-second guard.
     let baseline = crate::resources::scan_resource_baseline();
     let mut adaptive = if options.adaptive_workers {
-        Some(crate::parallel::AdaptiveWorkers::new(
+        Some(crate::parallel::AdaptiveWorkers::with_min_completed_songs(
             initial, options.min_workers.min(initial), pool_size,
+            options.adaptive_min_completed_songs,
         )?)
     } else {
         None
     };
     let mut diagnostics = ScanDiagnostics {
         initial_workers: initial,
+        adaptive_min_completed_songs: options.adaptive_workers
+            .then_some(options.adaptive_min_completed_songs),
         final_workers: initial,
         peak_workers: initial,
         baseline: Some(baseline),
@@ -1246,7 +1253,7 @@ mod tests {
             source_root: Some(music.as_path()), library_root: None,
             only_track: None, max_new: None, max_errors: 5,
             threads: 1, workers: 2, adaptive_workers: false,
-            min_workers: 1, max_workers: 3, dry_run: true,
+            min_workers: 1, max_workers: 3, adaptive_min_completed_songs: 24, dry_run: true,
             backend: BackendChoice::Rust,
         };
         // Missing audio is a scanner-stage error, not silently lost in the manifest.
@@ -1284,7 +1291,7 @@ mod tests {
             registry: None, models: "genre", source_root: Some(music.as_path()),
             library_root: None, only_track: None, max_new: None,
             max_errors: 5, threads: 1, workers: 2, adaptive_workers: false,
-            min_workers: 1, max_workers: 3, dry_run: true,
+            min_workers: 1, max_workers: 3, adaptive_min_completed_songs: 24, dry_run: true,
             backend: BackendChoice::Rust,
         };
         assert!(selected_tracks(&options).is_err());

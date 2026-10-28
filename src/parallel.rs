@@ -57,6 +57,7 @@ pub struct AdaptiveWorkers {
     pub maximum: usize,
     pub adjustments: Vec<WorkerAdjustment>,
     pub decisions: WorkerDecisionCounters,
+    pub min_completed_songs: usize,
     last_change: std::time::Instant,
     consecutive_high: usize,
     consecutive_low: usize,
@@ -64,8 +65,17 @@ pub struct AdaptiveWorkers {
 
 impl AdaptiveWorkers {
     pub fn new(initial: usize, minimum: usize, maximum: usize) -> Result<Self> {
+        Self::with_min_completed_songs(initial, minimum, maximum, 24)
+    }
+
+    pub fn with_min_completed_songs(
+        initial: usize, minimum: usize, maximum: usize, min_completed_songs: usize,
+    ) -> Result<Self> {
         if minimum == 0 || minimum > initial || initial > maximum || maximum > 64 {
             bail!("Adaptive worker bounds require 1 <= min <= workers <= max <= 64");
+        }
+        if !(1..=100_000).contains(&min_completed_songs) {
+            bail!("--adaptive-min-completed-songs must be within 1..=100000");
         }
         Ok(Self {
             active: initial,
@@ -73,6 +83,7 @@ impl AdaptiveWorkers {
             maximum,
             adjustments: Vec::new(),
             decisions: WorkerDecisionCounters::default(),
+            min_completed_songs,
             last_change: std::time::Instant::now(),
             consecutive_high: 0,
             consecutive_low: 0,
@@ -106,7 +117,7 @@ impl AdaptiveWorkers {
 
         // Adjust slowly, only after enough analyzed tracks. This avoids
         // chasing random song length and NAS/SMB cache variability.
-        if completed < 24 {
+        if completed < self.min_completed_songs {
             self.decisions.minimum_song_gate_holds += 1;
             return;
         }
@@ -422,11 +433,53 @@ mod tests {
     }
 
     #[test]
+    fn configured_gate_eight_accepts_earlier_growth_but_keeps_cooldown() {
+        use std::time::{Duration, Instant};
+        let low = crate::resources::LoadSample {
+            system_cpu_percent: 20.0, system_ram_percent: 65.0,
+        };
+        let mut early = AdaptiveWorkers::with_min_completed_songs(2, 2, 6, 8).unwrap();
+        let mut legacy = AdaptiveWorkers::new(2, 2, 6).unwrap();
+        let t = Instant::now() + Duration::from_secs(21);
+        for completed in 1..=7 {
+            early.observe_at(completed, low, t);
+            legacy.observe_at(completed, low, t);
+        }
+        assert_eq!(early.active, 2);
+        early.observe_at(8, low, t);
+        legacy.observe_at(8, low, t);
+        assert_eq!(early.active, 3);
+        assert_eq!(legacy.active, 2);
+        early.observe_at(9, low, t + Duration::from_secs(1));
+        assert_eq!(early.active, 3);
+        assert_eq!(early.decisions.increases, 1);
+        assert_eq!(early.decisions.cooldown_holds, 1);
+        assert_eq!(legacy.min_completed_songs, 24);
+    }
+
+    #[test]
+    fn high_load_remains_gated_and_needs_two_samples() {
+        use std::time::{Duration, Instant};
+        let high = crate::resources::LoadSample {
+            system_cpu_percent: 93.0, system_ram_percent: 65.0,
+        };
+        let mut ctrl = AdaptiveWorkers::with_min_completed_songs(6, 2, 6, 8).unwrap();
+        let t = Instant::now() + Duration::from_secs(21);
+        ctrl.observe_at(7, high, t);
+        assert_eq!(ctrl.active, 6);
+        ctrl.observe_at(8, high, t);
+        assert_eq!(ctrl.active, 5);
+        assert_eq!(ctrl.adjustments[0].after_completed_songs, 8);
+    }
+
+    #[test]
     fn adaptive_bounds_validate() {
         assert!(AdaptiveWorkers::new(6, 4, 8).is_ok());
         assert!(AdaptiveWorkers::new(6, 7, 8).is_err());
         assert!(AdaptiveWorkers::new(6, 4, 5).is_err());
         assert!(AdaptiveWorkers::new(1, 0, 8).is_err());
+        assert!(AdaptiveWorkers::with_min_completed_songs(2, 1, 6, 0).is_err());
+        assert!(AdaptiveWorkers::with_min_completed_songs(2, 1, 6, 100001).is_err());
     }
 
     #[test]

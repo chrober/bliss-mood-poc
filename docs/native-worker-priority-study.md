@@ -135,3 +135,51 @@ This change alone **does not** prove priority is responsible for the
 previous performance difference. Confirm the new scanner CI artifact
 and reproduce the bounded local comparison before drawing that
 conclusion.
+
+## Controlled start-worker vs song-gate experiment (28 October 2026)
+
+The production controller now supports **opt-in**
+`scan-features --adaptive-min-completed-songs 8` (requires
+`--adaptive-workers`). If omitted, the existing minimum **24 completed
+songs** and **20-second cooldown** remain unchanged. CPU/RAM load
+thresholds, hysteresis (three low-load samples to increase, two high-load
+samples to reduce), one-worker-per-decision changes, model output, and
+native C++ backend all remain unchanged. The gate applies equally to
+**increases and decreases**; this experiment does not establish an
+independent emergency downscaling policy.
+
+A new `--experiment adaptive-policy` switch in
+`scripts/benchmark_native_adaptive_manifest.py` runs five configurations,
+with the same existing seed-balanced reversed round ordering and exact
+per-head classification/1280D pooled embedding parity requirements:
+
+| Mode | Initial workers | Min–max | Minimum completed songs |
+| --- | ---: | --- | ---: |
+| `fixed6` | 6 | fixed | — |
+| `adaptive2_gate24` | 2 | 2–6 | 24 |
+| `adaptive4_gate24` | 4 | 2–6 | 24 |
+| `adaptive6_gate24` | 6 | 2–6 | 24 |
+| `adaptive2_gate8` | 2 | 2–6 | 8 |
+
+The previous `adaptive2` baseline had **minimum 1**, not 2. This
+new experiment intentionally uses **minimum 2** uniformly for the four
+adaptive policy configurations; interpret previous baseline comparisons
+accordingly. Fixed 6 and Adaptive Start 6 are not guaranteed identical
+because the adaptive controller is still allowed to **downscale** if it
+observes sustained resource pressure.
+
+Run the original benchmark command with
+`--experiment adaptive-policy --scan-priority normal --repeats 2`, using
+a **new, empty output directory** and the latest verified Windows x64
+scanner artifact. Each run verifies the actual effective scanner and
+native child process priority. An explicit per-run JSON field
+`diagnostics.adaptive_min_completed_songs` confirms the production gate;
+`runs.csv` additionally records the first resize position, all resize
+positions and controller hold counters.
+
+**This only makes the controlled experiment reproducible.** No new real-
+music NAS performance results have been measured by CI. Changes to the
+Windows process priority *during* a scan are **not** implemented and must
+not be mixed into the policy experiment. A future independent study might
+measure process-tree CPU entitlement, competing foreground latency and
+throughput before considering a hysteretic priority governor.
