@@ -1,5 +1,39 @@
 # Lyrion — next local song-representation listening comparison
 
+## Human review complete; evaluator available (2026-10-28)
+
+The 12-pair listening exercise has **already been completed**:
+12 evaluated pairs, 24 distinct tracks, 60 valid numeric
+human ratings and seven comments. Excel exported the
+reviewed CSV as **tab-delimited CP1252/Windows-1252**;
+do not load it as comma-delimited UTF-8 by default.
+Pair **10** includes spoken interview/comment rather
+than ordinary music, according to the human reviewer.
+Treat it as an explicit data-quality sensitivity case,
+not as a wrong vote.
+
+The separate [ordinal pilot evaluator](../scripts/evaluate_local_listening_pilot.py)
+now supports this Excel CSV and the frozen local
+`selection-audit-private.json`. It performs strict
+12-pair identity/order matching before comparing
+five untrained score methods with four human rating
+dimensions. Pair 10 is kept in the all-pairs report
+and flagged for a separate eleven-music-pair comparison.
+Only numbered and aggregate data are written
+to a new, private ignored output directory.
+
+**Do not regenerate or overwrite the hearing CSV,
+re-run embedding inference, or open a new music queue
+for this same pilot.** The next action is to execute
+the [private local 12-pair evaluation runbook](similarity-local-listening-pilot12-evaluation-2026-10-28.md),
+which contains a complete `& { ... }` Windows PowerShell
+block with `--nonmusic-pairs 10` and a safe output-folder
+existence check. The model-score audit is not included
+in the user's chat attachment, so the true model-vs-human
+correlations **remain uncomputed until this local
+command runs**. Keep the original CSV, audit, audio
+and song identifiers off GitHub.
+
 ## Current status and new optional-personalization design (2026-10-22)
 
 **This file also preserves old execution notes for reproducibility.**
@@ -9,10 +43,10 @@ final audit: **100/100 same-song matching Genre 87D, Mood 56D,
 and Audio 1280D features, zero missing or incompatible embeddings**.
 The **12-pair blinded M2 review instrument has already been
 generated locally**, using 24 distinct tracks with all human
-rating fields empty. **Do not rerun historic one-song/100-song
+rating fields originally empty (now completed as documented above). **Do not rerun historic one-song/100-song
 export examples as the current next step**; the private
-model-score selection audit stays sealed until the reviews
-are completed.
+model-score selection audit remained sealed until the reviews
+were completed; it may now be used in the local evaluator.
 
 The research direction is extended, not replaced: independently
 evaluate the strongest **general-purpose** metric without any
