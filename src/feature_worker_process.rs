@@ -17,6 +17,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+// The child starts its *own* process group, allowing a RAM emergency to
+// terminate its original Essentia/FFmpeg descendants without bare-PID killing.
+// This narrow Unix FFI avoids adding an unrelated native runtime dependency.
+#[cfg(unix)]
+unsafe extern "C" {
+    #[link_name = "kill"]
+    fn signal_process_group(process_group: i32, signal: i32) -> i32;
+}
+
 const PROTOCOL_VERSION: u16 = 1;
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const MAX_TEST_DELAY_MS: u64 = 10_000;
@@ -174,6 +186,19 @@ struct OwnedChild(Child);
 
 impl Drop for OwnedChild {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            // Our supervised executable was spawned as a new process group
+            // leader. Negative PGID targets its descendants as well as itself.
+            // Signal *before* wait/reap, avoiding leader PID reuse.
+            if let Ok(group) = i32::try_from(self.0.id()) {
+                if group > 0 {
+                    // SAFETY: POSIX kill(-pgid, SIGKILL) targets only the
+                    // process group owned by this specifically spawned child.
+                    unsafe { signal_process_group(-group, 9); }
+                }
+            }
+        }
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
@@ -201,6 +226,8 @@ impl FeatureWorkerProcess {
         let mut command = Command::new(executable);
         command.arg("internal-feature-worker")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        #[cfg(unix)]
+        command.process_group(0);
         let mut child = OwnedChild(command.spawn()
             .with_context(|| format!("Cannot start feature worker {}", executable.display()))?);
         let stdin = child.0.stdin.take().context("Feature-worker stdin unavailable")?;
