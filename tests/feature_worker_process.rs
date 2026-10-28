@@ -146,6 +146,26 @@ fn song_request_before_initialization_fails_without_touching_audio_or_sqlite() {
 }
 
 #[test]
+fn isolated_cli_requires_valid_models_and_leaves_no_output_sidecar() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let absent = std::env::temp_dir().join(format!(
+        "lyrion-missing-models-{}-{stamp}", std::process::id()
+    ));
+    let sidecar = absent.join("should-not-exist.sqlite");
+    let output = Command::new(binary())
+        .arg("internal-isolated-analyze-features")
+        .args(["nonexistent-audio.wav", "--models-dir"])
+        .arg(&absent)
+        .args(["--models", "moodtheme,genre,voice", "--embedding"])
+        .output()
+        .expect("start hidden isolated analysis CLI");
+    assert!(!output.status.success(), "missing models must not be accepted");
+    assert!(output.stdout.is_empty(), "partial report must not be published");
+    assert!(!sidecar.exists(), "worker must never create an analysis database");
+}
+
+#[test]
 fn malformed_oversized_frame_is_rejected_without_payload_allocation() {
     let mut child = Command::new(binary())
         .arg("internal-feature-worker")
