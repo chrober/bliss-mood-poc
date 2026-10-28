@@ -88,6 +88,20 @@ fn cancelling_one_worker_does_not_cancel_another() {
 }
 
 #[test]
+fn cancellation_before_dispatch_retires_idle_worker() {
+    let token = Arc::new(AtomicBool::new(false));
+    let mut worker = FeatureWorkerProcess::spawn(
+        binary(), Duration::from_secs(3), Arc::clone(&token),
+    ).unwrap();
+    assert_eq!(worker.request(WorkerRequest::ping(1, 1)).unwrap().reply,
+               WorkerReply::Pong { nonce: 1 });
+    token.store(true, Ordering::Release);
+    let err = worker.request(WorkerRequest::ping(2, 2)).unwrap_err();
+    assert!(format!("{err:#}").contains("cancelled"));
+    assert!(worker.request(WorkerRequest::ping(3, 3)).is_err());
+}
+
+#[test]
 fn malformed_oversized_frame_is_rejected_without_payload_allocation() {
     let mut child = Command::new(binary())
         .arg("internal-feature-worker")
