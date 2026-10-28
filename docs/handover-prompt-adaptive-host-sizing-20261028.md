@@ -53,3 +53,9 @@ Seit `e2b1a0a4` wurden Handover-Dokumente committed und neue CI-Läufe ausgelös
 **Arbeite ohne erneute grundlegende Rückfragen weiter:** Zuerst aktuellen Head/CI prüfen, die nachgewiesene Linux-Buildregression beheben, Windows-Native-Fehler gezielt untersuchen, Tests/Handovers aktualisieren und die nächsten validierten Schritte transparent dokumentieren.
 
 ---
+
+## Verified continuation since the initial handover (28 October 2026)
+
+PR #19's most recent development work fixed the ONNX-free Mel reference modularity regression, replaced mutable Windows Essentia/PR #16 upstream refs with pinned, verified source commits, tightened the direct-vs-isolated comparator to demand all requested heads and official 56/87/2 score counts, and corrected hidden CLI annotations. On [Linux native CI 40681621668](https://github.com/chrober/bliss-mood-poc/actions/runs/40681621668), **three actual official-ONNX direct-versus-isolated tests passed** on synthetic mono WAV/stereo FLAC with original Essentia C++ and a Rust frontend WAV, with exact **145 scores plus 1280 pooled embedding f32 components** per case. Linux CI additionally enforces the four prevalidated official ONNX SHA256 pins in a follow-up commit.
+
+The **private read-only multi-song real-audio parity** gate is still outstanding; synthetic CI must not be used as acceptance for production `scan-features`. Windows Job Objects, macOS/Linux/Pi descendant/OOM stress and later autotune-only isolated workerpool integration remain open. Always recheck the live PR #19 HEAD and all commit-matched checks before work; `resource` is still default and PR #16 is unchanged.

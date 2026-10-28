@@ -191,7 +191,14 @@ jobs:
           fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.onnx
           fetch classification-heads/voice_instrumental voice_instrumental-discogs-effnet-1.json
           test "$(stat -c%s models/discogs-effnet-bsdynamic-1.onnx)" -gt 17000000
-          sha256sum models/*.onnx
+          # Enforce the exact official model bytes already pinned in Windows CI.
+          # A server-side replacement must not silently change parity evidence.
+          sha256sum --check - <<'PINNED_OFFICIAL_ONNX'
+          a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c  models/discogs-effnet-bsdynamic-1.onnx
+          637acf45315191a2c9a87d5977d48f02da6fc823192fe794a1537c55e7c7ce6a  models/mtg_jamendo_genre-discogs-effnet-1.onnx
+          7d6270acaa5f4bba4b115a0d6849aca05ed6bd153dcb6d9da4f6ab9f99ef10ff  models/mtg_jamendo_moodtheme-discogs-effnet-1.onnx
+          20155e4c439714b0c45c08644b73c8e12d9dccb173bd4ab9934bf1e5aee837ca  models/voice_instrumental-discogs-effnet-1.onnx
+          PINNED_OFFICIAL_ONNX
       - name: Compare full native C++ and Rust DSP through EffNet, Genre, Mood and Voice
         shell: bash
         run: |
