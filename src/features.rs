@@ -594,6 +594,7 @@ struct ScanDiagnostics {
     cumulative_hash_seconds: f64,
     cumulative_model_load_seconds: f64,
     cumulative_song_seconds: f64,
+    cumulative_patches: usize,
     system_load_samples: usize,
     system_cpu_average_percent: Option<f64>,
     system_cpu_max_percent: Option<f64>,
@@ -633,6 +634,8 @@ struct ScanDiagnostics {
     #[serde(skip_serializing_if = "Option::is_none")]
     controller_decisions: Option<crate::parallel::WorkerDecisionCounters>,
     adjustments: Vec<crate::parallel::WorkerAdjustment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    online_autotune: Option<crate::autotune::TuningDiagnostics>,
     #[serde(skip)]
     cpu_sum: f64,
 }
@@ -641,6 +644,7 @@ impl ScanDiagnostics {
     fn add(&mut self, report: &FeatureReport) {
         let t = &report.timings;
         self.completed_songs += 1;
+        self.cumulative_patches += report.patches_analyzed;
         self.cumulative_decode_seconds += t.decode_seconds;
         self.cumulative_features_seconds += t.features_seconds;
         self.cumulative_inference_seconds += t.inference_seconds;
@@ -715,6 +719,7 @@ pub struct ScanOptions<'a> {
     pub threads: usize,
     pub workers: usize,
     pub adaptive_workers: bool,
+    pub adaptive_policy: &'a str,
     pub adaptive_min_completed_songs: usize,
     pub min_workers: usize,
     pub max_workers: usize,
@@ -866,6 +871,12 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
     if options.workers > 1 && options.threads > 1 {
         bail!("Parallel analysis requires --threads 1 to avoid ONNX oversubscription");
     }
+    if !["resource", "autotune"].contains(&options.adaptive_policy) {
+        bail!("Unknown adaptive policy");
+    }
+    if options.adaptive_policy == "autotune" && !options.adaptive_workers {
+        bail!("Online autotune requires adaptive-workers");
+    }
     if options.adaptive_workers {
         crate::parallel::AdaptiveWorkers::with_min_completed_songs(
             options.workers, options.min_workers, options.max_workers,
@@ -875,7 +886,7 @@ pub fn scan(options: ScanOptions<'_>) -> Result<ScanSummary> {
             bail!("--adaptive-workers cannot be used with --dry-run");
         }
     }
-    if options.workers > 1 && !options.dry_run {
+    if (options.workers > 1 || options.adaptive_workers) && !options.dry_run {
         return scan_parallel(options, profiles, tracks, started);
     }
     let mut conn = if options.dry_run {
@@ -985,6 +996,7 @@ type FeatureCompletion = (
 #[derive(Clone, Copy)]
 struct CompletionPolicy<'a> {
     expected: Option<usize>,
+    tracks_total: usize,
     embedding_dir: Option<&'a Path>,
 }
 
@@ -995,6 +1007,7 @@ fn save_completion(
     diagnostics: &mut ScanDiagnostics,
     monitor: &mut crate::resources::ResourceMonitor,
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
+    tuner: &mut Option<crate::autotune::OnlineAutotuner>,
     policy: CompletionPolicy<'_>,
 ) -> Result<()> {
     let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
@@ -1029,6 +1042,15 @@ fn save_completion(
             diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
         }
     }
+    if let Some(controller) = tuner.as_mut() {
+        controller.observe(
+            summary.analyzed, diagnostics.cumulative_patches,
+            crate::resources::memory_diagnostics().map(|m| m.available_physical_mib),
+            policy.expected.unwrap_or(policy.tracks_total).saturating_sub(summary.pending),
+            Instant::now(),
+        )?;
+        diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
+    }
     Ok(())
 }
 
@@ -1049,11 +1071,18 @@ fn scan_parallel(
     } else {
         options.workers.min(tracks.len()).max(1)
     };
-    let initial = options.workers.min(pool_size);
+    let preferred_initial = options.workers.min(pool_size);
     // Sample before starting the adaptive controller's cooldown clock;
     // the one-second CPU baseline must not shorten its 20-second guard.
     let baseline = crate::resources::scan_resource_baseline();
-    let mut adaptive = if options.adaptive_workers {
+    let mut tuner = if options.adaptive_workers && options.adaptive_policy == "autotune" {
+        Some(crate::autotune::OnlineAutotuner::new(
+            preferred_initial, options.min_workers.min(preferred_initial), pool_size,
+            baseline.system_available_ram_mib, Instant::now(),
+        )?)
+    } else { None };
+    let initial = tuner.as_ref().map_or(preferred_initial, |t| t.active);
+    let mut adaptive = if options.adaptive_workers && options.adaptive_policy == "resource" {
         Some(crate::parallel::AdaptiveWorkers::with_min_completed_songs(
             initial, options.min_workers.min(initial), pool_size,
             options.adaptive_min_completed_songs,
@@ -1138,6 +1167,7 @@ fn scan_parallel(
         drop(result_tx);
         let mut in_flight = 0usize;
         let mut stopped_for_errors = false;
+        let tracks_limit = tracks.len();
         for track in tracks {
             // max-new counts attempted tracks, not only successful writes.
             if options.max_new.is_some_and(|max| summary.pending >= max) {
@@ -1176,11 +1206,14 @@ fn scan_parallel(
             }
             // Do not scan ahead of the active concurrency limit; always
             // receive and persist a result before scheduling another song.
-            while !adaptive.as_ref().map_or(in_flight < pool_size, |a| a.permits_dispatch(in_flight)) {
+            while !(adaptive.as_ref().map_or(true, |a| a.permits_dispatch(in_flight))
+                && tuner.as_ref().map_or(true, |a| a.permits_dispatch(in_flight))
+                && in_flight < pool_size) {
                 let failures_before = summary.failures;
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                    &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
+                    &mut monitor, &mut adaptive, &mut tuner,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -1190,7 +1223,8 @@ fn scan_parallel(
                     while in_flight > 0 {
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                            &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
+                            &mut monitor, &mut adaptive, &mut tuner,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
                         )?;
                         in_flight -= 1;
                     }
@@ -1215,7 +1249,8 @@ fn scan_parallel(
         while in_flight > 0 {
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
-                &mut monitor, &mut adaptive, CompletionPolicy { expected: options.max_new, embedding_dir: options.embedding_dir },
+                &mut monitor, &mut adaptive, &mut tuner,
+                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir },
             )?;
             in_flight -= 1;
         }
@@ -1226,6 +1261,10 @@ fn scan_parallel(
         diagnostics.final_workers = controller.active;
         diagnostics.controller_decisions = Some(controller.decisions);
         diagnostics.adjustments = controller.adjustments;
+    }
+    if let Some(controller) = tuner {
+        diagnostics.final_workers = controller.active;
+        diagnostics.online_autotune = Some(controller.into_diagnostics());
     }
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
     summary.diagnostics = Some(diagnostics);
@@ -1263,7 +1302,8 @@ mod tests {
             source_root: Some(music.as_path()), library_root: None,
             only_track: None, max_new: None, max_errors: 5,
             threads: 1, workers: 2, adaptive_workers: false,
-            min_workers: 1, max_workers: 3, adaptive_min_completed_songs: 24, dry_run: true,
+            min_workers: 1, max_workers: 3, adaptive_policy: "resource",
+            adaptive_min_completed_songs: 24, dry_run: true,
             backend: BackendChoice::Rust,
         };
         // Missing audio is a scanner-stage error, not silently lost in the manifest.
@@ -1301,7 +1341,8 @@ mod tests {
             registry: None, models: "genre", source_root: Some(music.as_path()),
             library_root: None, only_track: None, max_new: None,
             max_errors: 5, threads: 1, workers: 2, adaptive_workers: false,
-            min_workers: 1, max_workers: 3, adaptive_min_completed_songs: 24, dry_run: true,
+            min_workers: 1, max_workers: 3, adaptive_policy: "resource",
+            adaptive_min_completed_songs: 24, dry_run: true,
             backend: BackendChoice::Rust,
         };
         assert!(selected_tracks(&options).is_err());
