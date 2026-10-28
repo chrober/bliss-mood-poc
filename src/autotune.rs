@@ -324,6 +324,30 @@ mod tests {
     }
 
     #[test]
+    fn drain_boundary_prevents_cross_capacity_admission() {
+        let now = Instant::now();
+        let mut controller = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        controller.observe(
+            8, 40, Some(7500.0), 100, now + Duration::from_secs(20)
+        ).unwrap();
+        assert!(controller.draining());
+        assert!(!controller.permits_dispatch(0));
+        let next = controller.active;
+        controller.settle(8, 40, now + Duration::from_secs(23));
+        assert!(!controller.draining());
+        assert!(controller.permits_dispatch(0));
+        controller.observe(
+            16, 80, Some(7500.0), 100, now + Duration::from_secs(40)
+        ).unwrap();
+        let diag = controller.into_diagnostics();
+        assert_eq!(diag.probes.len(), 2);
+        assert_eq!(diag.probes[0].workers, 6);
+        assert_eq!(diag.probes[1].workers, next);
+        assert_eq!(diag.probes[1].completed_songs, 8);
+        assert_eq!(diag.probes[1].patches, 40);
+    }
+
+    #[test]
     fn ram_preflight_and_runtime_pressure_fail_closed() {
         let now = Instant::now();
         assert!(OnlineAutotuner::new(4, 1, 8, None, now).is_err());
