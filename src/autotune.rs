@@ -108,6 +108,9 @@ pub struct OnlineAutotuner {
     incremental_worker_mib: f64,
     candidates: Vec<usize>,
     next_candidate: usize,
+    /// A RAM-gated candidate can be deferred once to permit safer intermediate
+    /// steps; this set ensures repeated failed admissions cannot spin forever.
+    deferred_for_ram: BTreeSet<usize>,
     epoch_start: Instant,
     epoch_songs: usize,
     epoch_patches: usize,
@@ -189,7 +192,7 @@ impl OnlineAutotuner {
             baseline_available_mib: available, reserve_mib: reserve,
             incremental_worker_mib: WORKER_MEMORY_FLOOR_MIB,
             candidates: candidate_schedule(minimum, maximum, actual_initial),
-            next_candidate: 0, epoch_start: now, epoch_songs: 0,
+            next_candidate: 0, deferred_for_ram: BTreeSet::new(), epoch_start: now, epoch_songs: 0,
             epoch_patches: 0, epoch_baseline_completed: 0,
             epoch_baseline_patches: 0, best: None, probes: Vec::new(),
             evidence: BTreeMap::new(), visited: BTreeSet::new(),
@@ -431,6 +434,19 @@ impl OnlineAutotuner {
             let extra = target.saturating_sub(self.active);
             if extra > 0 && (extra as f64 * self.incremental_worker_mib) > headroom {
                 self.counters.memory_gate_holds += 1;
+                // When the opposite endpoint is not yet RAM-admissible, try
+                // smaller pending steps first, then recheck that same endpoint
+                // from the newly admitted concurrency. Preserve all original
+                // candidates and never retry a deferred worker more than once
+                // in this first sweep. No memory reservation is bypassed.
+                if self.sweep_in_progress && !self.reverse_sweep
+                    && self.next_candidate < self.candidates.len()
+                    && self.deferred_for_ram.insert(target)
+                {
+                    self.candidates.remove(index);
+                    self.candidates.push(target);
+                    self.next_candidate -= 1;
+                }
                 continue;
             }
             self.change(target, completed, "non-monotonic coarse exploration");
@@ -687,6 +703,29 @@ mod tests {
             now + Duration::from_secs(40)).unwrap();
         assert_eq!(t.active, 10);
         assert_eq!(t.counters.memory_gate_holds, 1);
+        // The original large 6 -> 12 jump was refused; from 10 the same
+        // final destination is checked AGAIN, with a smaller increment.
+        t.settle(16, 800, now + Duration::from_secs(41));
+        t.observe(24, 1200, Some(4000.0), 120,
+            now + Duration::from_secs(60)).unwrap();
+        assert_eq!(t.active, 12);
+        assert_eq!(t.counters.memory_gate_holds, 1);
+        assert!(t.draining());
+    }
+
+    #[test]
+    fn permanently_ram_blocked_candidates_do_not_cycle_forever() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(2, 2, 8, Some(5000.0), now).unwrap();
+        // All larger settings are RAM-gated by the large observed pressure.
+        // Deferrals must be bounded; the coordinator must remain dispatchable.
+        t.observe(8, 800, Some(2200.0), 200,
+            now + Duration::from_secs(20)).unwrap();
+        assert_eq!(t.active, 2);
+        assert!(!t.draining());
+        assert!(t.counters.memory_gate_holds >= 1);
+        let diag = t.into_diagnostics();
+        assert!(!diag.search_completed);
     }
 
     #[test]
