@@ -314,8 +314,11 @@ impl OnlineAutotuner {
         // Preserve enough outstanding work for a useful epoch; otherwise use
         // the best already observed configuration rather than thrash at the end.
         if remaining_hint < MIN_EPOCH_SONGS {
+            // With fewer undispatched songs than even the minimum scoring
+            // epoch, changing capacity cannot produce another useful probe.
+            // In particular it must not initiate a costly full drain at the
+            // tail of the scan. RAM pressure is handled above this guard.
             self.counters.insufficient_work_holds += 1;
-            self.exploit_safe_best(completed, headroom, "end of scan: best sampled throughput");
             return Ok(());
         }
         if self.exploration_budget_exhausted {
@@ -492,29 +495,45 @@ impl OnlineAutotuner {
         self.exploit_safe_best(completed, headroom, "exploit after local refinement");
     }
 
-    /// The best historical setting may no longer be RAM-admissible after a
-    /// change in memory pressure. Even exploitation must honor the same
-    /// additional-worker reservation as exploratory increases.
+    /// Exploit the same scored winner reported in diagnostics, preserving
+    /// the 5% stability margin and post-discovery replication protection.
+    /// A raw per-candidate median must not override that winner: short and
+    /// heterogeneous song windows can make one-off probe rates misleading.
+    ///
+    /// If the scored winner is no longer RAM-admissible, fall back only to
+    /// a measured candidate that is currently safe. After a coarse sweep,
+    /// a different, unreplicated challenger is not eligible as a fallback.
     fn exploit_safe_best(&mut self, completed: usize, headroom: f64, reason: &str) {
-        let mut selected = None;
+        if let Some((winner, _)) = self.best {
+            let extra = winner.saturating_sub(self.active);
+            if (extra as f64 * self.incremental_worker_mib) <= headroom {
+                self.change(winner, completed, reason);
+                return;
+            }
+            self.counters.unsafe_best_holds += 1;
+        }
+        // A telemetry-only ranking is preferable to promoting a noisy
+        // unreplicated challenger while falling back from a RAM-unsafe winner.
+        // Staying at the existing capacity is always a legitimate fallback.
+        let mut fallback = None;
         for (&worker, samples) in &self.evidence {
             let extra = worker.saturating_sub(self.active);
             if (extra as f64 * self.incremental_worker_mib) > headroom {
                 continue;
             }
+            if self.counters.completed_coarse_sweeps > 0
+                && worker != self.active && samples.len() < 2
+            {
+                continue;
+            }
             if let Some(score) = median(samples) {
-                if selected.is_none_or(|(_, highest)| score > highest) {
-                    selected = Some((worker, score));
+                if fallback.is_none_or(|(_, highest)| score > highest) {
+                    fallback = Some((worker, score));
                 }
             }
         }
-        if let Some((target, _)) = selected {
-            if self.best.is_some_and(|(best, _)| best != target) {
-                self.counters.unsafe_best_holds += 1;
-            }
+        if let Some((target, _)) = fallback {
             self.change(target, completed, reason);
-        } else if self.best.is_some_and(|(best, _)| best > self.active) {
-            self.counters.unsafe_best_holds += 1;
         }
     }
 
@@ -1069,6 +1088,64 @@ mod tests {
         assert_eq!(diag.probes[1].workers, 7);
         assert_eq!(diag.probes[1].completed_songs, 8);
         assert_eq!(diag.probes[1].patches, 1150);
+    }
+
+    #[test]
+    fn short_scan_tail_preserves_scored_winner_and_avoids_late_resize() {
+        // Reproduce the decision boundary from a real, heterogeneous cohort:
+        // the best scored worker has two windows, but an unreplicated worker
+        // has a higher raw median after the incumbent's second slow window.
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        t.active = 8;
+        t.counters.probes = 5;
+        t.counters.completed_coarse_sweeps = 1;
+        t.exploration_budget_exhausted = true;
+        t.best = Some((8, 287.17));
+        t.evidence.insert(6, VecDeque::from(vec![219.78]));
+        t.evidence.insert(8, VecDeque::from(vec![287.17]));
+        t.evidence.insert(10, VecDeque::from(vec![196.76]));
+        t.evidence.insert(12, VecDeque::from(vec![235.01]));
+        // First exercise exploitation with enough work left. The raw
+        // 12-worker score exceeds the later two-probe 8-worker median,
+        // but the single 12-worker probe must NOT displace the scored best.
+        t.evidence.get_mut(&8).unwrap().push_back(137.09);
+        t.select_best_observed();
+        assert_eq!(t.best.map(|(w, _)| w), Some(8));
+        t.exploit_safe_best(74, 5000.0, "test scored winner");
+        assert_eq!(t.active, 8);
+        assert!(t.adjustments.is_empty());
+        // With just two undispatched songs remaining no late resize or
+        // draining phase can be profitable, irrespective of the raw medians.
+        t.observe(8, 1500, Some(6500.0), 2,
+            now + Duration::from_secs(13)).unwrap();
+        let diag = t.into_diagnostics();
+        assert_eq!(diag.best_tested_workers, Some(8));
+        assert_eq!(diag.final_workers, 8);
+        assert_eq!(diag.adjustments.len(), 0);
+        assert_eq!(diag.counters.insufficient_work_holds, 1);
+    }
+
+    #[test]
+    fn scored_best_ram_fallback_is_safe_and_replication_aware() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        t.active = 8;
+        t.best = Some((12, 410.0));
+        t.counters.completed_coarse_sweeps = 1;
+        t.evidence.insert(6, VecDeque::from(vec![170.0, 172.0]));
+        t.evidence.insert(8, VecDeque::from(vec![200.0, 202.0]));
+        t.evidence.insert(10, VecDeque::from(vec![500.0]));
+        t.evidence.insert(12, VecDeque::from(vec![410.0, 409.0]));
+        // Maximum is unsafe. A single noisy 10-worker sample is also
+        // ineligible as a fallback; retain the RAM-safe incumbent.
+        t.exploit_safe_best(50, 600.0, "unsafe best test");
+        assert_eq!(t.active, 8);
+        assert_eq!(t.counters.unsafe_best_holds, 1);
+        assert!(t.adjustments.is_empty());
+        t.exploit_safe_best(60, 1500.0, "RAM recovered");
+        assert_eq!(t.active, 12);
+        assert_eq!(t.adjustments.len(), 1);
     }
 
     #[test]
