@@ -425,33 +425,80 @@ mod native {
         stats.lines().find(|line| line.starts_with(label))?
             .split_whitespace().nth(1)?.parse().ok()
     }
-    fn cgroup_memory() -> Option<(u64, u64)> {
-        // The cgroup v2 unified mount is usually /sys/fs/cgroup even inside
-        // containers; v1 uses its memory controller mount.
-        for (limit_path, used_path) in [
-            ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
-            ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
-             "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
-        ] {
-            let limit = fs::read_to_string(limit_path)
-                .ok().and_then(|s| s.trim().parse::<u64>().ok());
-            let used = fs::read_to_string(used_path)
-                .ok().and_then(|s| s.trim().parse::<u64>().ok());
-            if let (Some(limit), Some(used)) = (limit, used) {
-                return Some((limit, used));
+    /// Parse the current cgroup without trusting path traversal components.
+    /// Unified cgroup v2 uses '0::/slice/...'; legacy v1 uses a comma-separated
+    /// memory controller list. A namespace with '/' maps to the mount root.
+    fn cgroup_relative_path(membership: &str, v2: bool) -> Option<std::path::PathBuf> {
+        use std::path::PathBuf;
+        for line in membership.lines() {
+            let mut fields = line.splitn(3, ':');
+            let hierarchy = fields.next()?;
+            let controllers = fields.next()?;
+            let raw_path = fields.next()?;
+            let matches = if v2 { hierarchy == "0" && controllers.is_empty() }
+                else { controllers.split(',').any(|c| c == "memory") };
+            if !matches { continue; }
+            let mut result = PathBuf::new();
+            for component in raw_path.split('/') {
+                if component.is_empty() || component == "." { continue; }
+                if component == ".." || component.contains('\\') || component.contains('\0') {
+                    return None;
+                }
+                result.push(component);
             }
+            return Some(result);
         }
         None
     }
+
+    /// Consider all *visible* ancestor cgroup limits, not just the child or
+    /// mount root. A child can be 'max' while its parent is strongly limited.
+    fn cgroup_memory(host_total: u64) -> Option<(u64, u64)> {
+        use std::path::Path;
+        let membership = fs::read_to_string("/proc/self/cgroup").ok()?;
+        let mut tightest: Option<(u64, u64)> = None;
+        for (root, v2, limit_name, usage_name) in [
+            ("/sys/fs/cgroup", true, "memory.max", "memory.current"),
+            ("/sys/fs/cgroup/memory", false,
+             "memory.limit_in_bytes", "memory.usage_in_bytes"),
+        ] {
+            let root = Path::new(root);
+            if !root.is_dir() { continue; }
+            // Prefer namespace-relative membership if visible; mount root
+            // remains a fallback for containers hiding their parent cgroups.
+            let requested = cgroup_relative_path(&membership, v2)
+                .map(|rel| root.join(rel)).unwrap_or_else(|| root.to_path_buf());
+            let mut dir = if requested.is_dir() { requested } else { root.to_path_buf() };
+            loop {
+                let limit = fs::read_to_string(dir.join(limit_name))
+                    .ok().and_then(|v| v.trim().parse::<u64>().ok());
+                let usage = fs::read_to_string(dir.join(usage_name))
+                    .ok().and_then(|v| v.trim().parse::<u64>().ok());
+                if let (Some(limit), Some(usage)) = (limit, usage) {
+                    if limit > 0 && limit < host_total {
+                        let free = limit.saturating_sub(usage);
+                        tightest = Some(match tightest {
+                            Some((smallest_total, smallest_free)) =>
+                                (smallest_total.min(limit), smallest_free.min(free)),
+                            None => (limit, free),
+                        });
+                    }
+                }
+                if dir == root || !dir.pop() || !dir.starts_with(root) { break; }
+            }
+        }
+        tightest
+    }
+
     fn effective_memory() -> Option<(u64, u64)> {
         let stats = fs::read_to_string("/proc/meminfo").ok()?;
         let total = memory_kib_field(&stats, "MemTotal:")?.checked_mul(1024)?;
         let available = memory_kib_field(&stats, "MemAvailable:")?.checked_mul(1024)?;
         if total == 0 { return None; }
-        match cgroup_memory() {
-            Some((limit, usage)) if limit > 0 && limit < total =>
-                Some((limit, available.min(limit.saturating_sub(usage)))),
-            _ => Some((total, available.min(total))),
+        match cgroup_memory(total) {
+            Some((limit, headroom)) =>
+                Some((limit, available.min(headroom))),
+            None => Some((total, available.min(total))),
         }
     }
     pub fn available_memory_bytes() -> Option<u64> {
@@ -483,6 +530,25 @@ mod tests {
         assert_eq!(cpu_usage_between((10, 20), (30, 60)), Some(50.0));
         assert_eq!(cpu_usage_between((10, 20), (10, 20)), None);
         assert_eq!(cpu_usage_between((10, 20), (30, 30)), Some(100.0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_safe_unified_and_legacy_cgroup_paths() {
+        let fixture = "0::/user.slice/app.scope\\n5:cpu,memory:/docker/child\\n";
+        assert_eq!(
+            native::cgroup_relative_path(fixture, true).unwrap(),
+            std::path::PathBuf::from("user.slice/app.scope")
+        );
+        assert_eq!(
+            native::cgroup_relative_path(fixture, false).unwrap(),
+            std::path::PathBuf::from("docker/child")
+        );
+        assert!(native::cgroup_relative_path("0::/user/../escape", true).is_none());
+        assert_eq!(
+            native::cgroup_relative_path("0::/", true).unwrap(),
+            std::path::PathBuf::new()
+        );
     }
 
     #[cfg(target_os = "linux")]
