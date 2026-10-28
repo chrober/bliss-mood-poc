@@ -416,10 +416,10 @@ mod native {
             ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
              "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
         ] {
-            let limit = fs::read_to_string(limit_path).ok()?
-                .trim().parse::<u64>().ok();
-            let used = fs::read_to_string(used_path).ok()?
-                .trim().parse::<u64>().ok();
+            let limit = fs::read_to_string(limit_path)
+                .ok().and_then(|s| s.trim().parse::<u64>().ok());
+            let used = fs::read_to_string(used_path)
+                .ok().and_then(|s| s.trim().parse::<u64>().ok());
             if let (Some(limit), Some(used)) = (limit, used) {
                 return Some((limit, used));
             }
