@@ -103,6 +103,36 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
                     bench.run_scanner_guarded(["ignored"], None, None, 1536, 90)
                 spawn.assert_not_called()
 
+    def test_ram_guard_terminates_running_scanner_on_pressure(self):
+        healthy = {"available_mib": 2400., "total_mib": 16000.,
+                   "ram_percent": 85.}
+        pressure = {**healthy, "available_mib": 1400.}
+
+        class FakeProcess:
+            pid = 43210
+            killed = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def poll(self):
+                return 1 if self.killed else None
+            def kill(self):
+                self.killed = True
+            def wait(self):
+                self.killed = True
+                return 1
+
+        fake = FakeProcess()
+        with patch.object(bench, "windows_memory_snapshot",
+                          side_effect=[healthy, pressure]):
+            with patch.object(bench.subprocess, "Popen", return_value=fake) as spawn:
+                with self.assertRaisesRegex(RuntimeError, "RAM safety stop"):
+                    bench.run_scanner_guarded(["scanner", "--workers", "12"],
+                                              None, None, 1536, 90)
+                spawn.assert_called_once()
+                self.assertTrue(fake.killed)
+
     def test_policy_modes_emit_exact_requested_gate_and_start_workers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
