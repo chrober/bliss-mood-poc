@@ -271,15 +271,6 @@ fn check_scan_cancellation(flag: Option<&std::sync::atomic::AtomicBool>) -> Resu
 }
 
 impl FeatureEngine {
-    pub fn set_cancellation(
-        &mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    ) {
-        if let Some(ref mut native) = self.frontend {
-            native.set_cancellation(std::sync::Arc::clone(&flag));
-        }
-        self.cancellation = Some(flag);
-    }
-
     #[allow(dead_code)] // Retain legacy constructor for code paths using the Rust frontend.
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
         Self::with_backend(profiles, threads, &BackendChoice::Rust)
@@ -288,34 +279,50 @@ impl FeatureEngine {
     pub fn with_backend(
         profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
     ) -> Result<Self> {
+        Self::with_backend_cancel(profiles, threads, backend, None)
+    }
+
+    fn with_backend_cancel(
+        profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
+        cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
         }
+        check_scan_cancellation(cancellation.as_deref())?;
         let started = Instant::now();
         let env = feature_environment()?;
+        check_scan_cancellation(cancellation.as_deref())?;
         let encoder = Session::builder(env)?
             .with_intra_threads(threads)
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .commit_from_file(&profiles[0].encoder_path)?;
+        check_scan_cancellation(cancellation.as_deref())?;
         let mut heads = Vec::new();
         for profile in profiles {
+            check_scan_cancellation(cancellation.as_deref())?;
             let session = Session::builder(env)?
                 .with_intra_threads(threads)
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .commit_from_file(&profile.head_path)?;
+            check_scan_cancellation(cancellation.as_deref())?;
             heads.push((profile, session));
         }
-        let frontend = match backend {
+        let mut frontend = match backend {
             BackendChoice::Rust => None,
             BackendChoice::Essentia { executable, timeout_seconds, .. } =>
                 Some(EssentiaWorker::with_timeout(
                     executable.clone(), std::time::Duration::from_secs(*timeout_seconds),
                 )),
         };
+        if let (Some(native), Some(flag)) = (&mut frontend, &cancellation) {
+            native.set_cancellation(std::sync::Arc::clone(flag));
+        }
+        check_scan_cancellation(cancellation.as_deref())?;
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
             counted_load: false, threads, frontend,
             embedding_enabled: false, last_song_embedding: None,
-            preprocessing: backend.preprocessing(), cancellation: None })
+            preprocessing: backend.preprocessing(), cancellation })
     }
 
     /// An opt-in f64 pooled 1280D song embedding. Legacy scans never enable it.
@@ -1207,13 +1214,10 @@ fn scan_parallel(
                     let report = match engine.as_mut() {
                         Some(engine) => engine.analyze(&task.path, None)
                             .map(|report| (report, engine.take_song_embedding())),
-                        None => match FeatureEngine::with_backend(
-                            profiles.clone(), options.threads, &backend,
+                        None => match FeatureEngine::with_backend_cancel(
+                            profiles.clone(), options.threads, &backend, cancellation.clone(),
                         ) {
                             Ok(mut created) => {
-                                if let Some(ref token) = cancellation {
-                                    created.set_cancellation(Arc::clone(token));
-                                }
                                 if options.embedding_dir.is_some() {
                                     created.request_song_embedding();
                                 }
