@@ -108,7 +108,7 @@ class LocalListeningPilotTests(unittest.TestCase):
         ratings, audit = make_fixture(self.root)
         text = ratings.read_text(encoding="utf-8-sig")
         # Only change a numeric CSV cell, not the 24 distinct synthetic identities.
-        text = text.replace(",3,4,5,3,", ",3,4,5,99,", 1)
+        text = text.replace(",2,3,4,3,3,", ",99,3,4,3,3,", 1)
         ratings.write_text(text, encoding="utf-8-sig")
         with self.assertRaises(ValueError):
             pilot.evaluate(ratings, audit, self.root / "bad")
