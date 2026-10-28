@@ -11,6 +11,7 @@ const MIN_EPOCH_SONGS: usize = 8;
 const MIN_EPOCH_DURATION: Duration = Duration::from_secs(12);
 const IMPROVEMENT_MARGIN: f64 = 0.05;
 const MAX_RETAINED_PROBES: usize = 256;
+const MAX_RETAINED_ADJUSTMENTS: usize = 256;
 const RECENT_SAMPLES_PER_WORKER: usize = 8;
 
 #[derive(Clone, Debug, Serialize)]
@@ -362,6 +363,9 @@ impl OnlineAutotuner {
         self.active = target;
         self.draining = true;
         eprintln!("ONLINE AUTOTUNE {from} -> {target} after {completed} songs: {reason}");
+        if self.adjustments.len() == MAX_RETAINED_ADJUSTMENTS {
+            self.adjustments.remove(0);
+        }
         self.adjustments.push(TuningAdjustment {
             after_completed_songs: completed, from_workers: from,
             to_workers: target, reason: reason.to_owned(),
