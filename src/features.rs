@@ -1167,6 +1167,12 @@ fn scan_parallel(
                         },
                         Err(_) => break,
                     };
+                    // In-flight work may still be unwinding after a watchdog
+                    // fault; do not initialize more model sessions from queued
+                    // requests once emergency cancellation was signalled.
+                    if crate::resources::native_cancellation_requested() {
+                        break;
+                    }
                     let active = active_analyses.fetch_add(1, Ordering::SeqCst) + 1;
                     peak_active_analyses.fetch_max(active, Ordering::SeqCst);
                     let report = match engine.as_mut() {
