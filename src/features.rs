@@ -1061,12 +1061,18 @@ fn save_completion(
         }
     }
     if let Some(controller) = policy.tuner.as_mut() {
-        controller.observe(
+        let observation = controller.observe(
             summary.analyzed, diagnostics.cumulative_patches,
             crate::resources::memory_diagnostics().map(|m| m.available_physical_mib),
             policy.expected.unwrap_or(policy.tracks_total).saturating_sub(summary.pending),
             Instant::now(),
-        )?;
+        );
+        if observation.is_err() {
+            // The completion-driven governor can detect a fault before the
+            // independent watchdog's next poll. Cancel native IPC immediately.
+            crate::resources::request_native_cancellation();
+        }
+        observation?;
         diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
     }
     Ok(())
