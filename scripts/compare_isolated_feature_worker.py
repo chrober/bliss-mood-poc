@@ -98,6 +98,27 @@ def validate_embedding(embedding: dict | None, report: dict) -> None:
         raise ValueError("Isolated embedding is not normalized")
 
 
+def compare_embeddings(direct: dict, isolated: dict, report: dict) -> int:
+    """Require identical metadata and exact 1280D f32 bits, not just a unit norm."""
+    validate_embedding(direct, report)
+    validate_embedding(isolated, report)
+    fields = (
+        "schema_version", "kind", "validation_status", "dimension",
+        "patches_analyzed", "encoder_model", "encoder_sha256",
+        "preprocessing_version", "pooling_version", "normalization_version",
+        "representation_fingerprint", "audio_sha256", "track_file",
+    )
+    for field in fields:
+        if direct.get(field) != isolated.get(field):
+            raise ValueError(f"Song embedding identity mismatch: {field}")
+    for index, (left, right) in enumerate(zip(
+        direct["vector_f32"], isolated["vector_f32"]
+    )):
+        if f32_bits(left) != f32_bits(right):
+            raise ValueError(f"1280D embedding f32 mismatch at dimension {index}")
+    return 1280
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True, help="Built bliss-mood executable")
@@ -110,7 +131,7 @@ def main() -> int:
     parser.add_argument("--essentia-timeout-seconds", type=int, default=900)
     parser.add_argument("--max-patches", type=int)
     parser.add_argument("--embedding", action="store_true",
-                        help="Check isolated embedding shape/norm; no direct embedding comparison")
+                        help="Compare every pooled 1280D f32 bit via hidden in-process diagnostic")
     opts = parser.parse_args()
     shared = [
         "--models-dir", str(opts.models_dir),
@@ -132,11 +153,23 @@ def main() -> int:
     isolated_output = run_analysis(isolated_args)
     head_count, label_count = compare_reports(legacy, isolated_output["report"])
     if opts.embedding:
-        validate_embedding(isolated_output.get("embedding"), isolated_output["report"])
+        direct_output = run_analysis(
+            base + ["internal-direct-analyze-features", str(opts.source)]
+            + shared + ["--embedding"]
+        )
+        # Verify the extra in-process embedding diagnostic has not changed
+        # classification outcomes compared to the original public CLI.
+        compare_reports(legacy, direct_output["report"])
+        compare_reports(direct_output["report"], isolated_output["report"])
+        embedded = compare_embeddings(
+            direct_output.get("embedding"),
+            isolated_output.get("embedding"),
+            legacy,
+        )
     print(
         f"PASS: exact f32 classification parity for {head_count} heads, "
         f"{label_count} scores, {legacy['patches_analyzed']} patches"
-        + ("; isolated embedding shape/norm PASS (not parity-tested)" if opts.embedding else "")
+        + (f"; exact {embedded}D pooled embedding f32 parity" if opts.embedding else "")
     )
     return 0
 
