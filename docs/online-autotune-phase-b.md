@@ -1,5 +1,8 @@
 # Phase B: RAM-gated nonmonotonic online worker autotuning
 
+> **28 October 2026 Phase C handover update:** The separate hidden [isolated FeatureEngine worker](onnx-worker-process-isolation.md) is implemented, including versioned bounded IPC, actual optional Mood/Genre/Voice+1280D analysis in a child, Unix process-group termination and an exact bitwise comparison script. It is **not integrated into `scan-features`**, does **not** establish full numerical parity on private music or a RAM/OOM safety guarantee. See [current Phase C handover and exact CI failure diagnosis](handover-phase-c-isolated-worker-20261028.md). At inspected code head `e2b1a0a4`, Rust/Windows binary/Genre/Voice checks are green; both original native Essentia workflows are red, including a deterministic Rust E0433 in the native reference subcrate. Phase B autotune is still opt-in and the `resource` policy remains default.
+
+
 **Status (28 October 2026): experimental opt-in implementation in `feat/ram-safe-online-autotune`, stacked on PR #18. NOT a validated production scheduler or proof of an optimum.** The previous resource-threshold controller is unchanged and selected by default.
 
 ## Design intent
