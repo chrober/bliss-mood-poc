@@ -37,6 +37,23 @@ impl Drop for OwnedChild {
     }
 }
 
+/// Conservative per-decoder output limit based on actual host/cgroup
+/// free memory and the maximum worker pool, not a calibrated host profile.
+/// This is a *heuristic*, not a reservation of physical pages for ONNX.
+fn pcm_output_budget(available_mib: f64, max_concurrent_decoders: usize) -> Result<usize> {
+    if !available_mib.is_finite() || available_mib <= 0.0 || max_concurrent_decoders == 0 {
+        bail!("Autotune decoder needs valid free RAM and positive worker capacity");
+    }
+    // Account for temporary raw bytes, decoded Float32, downmix, and
+    // resampling output by charging roughly four copies per worker.
+    let bytes = (available_mib * 1024.0 * 1024.0
+        / (4.0 * max_concurrent_decoders as f64)) as usize;
+    if bytes < 2 * 1024 * 1024 {
+        bail!("Autotune decoder lacks 2 MiB PCM budget at {max_concurrent_decoders} configured workers");
+    }
+    Ok(bytes.min(DECODE_OUTPUT_HARD_CAP))
+}
+
 /// Capture subprocess output on two dedicated threads so a full FFmpeg pipe
 /// cannot block wait/try_wait. Bound both streams to limit peak allocations.
 /// The coordinator retains ownership of Child and kills/reaps on cancellation.
@@ -195,16 +212,7 @@ pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
         let free = crate::resources::memory_diagnostics()
             .context("Autotune decoder requires effective free-RAM telemetry")?
             .available_physical_mib;
-        // Divide the effective free-RAM budget across the maximum worker
-        // pool, even if only a few workers are currently active. A single
-        // decoded PCM allocation plus conversion/resampling can multiply
-        // memory demand by several times its raw output size.
-        let bytes = (free * 1024.0 * 1024.0
-            / (4.0 * max_concurrent_decoders.max(1) as f64)) as usize;
-        if bytes < 2 * 1024 * 1024 {
-            bail!("Autotune decoder lacks 2 MiB PCM budget at {max_concurrent_decoders} configured workers");
-        }
-        bytes.min(DECODE_OUTPUT_HARD_CAP)
+        pcm_output_budget(free, max_concurrent_decoders)?
     } else { usize::MAX };
     let output = subprocess_output_cancelable(
         ProcessCommand::new("ffmpeg")
@@ -233,6 +241,18 @@ pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
 #[cfg(test)]
 mod tests {
     use super::essentia_linear_resample;
+
+    #[test]
+    fn pcm_limit_scales_with_worker_pool_and_effective_free_ram() {
+        const MIB: usize = 1024 * 1024;
+        assert_eq!(super::pcm_output_budget(4000.0, 4).unwrap(), 250 * MIB);
+        assert_eq!(super::pcm_output_budget(4000.0, 16).unwrap(), 62 * MIB + MIB / 2);
+        assert_eq!(super::pcm_output_budget(16384.0, 1).unwrap(), 512 * MIB);
+        assert_eq!(super::pcm_output_budget(512.0, 4).unwrap(), 32 * MIB);
+        assert!(super::pcm_output_budget(12.0, 16).is_err());
+        assert!(super::pcm_output_budget(f64::NAN, 4).is_err());
+        assert!(super::pcm_output_budget(4000.0, 0).is_err());
+    }
 
     #[cfg(unix)]
     #[test]
