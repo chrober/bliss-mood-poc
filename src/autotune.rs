@@ -22,6 +22,9 @@ pub struct Probe {
     pub elapsed_seconds: f64,
     pub patches_per_second: f64,
     pub songs_per_minute: f64,
+    /// Only work not yet dispatched; in-flight jobs are intentionally not
+    /// counted as new exploration opportunities.
+    pub remaining_undispatched_songs: usize,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -36,6 +39,18 @@ pub struct TuningCounters {
     pub exploration_budget_holds: usize,
     pub unsafe_best_holds: usize,
     pub local_refinement_probes: usize,
+}
+
+/// The most recent work-horizon decision, for diagnosing incomplete scans
+/// without exposing track names, audio or model output.
+#[derive(Clone, Debug, Serialize)]
+pub struct ExplorationBudgetSample {
+    pub phase: &'static str,
+    pub remaining_undispatched_songs: usize,
+    pub unmeasured_candidate_windows: usize,
+    pub estimated_songs_per_window: usize,
+    pub reserved_exploitation_songs: usize,
+    pub required_songs: usize,
 }
 
 /// Bounded rolling evidence per worker count. The ranges are descriptive,
@@ -76,6 +91,7 @@ pub struct TuningDiagnostics {
     pub probes: Vec<Probe>,
     pub counters: TuningCounters,
     pub adjustments: Vec<TuningAdjustment>,
+    pub last_exploration_budget: Option<ExplorationBudgetSample>,
 }
 
 pub struct OnlineAutotuner {
@@ -108,6 +124,7 @@ pub struct OnlineAutotuner {
     // exploration just because a later epoch completed.
     exploration_budget_exhausted: bool,
     typical_probe_songs: usize,
+    last_exploration_budget: Option<ExplorationBudgetSample>,
     refinement_started: bool,
     refinement_queue: VecDeque<usize>,
     refinement_active: Option<usize>,
@@ -159,6 +176,7 @@ impl OnlineAutotuner {
             reverse_sweep: false, sweep_in_progress: true, draining: false,
             exploration_budget_exhausted: false,
             typical_probe_songs: MIN_EPOCH_SONGS,
+            last_exploration_budget: None,
             refinement_started: false,
             refinement_queue: VecDeque::new(), refinement_active: None,
         })
@@ -243,6 +261,7 @@ impl OnlineAutotuner {
             elapsed_seconds: seconds,
             patches_per_second: measure,
             songs_per_minute: 60.0 * self.epoch_songs as f64 / seconds,
+            remaining_undispatched_songs: remaining_hint,
         });
         self.counters.probes += 1;
         if self.refinement_active == Some(self.active) {
@@ -270,25 +289,55 @@ impl OnlineAutotuner {
             self.exploit_safe_best(completed, headroom, "end of scan: insufficient search payback");
             return Ok(());
         }
-        // A new candidate needs at least one epoch. Budget about twice the
-        // measured window size per untested worker to reserve useful scan
-        // work for exploitation; never claim this is a statistical optimum.
-        // Once the initial sweep is complete, charge the optional replication
-        // sweep separately. RAM skips do not count as measured candidates.
-        let remaining_candidates = if self.refinement_active.is_some()
+        // One *completed* first sweep is more important than replicating a
+        // candidate: the latter cannot rule out an unvisited faster setting.
+        // Previously we charged the already measured incumbent again and
+        // required TWO epochs for every candidate before even testing a
+        // challenger. On real short scans this locked out every alternative.
+        //
+        // Discovery: reserve one observed-sized epoch for each still UNTESTED
+        // candidate, plus one for exploitation. No worker count is privileged.
+        // Replication/refinement: optional, charge the still outstanding
+        // measurement windows before attempting further exploration.
+        // Window size is measured, not tuned for a particular machine.
+        if self.sweep_in_progress && self.next_candidate >= self.candidates.len() {
+            self.counters.completed_coarse_sweeps += 1;
+            self.sweep_in_progress = false;
+        }
+        let unvisited = self.candidates.iter()
+            .filter(|&&worker| !self.visited.contains(&worker)).count();
+        let (phase, pending_windows) = if self.refinement_active.is_some()
             || !self.refinement_queue.is_empty() {
-            let current = self.refinement_active.and_then(|worker|
-                self.evidence.get(&worker).map(|samples| 2_usize.saturating_sub(samples.len())))
+            let current = self.refinement_active.map(|worker|
+                self.evidence.get(&worker)
+                    .map_or(2, |samples| 2_usize.saturating_sub(samples.len())))
                 .unwrap_or(0);
-            current + self.refinement_queue.len().saturating_mul(2)
+            ("local-refinement", current + self.refinement_queue.len().saturating_mul(2))
+        } else if unvisited > 0 {
+            ("first-coarse-discovery", unvisited)
+        } else if self.candidates.len() <= 1 {
+            ("single-candidate", 0)
         } else if self.next_candidate >= self.candidates.len() {
-            self.candidates.len()
+            // The first complete sweep has finished. Its second reverse pass
+            // is valuable for noise rejection, but NEVER a prerequisite for
+            // testing every coarse candidate once.
+            ("replication", self.candidates.iter().filter(|&&worker|
+                self.evidence.get(&worker).is_none_or(|samples| samples.len() < 2)
+            ).count())
         } else {
-            self.candidates.len() - self.next_candidate
+            ("replication", self.candidates.len() - self.next_candidate)
         };
-        if remaining_candidates > 0 && remaining_hint <
-            self.typical_probe_songs.saturating_mul(remaining_candidates).saturating_mul(2)
-        {
+        let reserve_songs = self.typical_probe_songs;
+        let required_songs = reserve_songs.saturating_mul(pending_windows.saturating_add(1));
+        self.last_exploration_budget = Some(ExplorationBudgetSample {
+            phase,
+            remaining_undispatched_songs: remaining_hint,
+            unmeasured_candidate_windows: pending_windows,
+            estimated_songs_per_window: self.typical_probe_songs,
+            reserved_exploitation_songs: reserve_songs,
+            required_songs,
+        });
+        if pending_windows > 0 && remaining_hint < required_songs {
             self.exploration_budget_exhausted = true;
             self.counters.exploration_budget_holds += 1;
             self.exploit_safe_best(completed, headroom,
@@ -306,10 +355,6 @@ impl OnlineAutotuner {
         // before ordinary exploitation, mitigating systematic time drift.
         // Later revisit the entire safe set only on a bounded cadence.
         if self.next_candidate >= self.candidates.len() {
-            if self.sweep_in_progress {
-                self.counters.completed_coarse_sweeps += 1;
-                self.sweep_in_progress = false;
-            }
             let second_pass = self.counters.completed_coarse_sweeps == 1
                 && self.candidates.len() > 1;
             if !second_pass && self.counters.completed_coarse_sweeps == 2
@@ -518,6 +563,7 @@ impl OnlineAutotuner {
             reserve_mib: self.reserve_mib,
             estimated_incremental_worker_mib: self.incremental_worker_mib,
             probes: self.probes, counters: self.counters, adjustments: self.adjustments,
+            last_exploration_budget: self.last_exploration_budget,
         }
     }
 }
@@ -842,6 +888,68 @@ mod tests {
         }
         t.select_best_observed();
         assert_eq!(t.best.unwrap().0, 6);
+    }
+
+    #[test]
+    fn measured_short_scan_sweep_explores_all_candidates_before_optional_replication() {
+        // Real October 2026 host measurement windows, with no media or
+        // host-specific throughput preference built into the policy.
+        // Old formula: first 12-song epoch * 4 candidates * 2 = 96
+        // undispatched songs required, while only ~82 were left, so it
+        // never attempted any challenger. The incumbent has already been
+        // measured and should not be charged a second time.
+        let mut now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        let (mut completed, mut patches) = (0, 0);
+        let windows = [
+            (6, 12, 2844, 12.53709, 82),
+            (8, 18, 4043, 12.0519457, 64),
+            (10, 8, 4010, 17.0551454, 56),
+            (12, 17, 4591, 12.2542338, 39),
+        ];
+        for (worker, count, patch_count, seconds, remaining) in windows {
+            assert_eq!(t.active, worker);
+            completed += count;
+            patches += patch_count;
+            now += Duration::from_secs_f64(seconds);
+            t.observe(completed, patches, Some(6500.0), remaining, now).unwrap();
+            if worker == 6 {
+                let decision = t.last_exploration_budget.as_ref().unwrap();
+                assert_eq!(decision.phase, "first-coarse-discovery");
+                assert_eq!(decision.unmeasured_candidate_windows, 3);
+                assert_eq!(decision.required_songs, 48);
+                assert_eq!(decision.remaining_undispatched_songs, 82);
+            }
+            if t.draining() { t.settle(completed, patches, now); }
+        }
+        let diagnostics = t.into_diagnostics();
+        assert!(diagnostics.search_completed);
+        assert_eq!(diagnostics.probes.iter().map(|probe| probe.workers)
+            .collect::<Vec<_>>(), [6, 8, 10, 12]);
+        assert_eq!(diagnostics.counters.completed_coarse_sweeps, 1);
+        assert_eq!(diagnostics.counters.memory_gate_holds, 0);
+        assert!(diagnostics.last_exploration_budget.is_some());
+    }
+
+    #[test]
+    fn general_short_horizon_still_limits_search_and_single_mode_needs_no_sweep() {
+        let now = Instant::now();
+        let mut short = OnlineAutotuner::new(2, 1, 4, Some(6000.0), now).unwrap();
+        short.observe(12, 1000, Some(5500.0), 16,
+            now + Duration::from_secs(13)).unwrap();
+        assert_eq!(short.active, 2);
+        assert!(short.exploration_budget_exhausted);
+        let decision = short.last_exploration_budget.as_ref().unwrap();
+        assert_eq!(decision.phase, "first-coarse-discovery");
+        assert_eq!(decision.unmeasured_candidate_windows, 3);
+        assert_eq!(decision.required_songs, 48);
+        assert_eq!(decision.remaining_undispatched_songs, 16);
+        assert_eq!(short.counters.exploration_budget_holds, 1);
+        let mut single = OnlineAutotuner::new(1, 1, 1, Some(6000.0), now).unwrap();
+        single.observe(12, 1000, Some(5500.0), 13,
+            now + Duration::from_secs(13)).unwrap();
+        assert!(!single.exploration_budget_exhausted);
+        assert_eq!(single.counters.exploration_budget_holds, 0);
     }
 
     #[test]
