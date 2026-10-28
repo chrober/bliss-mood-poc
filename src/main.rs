@@ -607,8 +607,39 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod manifest_cli_tests {
-    use super::{Action, Cli};
+    use super::{Action, AdaptivePolicy, Cli};
     use clap::Parser;
+
+    #[test]
+    fn online_autotune_is_explicit_and_legacy_policy_remains_default() {
+        let baseline = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--workers", "2",
+        ]).unwrap();
+        match baseline.action {
+            Action::ScanFeatures { adaptive_policy, adaptive_workers, .. } => {
+                assert_eq!(adaptive_policy, AdaptivePolicy::Resource);
+                assert!(!adaptive_workers);
+            }
+            _ => panic!("Expected feature scan"),
+        }
+        let selected = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--workers", "auto",
+            "--adaptive-workers", "--adaptive-policy", "autotune",
+        ]).unwrap();
+        match selected.action {
+            Action::ScanFeatures { adaptive_policy, adaptive_workers, .. } => {
+                assert_eq!(adaptive_policy, AdaptivePolicy::Autotune);
+                assert!(adaptive_workers);
+            }
+            _ => panic!("Expected feature scan"),
+        }
+        assert!(Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db", "--adaptive-policy", "unknown",
+        ]).is_err());
+    }
 
     #[test]
     fn adaptive_song_gate_is_explicit_only_and_validated() {
