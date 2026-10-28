@@ -441,6 +441,13 @@ mod tests {
         assert!(format!("{error:#}").contains("cancelled by RAM watchdog"));
         assert!(started.elapsed() < Duration::from_secs(4));
         assert!(worker.child.is_none(), "the child must be killed and reaped");
+        // A different scan with a distinct token must continue successfully.
+        let mut unrelated = EssentiaWorker::with_timeout(
+            worker.executable.clone(), Duration::from_secs(5),
+        );
+        unrelated.set_cancellation(Arc::new(AtomicBool::new(false)));
+        let result = unrelated.analyze(Path::new("healthy-unrelated.wav"), Some(1)).unwrap();
+        assert_eq!(result.patches.len(), 1);
     }
 
     #[test]
