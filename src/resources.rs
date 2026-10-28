@@ -8,6 +8,23 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The experimental watchdog requests cancellation of pending native IPC.
+/// Each native worker owns and reaps its Child handle; do not kill bare PIDs.
+static NATIVE_CANCEL_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn reset_native_cancellation() {
+    NATIVE_CANCEL_REQUESTED.store(false, std::sync::atomic::Ordering::Release);
+}
+
+pub fn request_native_cancellation() {
+    NATIVE_CANCEL_REQUESTED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+pub fn native_cancellation_requested() -> bool {
+    NATIVE_CANCEL_REQUESTED.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Track only worker processes spawned by our Rust scanner. This is intentionally
 /// not a system-wide process tree search; a worker never spawns Essentia helpers.
 fn native_children() -> &'static Mutex<HashSet<u32>> {
