@@ -422,11 +422,19 @@ jobs:
         run: |
           & {
             $ErrorActionPreference = 'Stop'
-            git fetch --no-tags --depth=1 origin refs/pull/16/head
-            if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch PR 16 evaluation tool read-only' }
+            # PR refs are mutable. Pin the inspected PR 16 evaluator snapshot,
+            # not its moving head; never change or check out PR 16 itself.
+            $pinnedPr16Commit = 'f80d766e932793f0b6cb3360edd2c4e904d6abaa'
+            $pinnedEvaluatorBlob = '5d06cb7d85f578d247f51d1400d932e5276af968'
+            git fetch --no-tags --depth=1 origin $pinnedPr16Commit
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch pinned PR 16 evaluation commit read-only' }
             $head = (git rev-parse FETCH_HEAD).Trim()
-            if ($head -ne '4b397c9310a7e82f0e2e723b11954475b41c3e10') {
-              throw "PR 16 head changed; evaluate compatibility explicitly before updating pinned test: $head"
+            if ($LASTEXITCODE -ne 0 -or $head -ne $pinnedPr16Commit) {
+              throw "PR 16 immutable commit mismatch: $head"
+            }
+            $blob = (git rev-parse 'FETCH_HEAD:scripts/evaluate_similarity.py').Trim()
+            if ($LASTEXITCODE -ne 0 -or $blob -ne $pinnedEvaluatorBlob) {
+              throw "PR 16 evaluated script blob mismatch: $blob"
             }
             New-Item -ItemType Directory -Force 'build/windows-native/pr16-readonly' | Out-Null
             git show 'FETCH_HEAD:scripts/evaluate_similarity.py' |
