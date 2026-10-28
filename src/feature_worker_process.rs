@@ -535,6 +535,41 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn owned_unix_process_group_reaps_actual_grandchild() {
+        use std::{io::{BufRead, BufReader}, os::unix::process::CommandExt};
+        // This shell launches one background descendant in its own dedicated
+        // process group (not the runner's group). No private files are opened.
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30 & echo $!; wait"])
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+        command.process_group(0);
+        let mut root = OwnedChild::attach(command.spawn().expect("spawn shell"))
+            .expect("own process group");
+        let mut line = String::new();
+        BufReader::new(root.child.stdout.take().unwrap())
+            .read_line(&mut line).expect("read sleep PID");
+        let grandchild: u32 = line.trim().parse().expect("valid child PID");
+        let proc_stat = format!("/proc/{grandchild}/stat");
+        let running = || {
+            std::fs::read_to_string(&proc_stat)
+                .ok()
+                .and_then(|stat| stat.rsplit_once(") ")
+                    .and_then(|(_, tail)| tail.chars().next()))
+                .is_some_and(|state| !matches!(state, 'Z' | 'X'))
+        };
+        assert!(running(), "sleep descendant must be alive before teardown");
+        drop(root);
+        // The orphan may temporarily remain a zombie under PID 1; treating
+        // zombie as terminated avoids assuming the runner promptly reaps it.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while running() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!running(), "process-group descendant survived owner teardown");
+    }
+
     #[test]
     fn bounded_protocol_roundtrip_and_version_checks() {
         let request = WorkerRequest::ping(42, 7);
