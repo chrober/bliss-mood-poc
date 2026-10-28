@@ -24,6 +24,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// 'auto' is encoded as zero internally, preserving the compact CLI enum
+/// layout. The scanner never admits zero as an actual worker count.
+fn parse_max_workers_spec(value: &str) -> std::result::Result<usize, String> {
+    if value.eq_ignore_ascii_case("auto") {
+        return Ok(0);
+    }
+    let number = value.parse::<usize>()
+        .map_err(|_| "--max-workers must be auto or a positive integer".to_owned())?;
+    if !(1..=64).contains(&number) {
+        return Err("--max-workers must be auto or a number within 1..=64".to_owned());
+    }
+    Ok(number)
+}
+
 fn parse_adaptive_min_completed_songs(value: &str) -> std::result::Result<usize, String> {
     let parsed = value.parse::<usize>()
         .map_err(|_| "Expected a positive integer adaptive song gate".to_owned())?;
@@ -182,8 +196,8 @@ enum Action {
         min_workers: usize,
         /// Adaptive maximum: auto = logical CPUs available to this process (max 64).
         /// Explicit limits above the host capacity fail instead of oversubscribing.
-        #[arg(long, default_value = "auto")]
-        max_workers: String,
+        #[arg(long, default_value = "auto", value_parser = parse_max_workers_spec)]
+        max_workers: usize,
         /// Minimum completed songs before either adaptive up/down adjustment.
         /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
         #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
@@ -466,7 +480,7 @@ fn main() -> Result<()> {
                 bail!("--library-root is only supported with --bliss-db");
             }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
-            let max_workers = parallel::max_worker_count(&max_workers)?;
+            let max_workers = parallel::max_worker_count(max_workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
@@ -617,7 +631,7 @@ mod manifest_cli_tests {
             ]).unwrap();
             match parsed.action {
                 Action::ScanFeatures { max_workers, min_workers, .. } => {
-                    assert_eq!(max_workers, value);
+                    assert_eq!(max_workers, if value == "auto" { 0 } else { value.parse::<usize>().unwrap() });
                     assert_eq!(min_workers, 1);
                 }
                 _ => panic!("Expected feature scan"),
