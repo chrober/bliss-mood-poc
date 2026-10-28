@@ -1,6 +1,6 @@
 # Roadmap: From song features to validated similarity and Lyrion playlist integration
 
-**Updated:** October 22, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
+**Updated:** October 28, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
 **Repository:** `chrober/bliss-mood-poc` · **Branch:** `feat/similarity-metric-evaluation` ·
 **Pull request:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16)
 
@@ -77,7 +77,7 @@ flowchart TD
     P0["Phase 0 — Offline feature extractor<br/>Research implementation available<br/>Verification and release gates OPEN"]
     P1["Phase 1 — External evidence<br/>MTT and FMA complete for specified studies<br/>Paired DEAM blocked by source outage"]
     P2["Phase 2 — Local research cohort<br/>100/100 matched 87D, 56D, 1280D<br/>Verified for bounded study"]
-    P3["Phase 3 — Controlled listening judgments<br/>Blinded 12-pair selector prepared<br/>Human labels not yet collected"]
+    P3["Phase 3 — Controlled listening judgments<br/>12 human-reviewed pairs complete<br/>Local five-model evaluator now available"]
     P4["Phase 4 — Select GENERAL representation + metric<br/>A vs B vs C, disjoint validation<br/>Not decided"]
     P5["Phase 5 — Compare Lyrion strategies<br/>Bliss-only, Bliss-first, feature-first, hybrid<br/>Architecture only"]
     PPERSONAL["Optional parallel research branch<br/>Per-user triplets + 0–100% personal blend<br/>Architecture only; general baseline mandatory"]
@@ -428,7 +428,7 @@ correctness gates:
 | **N1. DEAM source-only preflight** | None | Publisher accessible or byte-for-byte/SHA/licence-verified alternative | Record outage; do N2 without waiting |
 | **N2. Local feature inventory (L0) — COMPLETE for research cohort** | Experimental feature DB and exact local track mapping | Small read-only 87D/56D/1280D identity and coverage report | Target only missing research vectors |
 | **N3. Paired DEAM-240 replay** | N1 successful | Same sample SHA and 197/43 cohorts, exact Mood-Cosine baseline, common candidate coverage, aggregate A/B report | No invented embedding-vs-Mood scores |
-| **N4. Twelve-contrast pilot — instrument ready, human judgments pending** | N2 successful | Review protocol usable; positive/negative controls and four human rating dimensions | Adjust prospective method; preserve old labels |
+| **N4. Twelve-contrast pilot — HUMAN REVIEW COMPLETE; evaluator ready** | N2 successful | 12/12 pairs, 60/60 ratings; evaluate five frozen models with nonmusic-pair sensitivity locally | Interpret only as small selected-sample diagnostics; preserve original labels |
 | **N5. New evaluation block** | N4 and predeclared method | Fresh artist-/album-aware observations with paired, untuned A/B/C evaluation | Remain exploratory |
 | **N6. Playlist strategy test** | N5 and review | Bliss-only comparison, transition quality and safe candidate constraints | Keep experimental code opt-in |
 | **N7. Production release** | N6 plus remaining phase-0 gates | Correctness, rights, platform budgets, feature lifecycle and rollback | No production integration |
@@ -458,18 +458,39 @@ or downloading licensed audio.
   class scores or benchmark labels. Distinguish human
   perceptual similarity from the quality of playlist transitions.
 
-## Next current research action (October 22, 2026)
+## Next current research action (October 28, 2026)
 
-The user's final independent read-only audit verified **100/100**
-coherent matching 87D/56D/1280D features and zero missing/invalid
-song sidecars. The local blinded 12-pair instrument was
-**generated** (`BLINDED_REVIEW_READY`): 24 distinct tracks,
-blank human labels, and **0 earlier reviewed pairs excluded**,
-which is *not* proof of no overlap. Next prioritize actual
-human judgments and evaluation of the **general** metrics on
-the frozen evidence. An independent optional learner/triplet
-protocol can be designed in parallel, without touching the
-existing `bliss-learner`, `lms-blissmixer-lab` or upstream mixer.
+The bounded user-local 100-song cohort has verified **100/100**
+matching 87D/56D/1280D features with zero incompatible
+sidecars. The **12-pair blind hearing pilot is now fully
+human-rated** (24 distinct tracks, 60/60 numeric fields;
+seven optional human notes). The Excel export uses
+tab-delimited Windows-1252. Human note **pair 10**
+identifies spoken/interview material, not a musical
+recording; retain all twelve for diagnostics and
+perform an eleven-pair music-only sensitivity.
+
+**Reproducible scoring is implemented** in
+[`scripts/evaluate_local_listening_pilot.py`](../scripts/evaluate_local_listening_pilot.py),
+tested on synthetic Linux/Windows with
+[CI PASS 40757186145](https://github.com/chrober/bliss-mood-poc/actions/runs/40757186145).
+The real data's original sealed **local-only**
+`selection-audit-private.json` was not supplied in
+chat; **no real model-vs-human score comparison has yet
+run**. The single immediate next action is to
+[run the local evaluator](similarity-local-listening-pilot12-evaluation-2026-10-28.md)
+against the human CSV + original private frozen audit
+in a new ignored output folder; only anonymous aggregate
+results should be shared voluntarily. Then interpret
+the selected-pair rank correlations and sensitivity,
+without asserting a general-metric winner or tuning
+fusion weights on the same 12 labels.
+
+Optional per-user triplet metric learning and the
+0–100% personal-influence slider remain a separate
+future workstream. The **always-available general
+metric without personal training** is still the
+primary research objective.
 
 ## 6. Further technical and historical documentation
 
