@@ -236,6 +236,7 @@ pub struct FeatureEngine {
     threads: usize,
     frontend: Option<EssentiaWorker>,
     preprocessing: &'static str,
+    cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
@@ -262,7 +263,23 @@ fn feature_environment() -> Result<&'static ort::environment::Environment> {
     ))
 }
 
+fn check_scan_cancellation(flag: Option<&std::sync::atomic::AtomicBool>) -> Result<()> {
+    if flag.is_some_and(|f| f.load(std::sync::atomic::Ordering::Acquire)) {
+        bail!("Feature analysis cancelled by RAM watchdog");
+    }
+    Ok(())
+}
+
 impl FeatureEngine {
+    pub fn set_cancellation(
+        &mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        if let Some(ref mut native) = self.frontend {
+            native.set_cancellation(std::sync::Arc::clone(&flag));
+        }
+        self.cancellation = Some(flag);
+    }
+
     #[allow(dead_code)] // Retain legacy constructor for code paths using the Rust frontend.
     pub fn new(profiles: Vec<Profile>, threads: usize) -> Result<Self> {
         Self::with_backend(profiles, threads, &BackendChoice::Rust)
@@ -298,7 +315,7 @@ impl FeatureEngine {
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
             counted_load: false, threads, frontend,
             embedding_enabled: false, last_song_embedding: None,
-            preprocessing: backend.preprocessing() })
+            preprocessing: backend.preprocessing(), cancellation: None })
     }
 
     /// An opt-in f64 pooled 1280D song embedding. Legacy scans never enable it.
@@ -312,6 +329,7 @@ impl FeatureEngine {
 
     pub fn analyze(&mut self, path: &Path, max_patches: Option<usize>) -> Result<FeatureReport> {
         self.last_song_embedding = None;
+        check_scan_cancellation(self.cancellation.as_deref())?;
         if !path.is_file() {
             bail!("Audio file does not exist: {}", path.display());
         }
@@ -331,6 +349,7 @@ impl FeatureEngine {
                 (patches, decode_seconds, at.elapsed().as_secs_f64())
             }
         };
+        check_scan_cancellation(self.cancellation.as_deref())?;
         let count = patches.len();
         let mut embedding_sums = self.embedding_enabled
             .then(|| vec![0.0_f64; crate::song_embedding::DIMENSIONS]);
@@ -338,8 +357,10 @@ impl FeatureEngine {
             .map(|(profile, _)| vec![0.0; profile.labels.len()]).collect();
         let at = Instant::now();
         for patch in &patches {
+            check_scan_cancellation(self.cancellation.as_deref())?;
             let input = TensorRef::from_array_view(([1usize, 128usize, 96usize], patch.as_slice()))?;
             let outputs = self.encoder.run(ort::inputs![input])?;
+            check_scan_cancellation(self.cancellation.as_deref())?;
             let mut vector = None;
             for output in outputs.values() {
                 let (_, tensor) = output.try_extract_tensor::<f32>()?;
@@ -353,7 +374,9 @@ impl FeatureEngine {
                 crate::song_embedding::add_patch(embedding_sums, &vector)?;
             }
             for (i, (profile, session)) in self.heads.iter_mut().enumerate() {
+                check_scan_cancellation(self.cancellation.as_deref())?;
                 let scores = classify(session, &vector, profile.labels.len(), profile.descriptor.output_type)?;
+                check_scan_cancellation(self.cancellation.as_deref())?;
                 for (sum, value) in sums[i].iter_mut().zip(scores) {
                     *sum += f64::from(value);
                 }
@@ -379,8 +402,10 @@ impl FeatureEngine {
                 scores,
             });
         }
+        check_scan_cancellation(self.cancellation.as_deref())?;
         let at_hash = Instant::now();
         let audio_hash = sha256_file(path)?;
+        check_scan_cancellation(self.cancellation.as_deref())?;
         if let Some(ref embedding_sums) = embedding_sums {
             let profile = &self.heads[0].0;
             let model = &profile.descriptor.embedding_model;
@@ -1070,7 +1095,9 @@ fn save_completion(
         if observation.is_err() {
             // The completion-driven governor can detect a fault before the
             // independent watchdog's next poll. Cancel native IPC immediately.
-            crate::resources::request_native_cancellation();
+            if let Some(watch) = policy.watchdog {
+                watch.request_cancel();
+            }
         }
         observation?;
         diagnostics.peak_workers = diagnostics.peak_workers.max(controller.active);
@@ -1107,7 +1134,6 @@ fn scan_parallel(
     } else { None };
     let initial = tuner.as_ref().map_or(preferred_initial, |t| t.active);
     let watchdog = if let Some(ref tuner) = tuner {
-        crate::resources::reset_native_cancellation();
         Some(crate::memory_watchdog::MemoryWatchdog::start(tuner.reserve_mib())?)
     } else {
         None
@@ -1149,6 +1175,8 @@ fn scan_parallel(
     let (result_tx, result_rx) = mpsc::channel::<FeatureCompletion>();
     let active_analyses = Arc::new(AtomicUsize::new(0));
     let peak_active_analyses = Arc::new(AtomicUsize::new(0));
+    let cancellation = watchdog.as_ref()
+        .map(crate::memory_watchdog::MemoryWatchdog::cancellation_token);
     let aborted = std::thread::scope(|scope| -> Result<bool> {
         for _ in 0..pool_size {
             let rx = Arc::clone(&task_rx);
@@ -1157,6 +1185,7 @@ fn scan_parallel(
             let backend = options.backend.clone();
             let active_analyses = Arc::clone(&active_analyses);
             let peak_active_analyses = Arc::clone(&peak_active_analyses);
+            let cancellation = cancellation.clone();
             scope.spawn(move || {
                 let mut engine: Option<FeatureEngine> = None;
                 loop {
@@ -1170,7 +1199,7 @@ fn scan_parallel(
                     // In-flight work may still be unwinding after a watchdog
                     // fault; do not initialize more model sessions from queued
                     // requests once emergency cancellation was signalled.
-                    if crate::resources::native_cancellation_requested() {
+                    if check_scan_cancellation(cancellation.as_deref()).is_err() {
                         break;
                     }
                     let active = active_analyses.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1182,6 +1211,9 @@ fn scan_parallel(
                             profiles.clone(), options.threads, &backend,
                         ) {
                             Ok(mut created) => {
+                                if let Some(ref token) = cancellation {
+                                    created.set_cancellation(Arc::clone(token));
+                                }
                                 if options.embedding_dir.is_some() {
                                     created.request_song_embedding();
                                 }
@@ -1366,6 +1398,18 @@ fn scan_parallel(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn cancellation_is_scan_scoped_and_checked_between_inference_steps() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let scan_a = AtomicBool::new(false);
+        let scan_b = AtomicBool::new(false);
+        assert!(check_scan_cancellation(Some(&scan_a)).is_ok());
+        scan_a.store(true, Ordering::Release);
+        assert!(check_scan_cancellation(Some(&scan_a)).is_err());
+        assert!(check_scan_cancellation(Some(&scan_b)).is_ok());
+        assert!(check_scan_cancellation(None).is_ok());
+    }
 
     #[test]
     fn manifest_selection_reuses_scan_options_and_filters_exact_identity() {
