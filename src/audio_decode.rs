@@ -146,13 +146,13 @@ pub(crate) fn essentia_linear_resample(samples: &[f32], input_rate: usize) -> Ve
 }
 
 pub(crate) fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
-    ffmpeg_pcm_mono_16k_cancelable(input, None)
+    ffmpeg_pcm_mono_16k_cancelable(input, None, 1)
 }
 
 /// Identical audio math to the historical decoder; only when autotune passes
 /// a cancellation token do ffprobe/FFmpeg acquire a bounded, supervised Child.
 pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
-    input: &Path, cancellation: Option<&AtomicBool>,
+    input: &Path, cancellation: Option<&AtomicBool>, max_concurrent_decoders: usize,
 ) -> Result<Vec<f32>> {
     // FFmpeg only decodes to float PCM at the *native* sample rate.
     // Probe stream metadata once to avoid FFmpeg's different default
@@ -181,9 +181,14 @@ pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
         let free = crate::resources::memory_diagnostics()
             .context("Autotune decoder requires effective free-RAM telemetry")?
             .available_physical_mib;
-        let bytes = (free * 1024.0 * 1024.0 / 4.0) as usize;
+        // Divide the effective free-RAM budget across the maximum worker
+        // pool, even if only a few workers are currently active. A single
+        // decoded PCM allocation plus conversion/resampling can multiply
+        // memory demand by several times its raw output size.
+        let bytes = (free * 1024.0 * 1024.0
+            / (4.0 * max_concurrent_decoders.max(1) as f64)) as usize;
         if bytes < 2 * 1024 * 1024 {
-            bail!("Autotune decoder lacks 2 MiB safe PCM output budget");
+            bail!("Autotune decoder lacks 2 MiB PCM budget at {max_concurrent_decoders} configured workers");
         }
         bytes.min(DECODE_OUTPUT_HARD_CAP)
     } else { usize::MAX };
