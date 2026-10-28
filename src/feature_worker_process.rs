@@ -298,6 +298,51 @@ mod tests {
     }
 
     #[test]
+    fn versioned_analyzed_reply_preserves_1280d_f32_bits_and_multiple_heads() {
+        let embedding: Vec<f32> = (0..1280).map(|i| {
+            ((i as f64 * 0.073).sin() * 0.17) as f32
+        }).collect();
+        let response = WorkerResponse {
+            version: PROTOCOL_VERSION,
+            request_id: 8,
+            reply: WorkerReply::Analyzed {
+                report: serde_json::json!({
+                    "schema_version": 3,
+                    "patches_analyzed": 837,
+                    "classifications": {
+                        "moodtheme": {"scores": {"happy": 0.125_f32}},
+                        "genre": {"scores": {"rock": 0.875_f32}},
+                        "voice": {"scores": {"instrumental": 0.625_f32}}
+                    }
+                }),
+                embedding: Some(serde_json::json!({
+                    "dimension": 1280,
+                    "vector_f32": embedding,
+                })),
+            },
+        };
+        let mut stream = Vec::new();
+        write_frame(&mut stream, RESPONSE, &serde_json::to_vec(&response).unwrap()).unwrap();
+        let payload = read_frame(&mut stream.as_slice(), RESPONSE).unwrap().unwrap();
+        let restored: WorkerResponse = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(restored.request_id, 8);
+        match restored.reply {
+            WorkerReply::Analyzed { report, embedding: Some(vector) } => {
+                assert_eq!(report["patches_analyzed"], 837);
+                assert_eq!(report["classifications"].as_object().unwrap().len(), 3);
+                let decoded: Vec<f32> =
+                    serde_json::from_value(vector["vector_f32"].clone()).unwrap();
+                assert_eq!(decoded.len(), 1280);
+                for (index, element) in decoded.into_iter().enumerate() {
+                    let expected = ((index as f64 * 0.073).sin() * 0.17) as f32;
+                    assert_eq!(element.to_bits(), expected.to_bits());
+                }
+            }
+            _ => panic!("Lost embedding payload over framed IPC"),
+        }
+    }
+
+    #[test]
     fn bounded_protocol_roundtrip_and_version_checks() {
         let request = WorkerRequest::ping(42, 7);
         let mut bytes = Vec::new();
