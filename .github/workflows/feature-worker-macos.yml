@@ -33,4 +33,4 @@ jobs:
       - name: Verify native Unix descendant process-group termination in binary tests
         run: |
           set -euo pipefail
-          cargo test --locked --bin bliss-mood owned_unix_group_closes_descendant_pipes_on_teardown -- --exact --nocapture
+          cargo test --locked --bin bliss-mood feature_worker_process::tests::owned_unix_group_closes_descendant_pipes_on_teardown -- --exact --nocapture
