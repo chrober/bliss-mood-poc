@@ -98,6 +98,7 @@ pub struct OnlineAutotuner {
     last_available_mib: f64,
     exploit_epochs: usize,
     reverse_sweep: bool,
+    sweep_in_progress: bool,
     draining: bool,
 }
 
@@ -144,7 +145,7 @@ impl OnlineAutotuner {
             evidence: BTreeMap::new(), visited: BTreeSet::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
             last_available_mib: available, exploit_epochs: 0,
-            reverse_sweep: false, draining: false,
+            reverse_sweep: false, sweep_in_progress: true, draining: false,
         })
     }
 
@@ -251,17 +252,22 @@ impl OnlineAutotuner {
         // before ordinary exploitation, mitigating systematic time drift.
         // Later revisit the entire safe set only on a bounded cadence.
         if self.next_candidate >= self.candidates.len() {
-            self.counters.completed_coarse_sweeps += 1;
+            if self.sweep_in_progress {
+                self.counters.completed_coarse_sweeps += 1;
+                self.sweep_in_progress = false;
+            }
             let second_pass = self.counters.completed_coarse_sweeps == 1
                 && self.candidates.len() > 1;
             if second_pass {
                 self.reverse_sweep = true;
                 self.next_candidate = 0;
+                self.sweep_in_progress = true;
             } else {
                 self.exploit_epochs += 1;
                 if self.exploit_epochs.is_multiple_of(4) {
                     self.reverse_sweep = !self.reverse_sweep;
                     self.next_candidate = 0;
+                    self.sweep_in_progress = true;
                 } else {
                     if let Some((best, _)) = self.best {
                         self.change(best, completed, "exploit best measured throughput");
@@ -277,7 +283,15 @@ impl OnlineAutotuner {
             } else { self.next_candidate };
             let target = self.candidates[index];
             self.next_candidate += 1;
-            if target == self.active { continue; }
+            if target == self.active {
+                // The reversed sweep's first candidate is often the current
+                // one; give it a second genuine window before moving away.
+                if self.reverse_sweep && self.evidence.get(&target)
+                    .is_none_or(|scores| scores.len() < 2) {
+                    return Ok(());
+                }
+                continue;
+            }
             let extra = target.saturating_sub(self.active);
             if extra > 0 && (extra as f64 * self.incremental_worker_mib) > headroom {
                 self.counters.memory_gate_holds += 1;
@@ -444,7 +458,7 @@ mod tests {
             seen.push(t.active);
             run_epoch(&mut t, &mut done, &mut patches, 8, duration, 150, &mut now);
         }
-        assert_eq!(seen, [6, 8, 10, 12, 10, 8, 6, 12]);
+        assert_eq!(seen, [6, 8, 10, 12, 12, 10, 8, 6]);
         let diag = t.into_diagnostics();
         assert!(diag.replication_completed);
         assert!(diag.search_completed);
