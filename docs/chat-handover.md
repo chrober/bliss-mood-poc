@@ -1,6 +1,6 @@
 # Current research handover: similarity representations and Lyrion integration
 
-**Updated:** October 22, 2026. **Read first:**
+**Updated:** October 28, 2026. **Read first:**
 [Central phase-0-to-6 research and integration roadmap](similarity-lyrion-roadmap.md).
 The roadmap contains four Mermaid diagrams, status, research constraints,
 and small stop/go work packages. This handover summarizes the current state;
@@ -17,6 +17,55 @@ read-only audit of compatible representations for
 the **same songs in the user's library**,
 not a full rescan. Production-wide feature
 lifecycle belongs to phase **6**, after all gates.
+
+## Latest result: human 12-pair pilot completed; ordinal evaluator ready (2026-10-28)
+
+**The user has completed all 12/12 human-rated song pairs**:
+24 distinct songs, 60/60 valid numerical values (four 1–5
+musical dimensions plus 1–3 confidence), and seven textual
+comments. The reviewed Excel file in chat uses **Windows-1252
+with tab delimiters**, not the original UTF-8 comma layout.
+One comment identifies **pair 10** as a spoken interview/comment,
+not a normal music track. The reviewer finished before opening
+the locally sealed model-score audit. No original ratings were
+uploaded to GitHub.
+
+**Implemented and verified:**
+[`scripts/evaluate_local_listening_pilot.py`](../scripts/evaluate_local_listening_pilot.py)
+reads this Excel CSV and the original private
+`selection-audit-private.json`, verifies all 12 exact
+ordered left/right pairs, and calculates model-vs-human
+Spearman rho, Kendall tau-b (with ties), leave-one-out
+sensitivity and numbered rank disagreements for
+**five frozen untrained models × four human rating axes**.
+It reports both **12 pairs** and **11 music-only** after
+an explicit `--nonmusic-pairs 10` flag. Tests:
+[`tests/test_evaluate_local_listening_pilot.py`](../tests/test_evaluate_local_listening_pilot.py),
+**Linux/Windows Python CI PASS 40757186145**.
+No private filenames, paths, feature vectors or notes
+are emitted into the aggregate or numbered reports.
+
+**Current operational blocker:** Only the human CSV was shared
+in chat; the frozen private selection-audit JSON was NOT shared.
+Therefore **no model-vs-human correlations have yet been
+computed on the real 12 pairs**. Run the script **locally**
+with the existing original private audit, preserving both
+inputs, in a new ignored report directory. The complete
+working Windows PowerShell command and interpretation
+protocol are in
+[12-pair evaluation runbook](similarity-local-listening-pilot12-evaluation-2026-10-28.md).
+It is safe to share only the *anonymized aggregate report*
+if the owner wants interpretation. The output is exploratory
+and cannot establish universal metric superiority or
+legitimate general-fusion weights from twelve selected
+pairs.
+
+**Next action, not code generation or more inference:**
+run the **local** 12-pair evaluator with `--nonmusic-pairs 10`,
+inspect the model/rating matrix, explain rank disagreements,
+then predeclare a separate larger evaluation block. Keep
+primary research on the mandatory untrained GENERAL metric;
+personal learning and 0–100% blend remain optional.
 
 ## Current binding decision: general-purpose baseline plus optional personal learning (2026-10-22)
 
@@ -151,57 +200,45 @@ invalid exports or audio/encoder mismatches. Phase 0 remains partially open.
 M2 preparation is available in
 [`scripts/propose_local_embedding_ab_pilot.py`](../scripts/propose_local_embedding_ab_pilot.py)
 and passed [Linux/Windows CI 39668802990](https://github.com/chrober/bliss-mood-poc/actions/runs/39668802990).
-The user **has now locally generated** the 12-pair blinded
-review CSV (`BLINDED_REVIEW_READY`), using 24 distinct
-songs and all 100 matching feature representations.
-Model-based selection strata and raw scores remain in a
-separate sealed local private audit. All four ordinal
-human ratings remain blank: **no human judgments have
-yet been collected**. The generation reported
+The user generated the original blinded pilot
+(`BLINDED_REVIEW_READY`) using 24 distinct songs and
+all 100 matching features. **The human review is now
+complete** as of October 28, 2026 (12/12 pairs;
+60/60 numeric fields; seven comments). The frozen
+private model-score audit remains local and is now
+available to the human reviewer for **post-blinding**
+evaluation. The selection reported
 `earlier_review_pairs_excluded=0`, which does NOT prove
-that old eight-pair reviews cannot overlap.
-See the [complete local pilot instructions](similarity-local-library-retest-plan-2026-10-21.md).
-Never expose the private audit prior to listening or overwrite earlier
-human ratings.
+that the prior eight-pair sample is disjoint.
+See the [evaluation runbook](similarity-local-listening-pilot12-evaluation-2026-10-28.md).
+Never overwrite or commit original human ratings.
 
-## Next actions, prioritized (October 22, 2026)
+## Next actions, prioritized (October 28, 2026)
 
-1. **General-metric research remains primary.** Start with the
-   already generated private 12-pair M2 listening instrument.
-   Ask the listener to independently judge genre/style,
-   mood/energy, timbral proximity and suitability of
-   left -> right as a playlist transition. The model-based
-   private selection audit must remain unopened until the
-   human judgments are finalized. Any overlap with the
-   earlier eight human-rated pairs must be checked rather
-   than presumed absent. Existing 8 labels remain unchanged.
-2. Build a separate read-only **ordinal** evaluator for the
-   new 1–5 ratings; the old binary Genre/Mood evaluator
-   does not accept these as equivalent. Compare five
-   baseline similarity functions on identical pairs:
-   Genre cosine/centered cosine, Mood cosine/centered cosine,
-   and 1280D cosine. Treat small selected pilot results
-   as diagnostics only. Freeze a new disjoint listening
-   block before any tuning or "winner" claim.
-3. In parallel **design only**, a bounded personal triplet
-   sampling and training baseline (informative disagreements,
-   near neighbors, presumed easy controls, random/diverse
-   questions). Use existing Bliss-learner/Lab as design
-   references; separate musical similarity from directed
-   next-song preference. A model-designated "correct"
-   control is only a hypothesis, not ground truth.
-4. Specify/calibrate a small, regularized per-user model
-   and its **0–100% personal influence**, with per-user
-   held-out evaluation and a complete missing/invalid
-   model fallback to general similarity. Do not train
-   an unrestricted 1,423D Mahalanobis matrix from sparse
-   votes, optimize fusion on evaluation labels, or
-   implement the new Lyrion slider prematurely.
-5. Independently continue reference evidence as sources
-   permit (MTT, FMA and DEAM provenance), then compare
-   general metrics and candidate-source strategies.
-   No library-wide reanalysis is necessary for the
-   completed 100-song local research cohort.
+1. **Immediately run the real 12-pair ordinal evaluation locally**
+   against the sealed private `selection-audit-private.json`
+   using the new script. Flag interview/nonmusic **pair 10**,
+   preserve the full 12-pair analysis and 11-pair sensitivity.
+   Publish no private paths, music identities, user CSV or audit.
+2. Examine the 5×4 frozen model-vs-human rank metrics,
+   ties, leave-one-out ranges and numbered disagreements.
+   Expect a tiny, purposively sampled diagnostic study,
+   **not a winning general metric**. Do not tune general fusion
+   on those twelve labels and report that fit as independent
+   evidence. Check any overlap with the original eight pairs.
+3. **General-metric research remains primary.** Predeclare a
+   disjoint, more representative block of music ratings and
+   external MTT/FMA/DEAM controls as sources permit. Continue
+   testing A/B/C/general fusion on independent evidence.
+4. Design separate, **optional** active triplet selection
+   and small regularized personal metric learning, drawing
+   on the two existing Bliss/Lab projects. Then evaluate
+   separately on held-out personal decisions, without
+   modifying the mandatory general baseline or prematurely
+   implementing the 0–100% personal-blend control.
+5. Retain the distinct candidate-source comparison (Bliss-first,
+   feature-first, hybrid); production release remains blocked
+   by outstanding phase-0 validation and licensing gates.
 
 **Implementation boundaries:** Only PR #16
 (`feat/similarity-metric-evaluation`), kept Draft;
