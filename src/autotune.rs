@@ -286,7 +286,7 @@ mod tests {
         let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
         let (mut done, mut patches) = (0, 0);
         let mut tried = Vec::new();
-        for elapsed in [12, 13, 18, 8] {
+        for elapsed in [18, 20, 28, 12] {
             tried.push(t.active);
             run_epoch(&mut t, &mut done, &mut patches, 8, elapsed, 120, &mut now);
         }
