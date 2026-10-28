@@ -632,7 +632,8 @@ mod tests {
     #[test]
     fn nonmonotonic_valley_does_not_stop_exploration() {
         let mut now = Instant::now();
-        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        // Sufficient effective RAM for a direct jump to the far endpoint.
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(5000.0), now).unwrap();
         let (mut done, mut patches) = (0, 0);
         let mut tried = Vec::new();
         for elapsed in [18, 12, 28, 20] {
@@ -655,7 +656,7 @@ mod tests {
     #[test]
     fn second_sweep_reverses_order_without_stopping_at_local_trough() {
         let mut now = Instant::now();
-        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(5000.0), now).unwrap();
         let (mut done, mut patches) = (0, 0);
         let mut seen = Vec::new();
         for duration in [18, 19, 28, 12, 13, 28, 19, 18] {
@@ -667,6 +668,25 @@ mod tests {
         assert!(diag.replication_completed);
         assert!(diag.search_completed);
         assert!(diag.counters.completed_coarse_sweeps >= 2);
+    }
+
+    #[test]
+    fn far_boundary_is_not_forced_through_ram_gate() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        // A sudden loss of free RAM makes a direct 6 -> 12 expansion unsafe
+        // under the already established conservative per-worker estimate.
+        t.observe(8, 400, Some(4000.0), 120,
+            now + Duration::from_secs(20)).unwrap();
+        assert_eq!(t.active, 8);
+        assert_eq!(t.counters.memory_gate_holds, 1);
+        assert!(t.draining());
+        assert!(!t.visited.contains(&12));
+        t.settle(8, 400, now + Duration::from_secs(21));
+        t.observe(16, 800, Some(4000.0), 120,
+            now + Duration::from_secs(40)).unwrap();
+        assert_eq!(t.active, 10);
+        assert_eq!(t.counters.memory_gate_holds, 1);
     }
 
     #[test]
@@ -827,8 +847,8 @@ mod tests {
         let mut t = OnlineAutotuner::new(6, 6, 12, Some(9000.0), now).unwrap();
         let (mut completed, mut patches) = (0, 0);
         for (workers, rate) in [
-            (6, 65.0), (12, 78.0), (8, 73.0), (10, 80.0),
-            (10, 80.0), (8, 73.0), (12, 78.0), (6, 65.0),
+            (6, 65.0), (12, 78.0), (8, 73.0), (10, 85.0),
+            (10, 85.0), (8, 73.0), (12, 78.0), (6, 65.0),
         ] {
             assert_eq!(t.active, workers);
             let remaining = 800 - (completed + 20);
