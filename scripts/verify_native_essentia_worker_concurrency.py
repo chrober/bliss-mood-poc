@@ -3,8 +3,8 @@
 
 Runs the actual Rust scan-features orchestrator and native Essentia child EXE.
 Only synthetic audio and official ONNX weights; no private music or Bliss DB.
-Fixed 1/2/4 and adaptive-enabled 2 are *parity/concurrency* tests, not a
-throughput ranking or evidence of adaptive resizing.
+Fixed 1/2/4 and repeated fixed 2 are parity/concurrency tests,
+not a throughput ranking or any evidence of autotuning.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from verify_manifest_batch_smoke import (
 
 def run_scan(binary: Path, models: Path, native: Path, audio: Path,
              manifest: Path, sidecar: Path, exports: Path,
-             name: str, workers: int, adaptive: bool) -> tuple[dict, float]:
+             name: str, workers: int) -> tuple[dict, float]:
     args = [
         str(binary), "scan-features",
         "--tracks-file", str(manifest),
@@ -40,8 +40,6 @@ def run_scan(binary: Path, models: Path, native: Path, audio: Path,
         "--max-errors", "1",
         "--json",
     ]
-    if adaptive:
-        args.extend(["--adaptive-workers", "--min-workers", "1", "--max-workers", "2"])
     started = time.perf_counter()
     done = subprocess.run(args, text=True, capture_output=True, check=False, timeout=180)
     wall_seconds = time.perf_counter() - started
@@ -74,18 +72,18 @@ def run(binary: Path, models: Path, native: Path) -> None:
 
         baseline_features = baseline_embeddings = None
         observations = []
-        for name, workers, adaptive in (
-            ("fixed1", 1, False),
-            ("fixed2", 2, False),
-            ("fixed4", 4, False),
-            ("adaptive2", 2, True),
+        for name, workers in (
+            ("fixed1", 1),
+            ("fixed2", 2),
+            ("fixed4", 4),
+            ("fixed2_repeat", 2),
         ):
             sidecar = base / f"{name}.sqlite"
             exports = base / f"{name}-embeddings"
             exports.mkdir()
             summary, wall = run_scan(
                 binary, models, native, audio, manifest,
-                sidecar, exports, name, workers, adaptive,
+                sidecar, exports, name, workers,
             )
             features = stored_features(sidecar)
             embeddings = stored_embeddings(exports, keys)
@@ -95,7 +93,7 @@ def run(binary: Path, models: Path, native: Path) -> None:
                 baseline_features, baseline_embeddings = features, embeddings
             elif features != baseline_features or embeddings != baseline_embeddings:
                 raise AssertionError(
-                    f"{name}: native C++ fixed/adaptive worker count changed "
+                    f"{name}: native C++ fixed worker count changed "
                     "stored classification bytes or pooled 1280D vectors"
                 )
 
@@ -109,16 +107,10 @@ def run(binary: Path, models: Path, native: Path) -> None:
                 )
             if workers > 1 and diag.get("peak_in_flight", 0) < workers:
                 raise AssertionError(f"{name}: coordinator did not dispatch {workers} jobs")
-            if adaptive:
-                if diag.get("initial_workers") != 2 or diag.get("adjustments") != []:
-                    raise AssertionError(
-                        "An 8-song adaptive smoke must start at 2 and cannot "
-                        "exercise the 24-completion resize threshold"
-                    )
             observations.append({
                 "case": name,
                 "requested_workers": workers,
-                "adaptive_enabled": adaptive,
+                "adaptive_enabled": False,
                 "analyzed": summary["analyzed"],
                 "wall_seconds": round(wall, 3),
                 "preworker_cpu_baseline_seconds": (
@@ -129,7 +121,7 @@ def run(binary: Path, models: Path, native: Path) -> None:
                 "sampled_native_children_max": diag.get("native_child_processes_max"),
                 "native_tree_private_mib_max": diag.get("process_tree_private_bytes_max_mib"),
                 "native_tree_incomplete_samples": diag.get("process_tree_incomplete_samples"),
-                "controller_adjustments": len(diag.get("adjustments", [])),
+                "configured_capacity_unchanged": diag.get("final_workers") == diag.get("initial_workers"),
             })
             print(f"PASS {name}: {workers} workers, "
                   f"{summary['analyzed']} native Essentia songs, "
@@ -147,11 +139,11 @@ def run(binary: Path, models: Path, native: Path) -> None:
                 "8 synthetic 20-second WAV tones are not representative music",
                 "A completed-song resource sampler may miss short-lived native children",
                 "These timings include process startup and preworker CPU baseline",
-                "A short adaptive smoke cannot prove actual worker resizing",
+                "No dynamic worker control is present in the product CLI",
                 "This gate does not establish NAS throughput or production speedups",
             ],
         }, indent=2, sort_keys=True))
-        print("PASS exact C++ serial/fixed/adaptive classification and song-embedding parity")
+        print("PASS exact C++ serial/fixed-worker classification and song-embedding parity")
 
 
 if __name__ == "__main__":

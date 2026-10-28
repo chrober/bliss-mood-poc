@@ -24,29 +24,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// 'auto' is encoded as zero internally, preserving the compact CLI enum
-/// layout. The scanner never admits zero as an actual worker count.
-fn parse_max_workers_spec(value: &str) -> std::result::Result<usize, String> {
-    if value.eq_ignore_ascii_case("auto") {
-        return Ok(0);
-    }
-    let number = value.parse::<usize>()
-        .map_err(|_| "--max-workers must be auto or a positive integer".to_owned())?;
-    if !(1..=64).contains(&number) {
-        return Err("--max-workers must be auto or a number within 1..=64".to_owned());
-    }
-    Ok(number)
-}
-
-fn parse_adaptive_min_completed_songs(value: &str) -> std::result::Result<usize, String> {
-    let parsed = value.parse::<usize>()
-        .map_err(|_| "Expected a positive integer adaptive song gate".to_owned())?;
-    if !(1..=100_000).contains(&parsed) {
-        return Err("Adaptive song gate must be within 1..=100000".to_owned());
-    }
-    Ok(parsed)
-}
-
 const ENCODER: &str = "discogs-effnet-bsdynamic-1.onnx";
 const CLASSIFIER: &str = "mtg_jamendo_moodtheme-discogs-effnet-1.onnx";
 const LABELS: &str = "mtg_jamendo_moodtheme-discogs-effnet-1.json";
@@ -183,25 +160,10 @@ enum Action {
         /// Hard wall-clock limit per native worker song/handshake (1..7200 seconds).
         #[arg(long, default_value_t = 900)]
         essentia_timeout_seconds: u64,
-        /// Opt-in system CPU/RAM-aware concurrency control.
-        #[arg(long)]
-        adaptive_workers: bool,
-        /// Windows process priority; omitted preserves original fixed/auto/adaptive behavior.
-        /// Also applies to native Essentia children through explicit CreateProcess
-        /// flags. AboveNormal is not automatically inherited by Windows.
+        /// Optional Windows process priority, independent of fixed workers.
+        /// Also applies to native Essentia children through CreateProcess flags.
         #[arg(long, value_parser = ["normal", "below-normal", "above-normal"])]
         priority: Option<String>,
-        /// Minimum active jobs during adaptive scanning (default 1 for small systems).
-        #[arg(long, default_value_t = 1)]
-        min_workers: usize,
-        /// Adaptive maximum: auto = logical CPUs available to this process (max 64).
-        /// Explicit limits above the host capacity fail instead of oversubscribing.
-        #[arg(long, default_value = "auto", value_parser = parse_max_workers_spec)]
-        max_workers: usize,
-        /// Minimum completed songs before either adaptive up/down adjustment.
-        /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
-        #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
-        adaptive_min_completed_songs: Option<usize>,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -473,28 +435,17 @@ fn main() -> Result<()> {
             bliss_db, tracks_file, embedding_dir, db, models_dir, registry, models, library_root,
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
-            adaptive_workers, priority, min_workers, max_workers,
-            adaptive_min_completed_songs, dry_run, json,
+            priority, dry_run, json,
         } => {
             if tracks_file.is_some() && library_root.is_some() {
                 bail!("--library-root is only supported with --bliss-db");
             }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
-            let max_workers = parallel::max_worker_count(max_workers)?;
             if worker_count > 1 && threads > 1 {
                 bail!("Parallel --workers requires --threads 1 to prevent ONNX oversubscription");
             }
-            let adaptive_gate = adaptive_min_completed_songs.unwrap_or(24);
-            if adaptive_workers {
-                parallel::AdaptiveWorkers::with_min_completed_songs(
-                    worker_count, min_workers, max_workers, adaptive_gate,
-                )?;
-                if worker_count > 1 && threads != 1 {
-                    bail!("Adaptive analysis requires --threads 1");
-                }
-            }
             let mut priority_report = parallel::configure_scan_priority(
-                priority.as_deref(), is_auto, adaptive_workers, dry_run,
+                priority.as_deref(), is_auto, dry_run,
             )?;
             let backend = essentia_worker::BackendChoice::from_cli(
                 &audio_backend, essentia_worker.as_deref(), essentia_timeout_seconds,
@@ -508,8 +459,7 @@ fn main() -> Result<()> {
                 library_root: library_root.as_deref(),
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
-                adaptive_workers, min_workers, max_workers,
-                adaptive_min_completed_songs: adaptive_gate, dry_run, backend,
+                dry_run, backend,
             })?;
             priority_report.collect_native_workers();
             summary.set_priority_diagnostics(priority_report);
@@ -594,70 +544,48 @@ mod manifest_cli_tests {
     use clap::Parser;
 
     #[test]
-    fn adaptive_song_gate_is_explicit_only_and_validated() {
-        let parsed = Cli::try_parse_from([
-            "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
-            "--source-root", "music", "--db", "features.db",
-            "--workers", "2", "--adaptive-workers",
-            "--min-workers", "2", "--max-workers", "6",
-            "--adaptive-min-completed-songs", "8",
-        ]).unwrap();
-        match parsed.action {
-            Action::ScanFeatures { adaptive_min_completed_songs, .. } =>
-                assert_eq!(adaptive_min_completed_songs, Some(8)),
-            _ => panic!("Expected scan-features"),
-        }
-        for invalid in ["0", "100001", "-1", "banana"] {
-            let args = [
-                "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
-                "--db", "features.db", "--adaptive-workers",
-                "--adaptive-min-completed-songs", invalid,
-            ];
-            assert!(Cli::try_parse_from(args).is_err(), "{invalid}");
-        }
-        assert!(Cli::try_parse_from([
-            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
-            "--db", "features.db", "--adaptive-min-completed-songs", "8",
-        ]).is_err());
-    }
-
-    #[test]
-    fn hardware_bound_max_workers_cli_supports_auto_and_explicit_limits() {
-        for value in ["auto", "2", "4", "12"] {
-            let parsed = Cli::try_parse_from([
-                "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
-                "--db", "features.db", "--adaptive-workers",
-                "--max-workers", value,
-            ]).unwrap();
-            match parsed.action {
-                Action::ScanFeatures { max_workers, min_workers, .. } => {
-                    assert_eq!(max_workers, if value == "auto" { 0 } else { value.parse::<usize>().unwrap() });
-                    assert_eq!(min_workers, 1);
-                }
-                _ => panic!("Expected feature scan"),
-            }
+    fn legacy_dynamic_flags_are_rejected_not_silently_ignored() {
+        for extra in [
+            vec!["--adaptive-workers"],
+            vec!["--adaptive-policy", "resource"],
+            vec!["--adaptive-policy", "autotune"],
+            vec!["--min-workers", "2"],
+            vec!["--max-workers", "6"],
+            vec!["--adaptive-min-completed-songs", "8"],
+        ] {
+            let mut args = vec!["bliss-mood", "scan-features",
+                "--bliss-db", "cohort.db", "--db", "features.db"];
+            args.extend(extra);
+            assert!(Cli::try_parse_from(args).is_err());
         }
     }
 
     #[test]
-    fn priority_is_independent_from_adaptive_flag_and_rejects_unsafe_values() {
-        for priority in ["normal", "below-normal", "above-normal"] {
-            let cli = Cli::try_parse_from([
-                "bliss-mood", "scan-features", "--tracks-file", "cohort.txt",
-                "--source-root", "music", "--db", "features.db",
-                "--workers", "2", "--adaptive-workers", "--priority", priority,
-            ]).unwrap();
-            match cli.action {
-                Action::ScanFeatures { priority: selected, .. } => {
-                    assert_eq!(selected.as_deref(), Some(priority));
+    fn fixed_worker_cli_keeps_opt_in_auto_and_priority() {
+        for workers in ["1", "2", "4", "auto"] {
+            for priority in ["normal", "below-normal", "above-normal"] {
+                let args = ["bliss-mood", "scan-features",
+                    "--bliss-db", "cohort.db", "--db", "features.db",
+                    "--workers", workers, "--priority", priority];
+                let cli = Cli::try_parse_from(args).unwrap();
+                match cli.action {
+                    Action::ScanFeatures { workers: selected, priority: p, .. } => {
+                        assert_eq!(selected, workers);
+                        assert_eq!(p.as_deref(), Some(priority));
+                    }
+                    _ => panic!("Expected feature scan"),
                 }
-                _ => panic!("Expected feature scan"),
             }
         }
         assert!(Cli::try_parse_from([
             "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
             "--db", "features.db", "--priority", "realtime",
         ]).is_err());
+        let cli = Cli::try_parse_from([
+            "bliss-mood", "scan-features", "--bliss-db", "cohort.db",
+            "--db", "features.db",
+        ]).unwrap();
+        assert!(matches!(cli.action, Action::ScanFeatures { workers, .. } if workers == "1"));
     }
 
     #[test]

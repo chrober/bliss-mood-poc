@@ -264,29 +264,25 @@ jobs:
           grep -Eq 'Feature scan stopped after [2-4] errors \(limit 2\)' invalid-limit-errors.txt
           test "$(grep -c '^ANALYSIS FAILED' invalid-limit-errors.txt)" -le 4
           echo "PASS: hard error budget stops bad library scans"
-      - name: Verify adaptive scanner stage diagnostics and identical classifications
+      - name: Verify fixed worker scanner stage diagnostics and identical classifications
         run: |
           cpu_capacity=$(python -c 'import json; print(json.load(open("parallel-first.json"))["diagnostics"]["logical_cpu_capacity"])')
-          export ADAPTIVE_INITIAL="$((cpu_capacity < 6 ? cpu_capacity : 6))"
-          export ADAPTIVE_MIN="$((cpu_capacity < 4 ? cpu_capacity : 4))"
-          export ADAPTIVE_MAX="$((cpu_capacity < 8 ? cpu_capacity : 8))"
-          test "$ADAPTIVE_INITIAL" -ge 2
+          export FIXED_WORKERS="$((cpu_capacity < 6 ? cpu_capacity : 6))"
+          test "$FIXED_WORKERS" -ge 2
           target/release/bliss-mood scan-features \
-            --bliss-db stress-bliss.db --db adaptive-output.db \
+            --bliss-db stress-bliss.db --db fixed-stress-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root stress \
-            --workers "$ADAPTIVE_INITIAL" --adaptive-workers \
-            --min-workers "$ADAPTIVE_MIN" --max-workers "$ADAPTIVE_MAX" \
-            --threads 1 --max-new 8 --max-errors 3 --json > adaptive-summary.json
+            --workers "$FIXED_WORKERS" --threads 1 --max-new 8 --max-errors 3 --json > fixed-stress-summary.json
           python - <<'PY'
           import json, os, sqlite3
-          data = json.load(open("adaptive-summary.json"))
+          data = json.load(open("fixed-stress-summary.json"))
           assert data["analyzed"] == 8 and data["failures"] == 0, data
-          assert data["workers"] == int(os.environ["ADAPTIVE_INITIAL"]), data
+          assert data["workers"] == int(os.environ["FIXED_WORKERS"]), data
           d = data["diagnostics"]
           assert d["completed_songs"] == 8, d
-          assert d["initial_workers"] == int(os.environ["ADAPTIVE_INITIAL"]), d
-          assert int(os.environ["ADAPTIVE_MIN"]) <= d["final_workers"] <= int(os.environ["ADAPTIVE_MAX"]), d
-          assert d["configured_max_workers"] == int(os.environ["ADAPTIVE_MAX"]), d
+          assert d["initial_workers"] == int(os.environ["FIXED_WORKERS"]), d
+          assert d["final_workers"] == int(os.environ["FIXED_WORKERS"]), d
+          assert d["configured_max_workers"] == int(os.environ["FIXED_WORKERS"]), d
           assert d["cumulative_decode_seconds"] > 0, d
           assert d["cumulative_features_seconds"] > 0, d
           assert d["cumulative_inference_seconds"] > 0, d
@@ -299,9 +295,9 @@ jobs:
           sql = ("SELECT track_file, model_id, model_key, scores_f32_le "
                  "FROM feature_tracks ORDER BY track_file, model_id")
           with sqlite3.connect("stress-output.db") as a, \
-               sqlite3.connect("adaptive-output.db") as b:
+               sqlite3.connect("fixed-stress-output.db") as b:
               assert a.execute(sql).fetchall() == b.execute(sql).fetchall()
-          print("PASS: adaptive and fixed workers yield identical features; native stage profile present")
+          print("PASS: repeated fixed worker scans yield identical features and stage diagnostics")
           PY
       - name: Upload numerical parity summaries (no weights or user music)
         if: always()

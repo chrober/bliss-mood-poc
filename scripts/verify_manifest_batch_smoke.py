@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI-only integration: compare serial/fixed/adaptive real ONNX synthetic-audio scans.
+"""CI-only integration: compare serial/fixed real ONNX synthetic-audio scans.
 
 No local libraries, track metadata, private audio, or user feature vectors are read.
 The only inputs are a verified analyzer binary and public ONNX model directory.
@@ -110,8 +110,7 @@ def run(binary: Path, models: Path) -> None:
         settings = {
             "sequential": ["--workers", "1"],
             "fixed2": ["--workers", "2"],
-            "adaptive": ["--workers", "2", "--adaptive-workers",
-                         "--min-workers", "1", "--max-workers", "2"],
+            "fixed2_repeat": ["--workers", "2"],
         }
         results: dict[str, tuple] = {}
         for name, workers in settings.items():
@@ -133,11 +132,11 @@ def run(binary: Path, models: Path) -> None:
         assert len(reference_rows) == len(keys)
         for name, (rows, vectors, _report) in results.items():
             # Real ONNX inference on each actual WAV, one shared model. Neither
-            # the workers nor the optional resource controller can change the
+            # the workers nor a second fixed run can change the
             # numeric feature blob or pooled JSON song representation.
             assert rows == reference_rows, f"Changed feature bytes: {name}"
             assert vectors == reference_vectors, f"Changed embedding values: {name}"
-        print("PASS exact fixed/adaptive feature-blob and pooled-embedding parity")
+        print("PASS exact fixed-only feature-blob and pooled-embedding parity")
 
         sidecar, folder = root / "fixed2.sqlite", root / "fixed2-embeddings"
         unchanged = invoke(binary, models, music, manifest, sidecar, folder,

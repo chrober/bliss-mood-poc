@@ -55,7 +55,7 @@ jobs:
           print("ONNX end-to-end smoke test passed (numerical Essentia parity is NOT tested).")
           PY
 
-      - name: Compare serial, fixed 2-worker and adaptive 2-worker manifest analysis
+      - name: Compare serial and repeated fixed 2-worker manifest analysis
         run: |
           python3 scripts/verify_manifest_batch_smoke.py \
             --binary target/release/bliss-mood --models-dir models
