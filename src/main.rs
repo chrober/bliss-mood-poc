@@ -72,6 +72,30 @@ enum Action {
     /// Internal versioned feature-worker IPC; not part of the public CLI.
     #[command(name = "internal-feature-worker", hide = true)]
     InternalFeatureWorker,
+    /// Manually compare the real ONNX FeatureEngine across an isolated IPC
+    /// process. No SQLite writes; not used by the regular scanner.
+    #[command(name = "internal-isolated-analyze-features", hide = true)]
+    InternalIsolatedAnalyzeFeatures {
+        source: PathBuf,
+        #[arg(long, default_value = "models")]
+        models_dir: PathBuf,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, default_value = "moodtheme,genre,voice")]
+        models: String,
+        #[arg(long, default_value = "rust", value_parser = ["rust", "essentia"])]
+        audio_backend: String,
+        #[arg(long)]
+        essentia_worker: Option<PathBuf>,
+        #[arg(long, default_value_t = 900)]
+        essentia_timeout_seconds: u64,
+        #[arg(long, default_value_t = 900)]
+        timeout_seconds: u64,
+        #[arg(long)]
+        max_patches: Option<usize>,
+        #[arg(long)]
+        embedding: bool,
+    },
     /// Classify diagnostic 1280-D embeddings using the ONNX 56-class head.
     /// This command does not read or modify music or SQLite databases.
     ClassifyEmbeddings {
@@ -400,6 +424,47 @@ fn serve_isolated_feature_worker() -> Result<()> {
 fn main() -> Result<()> {
     match Cli::parse().action {
         Action::InternalFeatureWorker => serve_isolated_feature_worker()?,
+        Action::InternalIsolatedAnalyzeFeatures {
+            source, models_dir, registry, models, audio_backend,
+            essentia_worker, essentia_timeout_seconds, timeout_seconds,
+            max_patches, embedding,
+        } => {
+            use feature_worker_process::{
+                FeatureWorkerProcess, WorkerOperation, WorkerReply, WorkerRequest,
+            };
+            let executable = std::env::current_exe()?;
+            let mut worker = FeatureWorkerProcess::spawn(
+                &executable,
+                std::time::Duration::from_secs(timeout_seconds),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            )?;
+            let init = worker.request(WorkerRequest {
+                version: 1, request_id: 1,
+                operation: WorkerOperation::Initialize {
+                    models_dir, registry, models, audio_backend,
+                    essentia_worker, essentia_timeout_seconds, threads: 1,
+                    export_embedding: embedding,
+                },
+            })?;
+            if !matches!(init.reply, WorkerReply::Initialized { .. }) {
+                bail!("Unexpected isolated worker initialization result");
+            }
+            let result = worker.request(WorkerRequest {
+                version: 1, request_id: 2,
+                operation: WorkerOperation::AnalyzeSong { source, max_patches },
+            })?;
+            match result.reply {
+                WorkerReply::Analyzed { report, embedding } => {
+                    println!("{}", serde_json::to_string_pretty(
+                        &serde_json::json!({"report": report, "embedding": embedding})
+                    )?);
+                }
+                _ => bail!("Isolated feature worker returned no analysis"),
+            }
+            let _ = worker.request(WorkerRequest {
+                version: 1, request_id: 3, operation: WorkerOperation::Shutdown,
+            });
+        }
         Action::ClassifyEmbeddings { input_json, models_dir, threads } => {
             let diagnostic: serde_json::Value =
                 serde_json::from_reader(File::open(&input_json)?)?;
