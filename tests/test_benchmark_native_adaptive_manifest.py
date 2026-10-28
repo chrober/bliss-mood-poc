@@ -127,11 +127,17 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
         with patch.object(bench, "windows_memory_snapshot",
                           side_effect=[healthy, pressure]):
             with patch.object(bench.subprocess, "Popen", return_value=fake) as spawn:
-                with self.assertRaisesRegex(RuntimeError, "RAM safety stop"):
-                    bench.run_scanner_guarded(["scanner", "--workers", "12"],
-                                              None, None, 1536, 90)
-                spawn.assert_called_once()
-                self.assertTrue(fake.killed)
+                # Never invoke real Windows taskkill against a fabricated PID.
+                with patch.object(bench.subprocess, "run") as terminate_tree:
+                    with self.assertRaisesRegex(RuntimeError, "RAM safety stop"):
+                        bench.run_scanner_guarded(["scanner", "--workers", "12"],
+                                                  None, None, 1536, 90)
+                    spawn.assert_called_once()
+                    self.assertTrue(fake.killed)
+                    if bench.os.name == "nt":
+                        terminate_tree.assert_called_once()
+                    else:
+                        terminate_tree.assert_not_called()
 
     def test_policy_modes_emit_exact_requested_gate_and_start_workers(self):
         with tempfile.TemporaryDirectory() as tmp:
