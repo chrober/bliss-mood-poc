@@ -21,6 +21,17 @@ const PROBE_OUTPUT_LIMIT: usize = 1024 * 1024;
 const STDERR_LIMIT: usize = 1024 * 1024;
 const DECODE_OUTPUT_HARD_CAP: usize = 512 * 1024 * 1024;
 
+/// Unlike std::process::Child, this owner always kills and reaps its direct
+/// FFmpeg/ffprobe process if any early error exits the supervising function.
+struct OwnedChild(std::process::Child);
+
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 /// Capture subprocess output on two dedicated threads so a full FFmpeg pipe
 /// cannot block wait/try_wait. Bound both streams to limit peak allocations.
 /// The coordinator retains ownership of Child and kills/reaps on cancellation.
@@ -52,9 +63,9 @@ fn subprocess_output_cancelable(
         bail!("FFmpeg subprocess cancelled before launch by RAM watchdog");
     }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().context("Unable to start FFmpeg subprocess")?;
-    let stdout = child.stdout.take().context("Missing FFmpeg child stdout")?;
-    let stderr = child.stderr.take().context("Missing FFmpeg child stderr")?;
+    let mut child = OwnedChild(command.spawn().context("Unable to start FFmpeg subprocess")?);
+    let stdout = child.0.stdout.take().context("Missing FFmpeg child stdout")?;
+    let stderr = child.0.stderr.take().context("Missing FFmpeg child stderr")?;
     let (overflow_tx, overflow_rx) = mpsc::channel();
     let stdout_handle = capture_limited(stdout, stdout_limit, overflow_tx.clone());
     let stderr_handle = capture_limited(stderr, STDERR_LIMIT, overflow_tx);
@@ -68,10 +79,10 @@ fn subprocess_output_cancelable(
             limit_exceeded = true;
         }
         if cancelled || limit_exceeded {
-            let _ = child.kill();
-            break child.wait().context("Unable to reap cancelled FFmpeg subprocess")?;
+            let _ = child.0.kill();
+            break child.0.wait().context("Unable to reap cancelled FFmpeg subprocess")?;
         }
-        if let Some(status) = child.try_wait()? { break status; }
+        if let Some(status) = child.0.try_wait()? { break status; }
         thread::sleep(PROCESS_POLL_INTERVAL);
     };
     let output_bytes = stdout_handle.join()
@@ -81,7 +92,10 @@ fn subprocess_output_cancelable(
     if cancelled {
         bail!("FFmpeg subprocess cancelled by RAM watchdog");
     }
-    if limit_exceeded {
+    // A fast-producing child can exit before the supervisor polls overflow.
+    // Joining reader threads and inspecting the overflow channel closes that
+    // race: such an invocation still reports a memory-limit failure.
+    if limit_exceeded || overflow_rx.try_recv().is_ok() {
         bail!("FFmpeg subprocess exceeded bounded output limit");
     }
     Ok(Output {
