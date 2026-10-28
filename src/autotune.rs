@@ -172,7 +172,7 @@ impl OnlineAutotuner {
             songs_per_minute: 60.0 * self.epoch_songs as f64 / seconds,
         });
         self.counters.probes += 1;
-        if self.best.map_or(true, |(_, speed)| measure > speed * (1.0 + IMPROVEMENT_MARGIN)) {
+        if self.best.is_none_or(|(_, speed)| measure > speed * (1.0 + IMPROVEMENT_MARGIN)) {
             self.best = Some((self.active, measure));
         }
         self.reset_epoch(now, completed, total_patches);
