@@ -570,6 +570,46 @@ mod tests {
         assert!(!running(), "process-group descendant survived owner teardown");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn owned_unix_group_closes_descendant_pipes_on_teardown() {
+        use std::{io::{BufRead, BufReader, Read}, os::unix::process::CommandExt};
+
+        // Non-interactive sh inherits stdout into a background sleep process.
+        // The parent shell waits for sleep. Killing just the shell cannot
+        // close the pipe: EOF requires that its descendant also exits.
+        // No /proc dependency, so this exercises both Linux and macOS.
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30 & echo $!; wait"])
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+        command.process_group(0);
+        let mut child = OwnedChild::attach(command.spawn().expect("spawn shell"))
+            .expect("own Unix process group");
+        let mut reader = BufReader::new(child.child.stdout.take().unwrap());
+        let mut pid_line = String::new();
+        reader.read_line(&mut pid_line).expect("shell must report descendant PID");
+        let descendant_pid: u32 = pid_line.trim().parse().expect("valid descendant PID");
+        assert!(descendant_pid > 0);
+
+        let (tx, rx) = mpsc::sync_channel(1);
+        let transport = thread::spawn(move || {
+            let mut rest = Vec::new();
+            let _ = tx.send(reader.read_to_end(&mut rest));
+        });
+        // The background process is still alive, so an EOF already here
+        // would make the subsequent teardown assertion meaningless.
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_millis(150)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ), "descendant pipe unexpectedly closed before teardown");
+
+        drop(child); // SIGKILL entire owned Unix group; reap its shell.
+        let result = rx.recv_timeout(Duration::from_secs(5))
+            .expect("descendant retained stdout after process-group termination");
+        result.expect("failed draining descendant pipe");
+        transport.join().expect("pipe reader thread panicked");
+    }
+
     #[test]
     fn bounded_protocol_roundtrip_and_version_checks() {
         let request = WorkerRequest::ping(42, 7);

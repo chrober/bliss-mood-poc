@@ -1,0 +1,36 @@
+name: Feature worker macOS process-tree safety
+
+on:
+  pull_request:
+    paths:
+      - "src/feature_worker_process.rs"
+      - "src/main.rs"
+      - "tests/feature_worker_process.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/feature-worker-macos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-worker-macos:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile and run actual feature-worker IPC lifecycle on macOS
+        run: |
+          set -euo pipefail
+          uname -a
+          rustc --version
+          cargo test --locked --test feature_worker_process -- --test-threads=1
+      - name: Verify native Unix descendant process-group termination in binary tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --bin bliss-mood owned_unix_group_closes_descendant_pipes_on_teardown -- --exact --nocapture
