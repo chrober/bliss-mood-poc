@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::mpsc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use crate::{preprocess, sha256_file};
 
@@ -214,6 +214,9 @@ impl EssentiaWorker {
         if cap > MAX_PATCHES || max_patches == Some(0) {
             bail!("Essentia patch limit must be between 1 and {MAX_PATCHES}, or omitted");
         }
+        if crate::resources::native_cancellation_requested() {
+            bail!("Native Essentia worker cancelled by RAM watchdog");
+        }
         self.start()?;
         let mut io = self.child.take().context("Missing Essentia worker")?;
         let input = io.input.take().context("Native worker input missing")?;
@@ -242,29 +245,43 @@ impl EssentiaWorker {
             })();
             let _ = tx.send((result, input, output));
         });
-        match rx.recv_timeout(self.timeout) {
-            Ok((result, input, output)) => {
+        let started = Instant::now();
+        loop {
+            if crate::resources::native_cancellation_requested() {
+                // The owner drops and reaps the real Child handle, avoiding
+                // PID-reuse races. Killing it releases blocked IPC reads.
+                drop(io);
                 let _ = handle.join();
-                if result.is_ok() {
-                    io.input = Some(input);
-                    io.output = Some(output);
-                    io.hello_pending = false;
-                    self.child = Some(io);
+                bail!("Native Essentia worker cancelled by RAM watchdog");
+            }
+            let remaining = self.timeout.saturating_sub(started.elapsed());
+            let interval = remaining.min(Duration::from_millis(200));
+            match rx.recv_timeout(interval) {
+                Ok((result, input, output)) => {
+                    let _ = handle.join();
+                    if result.is_ok() {
+                        io.input = Some(input);
+                        io.output = Some(output);
+                        io.hello_pending = false;
+                        self.child = Some(io);
+                    }
+                    return result;
                 }
-                // Errors retire the process; never silently mix a Rust fallback.
-                result
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // io still owns Child, so dropping it kills the blocked C++
-                // process, releases the pipe reads and reaps the child.
-                drop(io);
-                let _ = handle.join();
-                bail!("Native Essentia worker exceeded {}-second deadline", self.timeout.as_secs());
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                drop(io);
-                let _ = handle.join();
-                bail!("Native Essentia worker transport thread exited unexpectedly");
+                Err(mpsc::RecvTimeoutError::Timeout) if !remaining.is_zero() => {
+                    // Heartbeat for independent memory-pressure cancellation
+                    // even if a native request runs for minutes.
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    drop(io);
+                    let _ = handle.join();
+                    bail!("Native Essentia worker exceeded {}-second deadline", self.timeout.as_secs());
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    drop(io);
+                    let _ = handle.join();
+                    bail!("Native Essentia worker transport thread exited unexpectedly");
+                }
             }
         }
     }
