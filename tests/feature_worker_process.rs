@@ -17,6 +17,25 @@ fn binary() -> &'static Path {
 }
 
 #[test]
+fn diagnostic_worker_cli_modes_are_available_but_hidden_from_public_help() {
+    let output = Command::new(binary()).arg("--help").output().unwrap();
+    assert!(output.status.success());
+    let public_help = String::from_utf8_lossy(&output.stdout);
+    for command in [
+        "internal-feature-worker",
+        "internal-direct-analyze-features",
+        "internal-isolated-analyze-features",
+    ] {
+        assert!(!public_help.contains(command),
+            "Internal feature-worker mode {command} must not appear in public help");
+        let hidden_help = Command::new(binary())
+            .args([command, "--help"]).output().unwrap();
+        assert!(hidden_help.status.success(),
+            "{command} must remain an explicitly callable diagnostics mode");
+    }
+}
+
+#[test]
 fn persistent_worker_reuses_process_and_responds_to_validated_ids() {
     let token = Arc::new(AtomicBool::new(false));
     let mut child = FeatureWorkerProcess::spawn(binary(), Duration::from_secs(8), token)

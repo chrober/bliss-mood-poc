@@ -72,9 +72,6 @@ enum Action {
     /// Internal versioned feature-worker IPC; not part of the public CLI.
     #[command(name = "internal-feature-worker", hide = true)]
     InternalFeatureWorker,
-    /// Manually compare the real ONNX FeatureEngine across an isolated IPC
-    /// process. No SQLite writes; not used by the regular scanner.
-    #[command(name = "internal-isolated-analyze-features", hide = true)]
     /// Comparison-only in-process variant that also exports pooled 1280D,
     /// so private real-audio embedding parity can be measured bit by bit.
     #[command(name = "internal-direct-analyze-features", hide = true)]
@@ -97,6 +94,9 @@ enum Action {
         #[arg(long)]
         embedding: bool,
     },
+    /// Manually compare the real ONNX FeatureEngine across an isolated IPC
+    /// process. No SQLite writes; not used by the regular scanner.
+    #[command(name = "internal-isolated-analyze-features", hide = true)]
     InternalIsolatedAnalyzeFeatures {
         source: PathBuf,
         #[arg(long, default_value = "models")]
