@@ -370,12 +370,10 @@ impl OnlineAutotuner {
     /// to two candidates and never blocks the initial sweep to the maximum.
     fn plan_local_refinement(&mut self) {
         if let Some((center, _)) = self.best {
-            for neighbor in [center.checked_sub(1), center.checked_add(1)] {
-                if let Some(worker) = neighbor {
-                    if (self.minimum..=self.maximum).contains(&worker)
-                        && !self.visited.contains(&worker) {
-                        self.refinement_queue.push_back(worker);
-                    }
+            for worker in [center.checked_sub(1), center.checked_add(1)].into_iter().flatten() {
+                if (self.minimum..=self.maximum).contains(&worker)
+                    && !self.visited.contains(&worker) {
+                    self.refinement_queue.push_back(worker);
                 }
             }
         }
