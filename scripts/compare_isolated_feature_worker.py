@@ -88,10 +88,10 @@ def compare_reports(
     return len(direct_heads), total_labels
 
 
-def run_analysis(arguments: list[str]) -> dict:
+def run_analysis(arguments: list[str], timeout_seconds: int = 7200) -> dict:
     completed = subprocess.run(
         arguments, capture_output=True, text=True, encoding="utf-8",
-        check=False, timeout=7200,
+        check=False, timeout=timeout_seconds,
     )
     if completed.returncode != 0:
         raise RuntimeError(

@@ -24,6 +24,8 @@ jobs:
       - name: Validate isolated feature-process exact-output parity gate
         run: python3 -m unittest discover -s tests -p 'test_compare_isolated_feature_worker.py'
 
+      - name: Validate read-only local private-cohort parity driver (synthetic mocks only)
+        run: python3 -m unittest discover -s tests -p 'test_verify_private_isolated_cohort.py'
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
       - name: Validate native C++ codec/model comparator failure handling
