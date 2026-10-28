@@ -183,6 +183,11 @@ impl FeatureWorkerProcess {
     pub fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse> {
         require_valid_request(&request)?;
         if self.cancellation.load(Ordering::Acquire) {
+            // A scan-level memory alarm must release an idle worker's ONNX
+            // allocations too, not merely reject the next request.
+            drop(self.child.take());
+            self.stdin.take();
+            self.stdout.take();
             bail!("Feature-worker request cancelled before dispatch");
         }
         let child = self.child.take().context("Feature worker not running")?;
