@@ -345,9 +345,61 @@ fn analyze(
     engine.analyze(path, max_patches)
 }
 
+/// A provisional out-of-process execution path for numerical parity tests.
+/// The real scanner still owns its in-process FeatureEngine and SQLite writer.
+/// Never persist data from here: model outputs travel only via bounded IPC.
+fn serve_isolated_feature_worker() -> Result<()> {
+    use feature_worker_process::{WorkerOperation, WorkerReply};
+    let mut engine: Option<features::FeatureEngine> = None;
+    feature_worker_process::serve_stdio(|op| match op {
+        WorkerOperation::Initialize {
+            models_dir, registry, models, audio_backend,
+            essentia_worker, essentia_timeout_seconds, threads, export_embedding,
+        } => {
+            if engine.is_some() {
+                bail!("Isolated feature worker already initialized");
+            }
+            if *threads != 1 {
+                bail!("Isolated worker requires exactly one ONNX inference thread");
+            }
+            let backend = essentia_worker::BackendChoice::from_cli(
+                audio_backend, essentia_worker.as_deref(), *essentia_timeout_seconds,
+            )?;
+            let mut profiles = features::load_profiles(
+                models_dir, registry.as_deref(), models,
+            )?;
+            features::retarget_profiles(&mut profiles, &backend)?;
+            let mut created = features::FeatureEngine::with_backend(profiles, 1, &backend)?;
+            if *export_embedding {
+                created.request_song_embedding();
+            }
+            // Announce the validated model names without duplicating registry
+            // parsing, semantics or model fingerprint algorithms.
+            let selected = models.split(',').map(|id| id.trim().to_owned()).collect();
+            engine = Some(created);
+            Ok(WorkerReply::Initialized { models: selected })
+        }
+        WorkerOperation::AnalyzeSong { source, max_patches } => {
+            if max_patches.is_some_and(|n| n == 0 || n > 2048) {
+                bail!("Isolated feature worker requires 1..=2048 patches or no limit");
+            }
+            let engine = engine.as_mut().context("Isolated feature worker not initialized")?;
+            // Reuse existing original arithmetic and ordering for every head.
+            let report = engine.analyze(source, *max_patches)?;
+            let embedding = engine.take_song_embedding()
+                .map(serde_json::to_value).transpose()?;
+            Ok(WorkerReply::Analyzed {
+                report: serde_json::to_value(report)?,
+                embedding,
+            })
+        }
+        _ => bail!("Unsupported internal feature-worker request"),
+    })
+}
+
 fn main() -> Result<()> {
     match Cli::parse().action {
-        Action::InternalFeatureWorker => feature_worker_process::serve_stdio()?,
+        Action::InternalFeatureWorker => serve_isolated_feature_worker()?,
         Action::ClassifyEmbeddings { input_json, models_dir, threads } => {
             let diagnostic: serde_json::Value =
                 serde_json::from_reader(File::open(&input_json)?)?;
