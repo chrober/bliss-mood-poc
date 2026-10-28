@@ -393,15 +393,18 @@ fn serve_isolated_feature_worker() -> Result<()> {
                 models_dir, registry.as_deref(), models,
             )?;
             features::retarget_profiles(&mut profiles, &backend)?;
+            // Send exact cache fingerprints calculated by the same validator
+            // used for the regular scanner. Parent verification is a later gate.
+            let selected: Vec<String> = models.split(',')
+                .map(|id| id.trim().to_owned()).collect();
+            let model_keys: BTreeMap<String, String> = selected.iter().cloned()
+                .zip(profiles.iter().map(|p| p.model_key.clone())).collect();
             let mut created = features::FeatureEngine::with_backend(profiles, 1, &backend)?;
             if *export_embedding {
                 created.request_song_embedding();
             }
-            // Announce the validated model names without duplicating registry
-            // parsing, semantics or model fingerprint algorithms.
-            let selected = models.split(',').map(|id| id.trim().to_owned()).collect();
             engine = Some(created);
-            Ok(WorkerReply::Initialized { models: selected })
+            Ok(WorkerReply::Initialized { models: selected, model_keys })
         }
         WorkerOperation::AnalyzeSong { source, max_patches } => {
             if max_patches.is_some_and(|n| n == 0 || n > 2048) {
@@ -446,8 +449,14 @@ fn main() -> Result<()> {
                     export_embedding: embedding,
                 },
             })?;
-            if !matches!(init.reply, WorkerReply::Initialized { .. }) {
-                bail!("Unexpected isolated worker initialization result");
+            match &init.reply {
+                WorkerReply::Initialized { models, model_keys } => {
+                    if models.len() != model_keys.len() ||
+                        models.iter().any(|id| model_keys.get(id).is_none_or(String::is_empty)) {
+                        bail!("Isolated worker initialization returned incomplete model fingerprints");
+                    }
+                }
+                _ => bail!("Unexpected isolated worker initialization result"),
             }
             let result = worker.request(WorkerRequest {
                 version: 1, request_id: 2,
