@@ -114,6 +114,27 @@ def exact_feature_rows(db: Path, track_keys: list[str],
 POLICY_MODES = ("fixed6", "adaptive2_gate24", "adaptive4_gate24",
                 "adaptive6_gate24", "adaptive2_gate8")
 SCALING_MODES = ("fixed6", "fixed8", "fixed10", "fixed12")
+AUTOTUNE_E2E = "autotune-e2e"
+
+def validate_autotune_matrix(fixed: str, initial: int, minimum: int,
+                             maximum: int, logical_cpus: int) -> tuple[int, ...]:
+    """Only the available hardware and caller's experimental bounds set candidates."""
+    values = fixed.split(",")
+    if (not values or any(not value.isascii() or not value.isdecimal() for value in values)):
+        raise ValueError("--fixed-workers requires comma-separated positive integers")
+    counts = tuple(int(value) for value in values)
+    capacity = min(logical_cpus, 64)
+    if (len(counts) < 2 or len(set(counts)) != len(counts)
+            or not all(1 <= worker <= capacity for worker in counts)):
+        raise ValueError("Need >=2 unique fixed-worker counts within available CPUs")
+    if not (1 <= minimum <= initial <= maximum <= capacity):
+        raise ValueError("Autotune min/initial/max must fit available CPUs (<=64)")
+    if initial not in counts:
+        raise ValueError("Include the autotune initial worker count among fixed baselines")
+    if any(worker < minimum or worker > maximum for worker in counts):
+        raise ValueError("Fixed baselines must fit the same autotune worker bounds")
+    return counts
+
 
 
 def windows_memory_snapshot() -> dict[str, float] | None:
@@ -208,16 +229,26 @@ def mode_configuration(mode: str) -> tuple[int, bool, int, int]:
         return workers, True, 2, gate
     if mode == "adaptive2":
         return 2, True, 1, 24
-    if mode in ("fixed1", "fixed2", "fixed4", "fixed6", "fixed8", "fixed10", "fixed12"):
-        return int(mode.removeprefix("fixed")), False, 1, 24
+    if mode.startswith("fixed"):
+        number = mode.removeprefix("fixed")
+        if number.isascii() and number.isdecimal() and 1 <= int(number) <= 64:
+            return int(number), False, 1, 24
     raise ValueError(f"Unknown bounded benchmark mode: {mode}")
 
 
-def schedule(repeats: int, seed: int, experiment: str = "baseline") -> list[tuple[int, str]]:
-    modes = (list(SCALING_MODES) if experiment == "native-scaling" else
-             list(POLICY_MODES) if experiment == "adaptive-policy" else
-             ["fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"])
-    if experiment not in ("baseline", "adaptive-policy", "native-scaling"):
+def schedule(repeats: int, seed: int, experiment: str = "baseline",
+             fixed_workers: tuple[int, ...] = ()) -> list[tuple[int, str]]:
+    if experiment == AUTOTUNE_E2E:
+        if not fixed_workers:
+            raise ValueError("Autotune E2E requires explicit safe fixed-worker baselines")
+        modes = ["autotune"] + [f"fixed{count}" for count in fixed_workers]
+    elif experiment == "native-scaling":
+        modes = list(SCALING_MODES)
+    elif experiment == "adaptive-policy":
+        modes = list(POLICY_MODES)
+    elif experiment == "baseline":
+        modes = ["fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"]
+    else:
         raise ValueError("Unknown experiment")
     rng = random.Random(seed)
     rng.shuffle(modes)
@@ -230,7 +261,15 @@ def schedule(repeats: int, seed: int, experiment: str = "baseline") -> list[tupl
 
 def analyze(args: argparse.Namespace, round_no: int, mode: str,
             expected: int) -> tuple[dict, dict, dict]:
-    workers, is_adaptive, min_workers, completed_gate = mode_configuration(mode)
+    is_online = mode == "autotune"
+    if is_online:
+        workers, is_adaptive = args.autotune_initial, True
+        min_workers = args.autotune_min
+        max_workers = args.autotune_max
+        completed_gate = None  # The online controller gates by observed epochs.
+    else:
+        workers, is_adaptive, min_workers, completed_gate = mode_configuration(mode)
+        max_workers = 6
     stem = f"round-{round_no:02d}-{mode}"
     db = args.output_dir / f"{stem}.sqlite"
     embedding_dir = args.output_dir / f"{stem}-embeddings"
@@ -257,9 +296,12 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     if is_adaptive:
         cmd.extend([
             "--adaptive-workers", "--min-workers", str(min_workers),
-            "--max-workers", "6",
-            "--adaptive-min-completed-songs", str(completed_gate),
+            "--max-workers", str(max_workers),
         ])
+        if is_online:
+            cmd.extend(["--adaptive-policy", "autotune"])
+        else:
+            cmd.extend(["--adaptive-min-completed-songs", str(completed_gate)])
     start = time.perf_counter()
     with stdout_path.open("w", encoding="utf-8") as out, stderr_path.open(
         "w", encoding="utf-8"
@@ -291,10 +333,22 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         raise AssertionError(
             f"{stem}: actual native Essentia worker priority is not verified: {priority}"
         )
-    adjustments = diag.get("adjustments", [])
+    online_diag = diag.get("online_autotune")
+    adjustments = (online_diag.get("adjustments", []) if is_online
+                   and isinstance(online_diag, dict) else diag.get("adjustments", []))
     if not isinstance(adjustments, list):
-        raise AssertionError("Malformed native adaptive diagnostics")
-    if is_adaptive:
+        raise AssertionError("Malformed adaptive diagnostics")
+    if is_online:
+        if (not isinstance(online_diag, dict)
+                or online_diag.get("strategy") != "bounded-nonmonotonic-coarse-explore"
+                or not min_workers <= diag.get("initial_workers", 0) <= workers
+                or not min_workers <= diag.get("final_workers", 0) <= max_workers
+                or diag.get("configured_max_workers") != max_workers):
+            raise AssertionError("Autotune did not report correct opt-in policy or bounds")
+        if any(not min_workers <= event.get("to_workers", 0) <= max_workers
+               for event in adjustments):
+            raise AssertionError("Online controller exceeded configured worker bounds")
+    elif is_adaptive:
         if (diag.get("initial_workers") != workers
                 or not min_workers <= diag.get("final_workers", 0) <= 6
                 or diag.get("adaptive_min_completed_songs") != completed_gate):
@@ -303,7 +357,7 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
                or event.get("after_completed_songs", 0) < completed_gate
                for event in adjustments):
             raise AssertionError("Adaptive controller violated gate or worker bounds")
-    elif adjustments or diag.get("adaptive_min_completed_songs") is not None:
+    elif adjustments or diag.get("adaptive_min_completed_songs") is not None or online_diag is not None:
         raise AssertionError("Fixed worker run unexpectedly changed worker count or gate")
     if not is_adaptive:
         if (diag.get("initial_workers") != workers
@@ -313,9 +367,10 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     if diag.get("logical_cpu_capacity", 0) < workers:
         raise AssertionError(f"{stem}: reported CPU capacity below requested workers")
     peak_active = diag.get("peak_active_analyses")
-    if not isinstance(peak_active, int) or not 1 <= peak_active <= workers:
+    admission_cap = max_workers if is_online else workers
+    if not isinstance(peak_active, int) or not 1 <= peak_active <= admission_cap:
         raise AssertionError(f"{stem}: invalid observed concurrency")
-    if not 1 <= diag.get("native_child_processes_max", 0) <= workers:
+    if not 1 <= diag.get("native_child_processes_max", 0) <= admission_cap:
         raise AssertionError(f"{stem}: missing or excessive native Essentia processes")
     record = {
         "round": round_no, "mode": mode,
@@ -357,6 +412,17 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "process_tree_private_mib_max": diag.get("process_tree_private_bytes_max_mib"),
         "process_tree_incomplete_samples": diag.get("process_tree_incomplete_samples"),
         "native_child_processes_max": diag.get("native_child_processes_max"),
+        "autotune_probes": online_diag.get("total_probes") if is_online else None,
+        "autotune_search_completed": online_diag.get("search_completed") if is_online else None,
+        "autotune_replication_completed": online_diag.get("replication_completed") if is_online else None,
+        "autotune_best_tested_workers": online_diag.get("best_tested_workers") if is_online else None,
+        "autotune_exploration_budget_holds": (
+            (online_diag.get("counters") or {}).get("exploration_budget_holds")
+            if is_online else None),
+        "total_patches": diag.get("cumulative_patches"),
+        "whole_scan_patches_per_second": (
+            round(diag["cumulative_patches"] / elapsed, 3)
+            if diag.get("cumulative_patches") is not None else None),
     }
     # Exact parity remains mandatory across all fixed/adaptive run orders.
     return record, exact_feature_rows(db, args.cohort, args.models.split(',')), {
@@ -398,6 +464,36 @@ def summarize(runs: list[dict]) -> list[dict]:
     ]
 
 
+def paired_autotune_e2e(runs: list[dict]) -> list[dict]:
+    """Within-round full-wall-time ratios; descriptive, not confidence intervals."""
+    by_round: dict[int, dict[str, dict]] = defaultdict(dict)
+    for run in runs:
+        if run["mode"] in by_round[run["round"]]:
+            raise ValueError("Duplicate experiment mode in the same round")
+        by_round[run["round"]][run["mode"]] = run
+    fixed_modes = sorted({run["mode"] for run in runs if run["mode"].startswith("fixed")})
+    result = []
+    for fixed in fixed_modes:
+        pairs = []
+        for round_no, group in sorted(by_round.items()):
+            if "autotune" not in group or fixed not in group:
+                raise ValueError(f"Missing paired run in round {round_no}")
+            auto_seconds = group["autotune"]["wall_seconds"]
+            fixed_seconds = group[fixed]["wall_seconds"]
+            if not all(math.isfinite(x) and x > 0 for x in (auto_seconds, fixed_seconds)):
+                raise ValueError("Cannot compare invalid wall times")
+            pairs.append(round((fixed_seconds / auto_seconds - 1) * 100, 3))
+        result.append({
+            "baseline": fixed,
+            "repeats": len(pairs),
+            "per_round_autotune_speedup_percent": pairs,
+            "median_autotune_speedup_percent": round(statistics.median(pairs), 3),
+            "rounds_autotune_faster": sum(p > 0 for p in pairs),
+            "interpretation": "descriptive only; no statistical significance",
+        })
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort-db", required=True, type=Path,
@@ -411,9 +507,15 @@ def main() -> None:
     parser.add_argument("--models", default="moodtheme,genre,voice")
     parser.add_argument("--expected-tracks", type=int,
                         help="Fail if the deliberate sample has a different song count")
-    parser.add_argument("--experiment", choices=("baseline", "adaptive-policy", "native-scaling"),
+    parser.add_argument("--experiment",
+                        choices=("baseline", "adaptive-policy", "native-scaling", AUTOTUNE_E2E),
                         default="baseline",
-                        help="Baseline, controlled adaptive policy, or fixed 6/8/10/12 native scaling")
+                        help="Choose autotune-e2e for real full-scan fixed-versus-autotune trials")
+    parser.add_argument("--fixed-workers", default="1,2,4",
+                        help="Comma-separated safe fixed baselines; no preferred hardware constants")
+    parser.add_argument("--autotune-min", type=int, default=1)
+    parser.add_argument("--autotune-initial", type=int, default=2)
+    parser.add_argument("--autotune-max", type=int, default=4)
     parser.add_argument("--scan-priority", choices=("normal", "below-normal", "above-normal"),
                         default="normal",
                         help="Apply identical observed Windows priority to all scan modes")
@@ -448,6 +550,14 @@ def main() -> None:
         parser.error(str(error))
     if len(cohort) < 30:
         parser.error("Adaptive evaluation requires a deliberate 30..500-track cohort")
+    fixed_counts = ()
+    if args.experiment == AUTOTUNE_E2E:
+        try:
+            fixed_counts = validate_autotune_matrix(
+                args.fixed_workers, args.autotune_initial, args.autotune_min,
+                args.autotune_max, os.cpu_count() or 1)
+        except ValueError as error:
+            parser.error(str(error))
     if args.expected_tracks is not None and len(cohort) != args.expected_tracks:
         parser.error(f"Expected {args.expected_tracks} sample tracks, found {len(cohort)}")
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
@@ -463,7 +573,7 @@ def main() -> None:
                       args.cohort_db.resolve()):
         if out_real == protected or out_real.is_relative_to(protected):
             parser.error("Benchmark output must be outside source audio, model, and cohort paths")
-    plan = schedule(args.repeats, args.seed, args.experiment)
+    plan = schedule(args.repeats, args.seed, args.experiment, fixed_counts)
     print("Local, private, bounded experiment plan:")
     print(json.dumps({"tracks": len(cohort), "order": plan,
                       "experiment": args.experiment,
@@ -511,6 +621,10 @@ def main() -> None:
         "min_available_ram_mib": args.min_available_ram_mib,
         "max_system_ram_percent": args.max_system_ram_percent,
         "schedule": plan,
+        "autotune_bounds": ({
+            "minimum": args.autotune_min, "initial": args.autotune_initial,
+            "maximum": args.autotune_max, "fixed_baselines": fixed_counts,
+        } if args.experiment == AUTOTUNE_E2E else None),
         "note": "PRIVATE LOCAL BENCHMARK; never commit or upload outputs",
     }
     (args.output_dir / "experiment.json").write_text(
@@ -533,6 +647,9 @@ def main() -> None:
         (args.output_dir / "summary.json").write_text(
             json.dumps({"experiment": manifest, "runs": records,
                         "aggregates": summarize(records),
+                        "paired_autotune_e2e": (paired_autotune_e2e(records)
+                            if args.experiment == AUTOTUNE_E2E
+                            and len(records) == len(plan) else None),
                         "exact_numeric_parity": True},
                        indent=2, sort_keys=True) + "\n", encoding="utf-8")
         with (args.output_dir / "runs.csv").open("w", newline="", encoding="utf-8") as csvout:

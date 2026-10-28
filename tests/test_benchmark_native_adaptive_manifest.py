@@ -351,5 +351,94 @@ class NativeAdaptiveManifestTests(unittest.TestCase):
             self.assertFalse(out.exists(), "plan-only must not write files")
 
 
+    def test_autotune_e2e_matrix_is_host_bounded_and_does_not_assume_twelve(self):
+        self.assertEqual(
+            bench.validate_autotune_matrix("1,2,3", 2, 1, 3, 4),
+            (1, 2, 3),
+        )
+        self.assertEqual(bench.mode_configuration("fixed3"), (3, False, 1, 24))
+        self.assertEqual(bench.mode_configuration("fixed64"), (64, False, 1, 24))
+        for args in [
+            ("2,2,4", 2, 1, 4, 8),
+            ("2,4", 3, 1, 4, 8),
+            ("1,2,8", 2, 1, 8, 4),
+            ("1,2", 2, 3, 4, 8),
+            ("0,2", 2, 1, 4, 8),
+            ("1,2,3", 2, 1, 9, 8),
+        ]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                bench.validate_autotune_matrix(*args)
+        # 64 is the scanner cap even if the machine exposes >64 CPUs.
+        self.assertEqual(bench.validate_autotune_matrix(
+            "32,64", 32, 1, 64, 128), (32, 64))
+
+    def test_autotune_e2e_schedule_balances_rounds_with_chosen_fixed_counts(self):
+        plan = bench.schedule(2, 1107, bench.AUTOTUNE_E2E, (2, 3, 4))
+        self.assertEqual(len(plan), 8)
+        self.assertEqual(plan[:4], [(1, mode) for _, mode in reversed(plan[4:])])
+        self.assertEqual({mode for _, mode in plan},
+                         {"autotune", "fixed2", "fixed3", "fixed4"})
+        with self.assertRaises(ValueError):
+            bench.schedule(2, 1, bench.AUTOTUNE_E2E)
+
+    def test_autotune_e2e_invocation_is_opt_in_and_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            opts = argparse.Namespace(
+                experiment=bench.AUTOTUNE_E2E,
+                analyzer=root / "scanner.exe",
+                essentia_worker=root / "native.exe",
+                source_root=root / "audio", manifest_file=root / "tracks.txt",
+                models_dir=root / "models", models="moodtheme,genre,voice",
+                timeout_seconds=900, scan_priority="normal",
+                min_available_ram_mib=1536, max_system_ram_percent=90,
+                output_dir=root, autotune_initial=3, autotune_min=2,
+                autotune_max=5,
+            )
+            class Intercept(Exception):
+                pass
+            with patch.object(bench, "run_scanner_guarded", side_effect=Intercept) as runner:
+                with self.assertRaises(Intercept):
+                    bench.analyze(opts, 1, "autotune", 100)
+            cmd = runner.call_args.args[0]
+            self.assertIn("--adaptive-workers", cmd)
+            self.assertEqual(cmd[cmd.index("--adaptive-policy") + 1], "autotune")
+            self.assertEqual(cmd[cmd.index("--workers") + 1], "3")
+            self.assertEqual(cmd[cmd.index("--min-workers") + 1], "2")
+            self.assertEqual(cmd[cmd.index("--max-workers") + 1], "5")
+            self.assertEqual(cmd[cmd.index("--max-new") + 1], "100")
+            self.assertNotIn("--adaptive-min-completed-songs", cmd)
+            with patch.object(bench, "run_scanner_guarded", side_effect=Intercept) as runner:
+                with self.assertRaises(Intercept):
+                    bench.analyze(opts, 1, "fixed5", 100)
+            cmd = runner.call_args.args[0]
+            self.assertNotIn("--adaptive-workers", cmd)
+            self.assertNotIn("--adaptive-policy", cmd)
+
+    def test_autotune_e2e_paired_comparison_is_full_wall_time_only(self):
+        rows = [
+            {"round": 1, "mode": "autotune", "wall_seconds": 100},
+            {"round": 1, "mode": "fixed2", "wall_seconds": 110},
+            {"round": 1, "mode": "fixed4", "wall_seconds": 90},
+            {"round": 2, "mode": "fixed4", "wall_seconds": 105},
+            {"round": 2, "mode": "fixed2", "wall_seconds": 120},
+            {"round": 2, "mode": "autotune", "wall_seconds": 100},
+        ]
+        by_fixed = {row["baseline"]: row for row in bench.paired_autotune_e2e(rows)}
+        self.assertEqual(by_fixed["fixed2"]["per_round_autotune_speedup_percent"],
+                         [10.0, 20.0])
+        self.assertEqual(by_fixed["fixed2"]["median_autotune_speedup_percent"], 15.0)
+        self.assertEqual(by_fixed["fixed4"]["rounds_autotune_faster"], 1)
+        with self.assertRaisesRegex(ValueError, "Missing paired"):
+            bench.paired_autotune_e2e(rows[:-1])
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            bench.paired_autotune_e2e(rows + rows[:1])
+        with self.assertRaisesRegex(ValueError, "invalid wall"):
+            bench.paired_autotune_e2e([
+                {**row, "wall_seconds": 0} if row["round"] == 1
+                and row["mode"] == "autotune" else row for row in rows
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()

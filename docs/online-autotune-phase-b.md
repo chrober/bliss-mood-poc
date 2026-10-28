@@ -91,3 +91,32 @@ New Rust simulations use the actual observe()/settle() production state transiti
 3. Run bounded, matched-order full-scan A/B studies for autotune versus safe fixed counts on Ryzen, Pi 4B and CPU-/RAM-limited hosts. Use identical model hashes, audio metadata, scan manifests and cache conditions; record all stages and complete elapsed time. No single hardware-specific optimum is assumed.
 4. Preserve existing process-isolation progress but do not extend that architecture until directly required by a demonstrated autotuning safety or measurement problem. Default resource remains unchanged.
 
+
+## Reproducible full-scan autotune-versus-fixed benchmark protocol (28 October 2026)
+
+The preexisting **local-only** `scripts/benchmark_native_adaptive_manifest.py` now supports a dedicated `--experiment autotune-e2e`. This is **not** another synthetic 12-worker optimizer test: the harness launches the actual, unchanged `scan-features` executable against the **same bounded 30–500 real tracks** in each experimental run, with the original native Essentia-C++ worker, all selected official ONNX heads, **new independent SQLite feature sidecars** and embedding directories. The Bliss cohort DB and source music are read-only; input manifest, raw reports, embeddings and model material stay private on the host.
+
+**Comparison design:** Explicit `--fixed-workers` baselines (at least two safe, distinct worker counts), plus the actual `--adaptive-workers --adaptive-policy autotune` with independent `--autotune-min`, `--autotune-initial`, `--autotune-max` bounds. No worker number is hardcoded as an optimum. The harness checks that the initial worker count is one of the fixed baselines and all counts lie in the same specified range and the host CPU budget. Existing fixed/resource-policy modes remain unchanged. Modes execute in a deterministic randomized order within the first round and in reverse order in the second round; repeat twice or four times. **Actual elapsed wall seconds** are measured externally with `time.perf_counter()` from before spawning the process through its exit, thus retaining pre-worker CPU baseline, ONNX startup, native subprocess startup, decoding, NAS cache, drain and SQLite persistence. Pre-worker baseline-excluded seconds are *diagnostic only*, not the main score.
+
+**Correctness and safety:** The existing Windows host-RAM governor checks physical available RAM before and during every real run and terminates the native scanner process tree on pressure. The scanner's own `autotune` RAM gate and watchdog remain active. The harness fails on errors, missing tracks, priority mismatches, out-of-range workers or missing autotune diagnostics; every run's **exact 56/87/2 classifier-score blobs**, **complete pooled 1280D embedding data** and model identities/fingerprints must match across worker counts and modes. Every run gets a fresh sidecar; no scan result is reused. The run record reports wall seconds, completed songs/min, whole-scan patches/s, startup baseline, cumulative decode/preprocess/model load/inference, process-tree RAM, observed worker adjustments, tuner probe counts and search/replication flags.
+
+**Evaluation:** The `summary.json` now includes per-run, round-paired speedup percentages against *every fixed baseline*, with a transparent sign convention: `100 × (fixed_wall / autotune_wall - 1)`, positive when autotune finishes faster. It also reports the median of these paired percentages and how many rounds autotune won. **Two/four repeats are descriptive; they are not confidence intervals or proof of an improvement** under NAS caching or background load. Compare *total full-scan elapsed time* first, and only then explain outcomes using patch rate and controller telemetry. A trial with no tuning probes or without a completed search is informative about short-scan overhead but does not establish optimal-search behavior.
+
+**Windows / real NAS example (PowerShell, run locally, not in GitHub CI):**
+
+```powershell
+python scripts/benchmark_native_adaptive_manifest.py `
+  --experiment autotune-e2e `
+  --cohort-db "C:\private\cohort.sqlite" `
+  --source-root "D:\Music" --library-root "D:\Music" `
+  --analyzer "C:\Lyrion\bliss-mood.exe" `
+  --essentia-worker "C:\Lyrion\bliss-essentia-worker.exe" `
+  --models-dir "C:\private\models" `
+  --output-dir "C:\private\autotune-e2e-01" `
+  --fixed-workers 2,4,6,8 --autotune-min 2 --autotune-initial 4 --autotune-max 8 `
+  --expected-tracks 120 --repeats 2 --plan-only
+```
+
+After inspection, remove `--plan-only` for **actual** independent scans. Worker counts above are merely a *user-selected experiment matrix*, not a hardware rule or preferred result; adjust them within the available host CPU/RAM limits. This harness currently uses the existing fail-closed **Windows** physical-RAM monitoring and explicit Windows process priority. Do not label it Linux/Pi cross-platform until a matching external Linux/cgroup memory guard and priority handling are implemented and tested.
+
+**Evidence boundary:** CI unit tests verify orchestration, balanced ordering, bounds, explicitly opt-in CLI flags and paired wall-time arithmetic **without private audio**. No private Ryzen/NAS/Pi cohort was available to run during this development; therefore no empirical improvement in whole-scan throughput is claimed. The previously successful Phase C synthetic ONNX numerical parity checks are not end-to-end autotune performance benchmarks.
