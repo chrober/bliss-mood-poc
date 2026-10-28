@@ -185,7 +185,7 @@ impl FeatureWorkerProcess {
         if self.cancellation.load(Ordering::Acquire) {
             bail!("Feature-worker request cancelled before dispatch");
         }
-        let mut child = self.child.take().context("Feature worker not running")?;
+        let child = self.child.take().context("Feature worker not running")?;
         let mut stdin = self.stdin.take().context("Feature-worker stdin missing")?;
         let mut stdout = self.stdout.take().context("Feature-worker stdout missing")?;
         let first = self.handshake_pending;
