@@ -21,6 +21,8 @@ jobs:
           ESSENTIA_IPC_FIXTURE_EXE: /tmp/essentia-ipc-fixture
         run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Validate isolated feature-process exact-output parity gate
+        run: python3 -m unittest discover -s tests -p 'test_compare_isolated_feature_worker.py'
 
       - name: Validate read-only quality sampling
         run: python3 -m unittest discover -s tests -p 'test_sample_mood_quality.py'
