@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -31,6 +31,20 @@ pub enum WorkerOperation {
     Shutdown,
     /// Bounded synthetic delay to test timeout and hard process cancellation.
     TestDelay { millis: u64 },
+    /// Initialize once per persistent worker. Model fingerprinting and
+    /// semantics are validated by the existing FeatureEngine loader.
+    Initialize {
+        models_dir: PathBuf,
+        registry: Option<PathBuf>,
+        models: String,
+        audio_backend: String,
+        essentia_worker: Option<PathBuf>,
+        essentia_timeout_seconds: u64,
+        threads: usize,
+        export_embedding: bool,
+    },
+    /// Only accepted after successful initialization; no SQLite writes.
+    AnalyzeSong { source: PathBuf, max_patches: Option<usize> },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -56,6 +70,11 @@ pub enum WorkerReply {
     Pong { nonce: u64 },
     Stopping,
     DelayComplete,
+    Initialized { models: Vec<String> },
+    Analyzed {
+        report: serde_json::Value,
+        embedding: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,7 +122,11 @@ fn require_valid_request(request: &WorkerRequest) -> Result<()> {
 }
 
 /// Hidden stdin/stdout worker mode; never writes media, models, or SQLite.
-pub fn serve_stdio() -> Result<()> {
+/// The callback owns any FeatureEngine session state: this framing module
+/// stays testable without loading the heavy ONNX runtime.
+pub fn serve_stdio(
+    mut analyze: impl FnMut(&WorkerOperation) -> Result<WorkerReply>,
+) -> Result<()> {
     let input = std::io::stdin();
     let output = std::io::stdout();
     let mut reader = input.lock();
@@ -129,6 +152,9 @@ pub fn serve_stdio() -> Result<()> {
                 thread::sleep(Duration::from_millis(millis));
                 (WorkerReply::DelayComplete, false)
             }
+            operation @ WorkerOperation::Initialize { .. }
+            | operation @ WorkerOperation::AnalyzeSong { .. } =>
+                (analyze(&operation)?, false),
         };
         let response = WorkerResponse {
             version: PROTOCOL_VERSION, request_id: request.request_id, reply,
