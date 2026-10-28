@@ -71,6 +71,10 @@ pub struct TuningAdjustment {
     pub to_workers: usize,
     pub reason: String,
     pub available_ram_mib: f64,
+    /// Drain duration until all jobs admitted at the previous capacity finish.
+    /// This includes productive in-flight work; it is NOT pure idle overhead.
+    pub drain_seconds: Option<f64>,
+    pub drained_songs: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -120,6 +124,8 @@ pub struct OnlineAutotuner {
     reverse_sweep: bool,
     sweep_in_progress: bool,
     draining: bool,
+    drain_started_at: Option<Instant>,
+    drain_started_completed: usize,
     // Once the remaining scan cannot amortize another sweep, do not restart
     // exploration just because a later epoch completed.
     exploration_budget_exhausted: bool,
@@ -138,9 +144,25 @@ fn candidate_schedule(minimum: usize, maximum: usize, initial: usize) -> Vec<usi
         all.insert(count);
         count = count.saturating_add(stride);
     }
-    // A bad intermediate measurement must never block candidates above it.
+    // Measure both ends of the feasible concurrency range early. Otherwise a
+    // short scan can consume most of its exploration budget walking through
+    // slow intermediate counts before ever checking the opposite endpoint.
+    // This is an information-ordering heuristic, not a monotonicity claim:
+    // all interior candidates remain in the first sweep.
     let mut ordered = vec![initial];
-    ordered.extend(all.into_iter().filter(|&workers| workers != initial));
+    let endpoints = if initial.abs_diff(maximum) >= initial.abs_diff(minimum) {
+        [maximum, minimum]
+    } else {
+        [minimum, maximum]
+    };
+    for endpoint in endpoints {
+        if endpoint != initial && !ordered.contains(&endpoint) {
+            ordered.push(endpoint);
+        }
+    }
+    let interior: Vec<_> = all.into_iter()
+        .filter(|worker| !ordered.contains(worker)).collect();
+    ordered.extend(interior);
     ordered
 }
 
@@ -174,6 +196,7 @@ impl OnlineAutotuner {
             adjustments: Vec::new(), counters: TuningCounters::default(),
             last_available_mib: available, exploit_epochs: 0,
             reverse_sweep: false, sweep_in_progress: true, draining: false,
+            drain_started_at: None, drain_started_completed: 0,
             exploration_budget_exhausted: false,
             typical_probe_songs: MIN_EPOCH_SONGS,
             last_exploration_budget: None,
@@ -193,6 +216,13 @@ impl OnlineAutotuner {
     /// Called only after all previously admitted jobs have completed. This
     /// avoids attributing old-capacity work to the next throughput probe.
     pub fn settle(&mut self, completed: usize, patches: usize, now: Instant) {
+        if let Some(started) = self.drain_started_at.take() {
+            if let Some(last) = self.adjustments.last_mut() {
+                last.drain_seconds = Some(now.saturating_duration_since(started).as_secs_f64());
+                last.drained_songs =
+                    Some(completed.saturating_sub(self.drain_started_completed));
+            }
+        }
         self.draining = false;
         self.reset_epoch(now, completed, patches);
     }
@@ -224,9 +254,9 @@ impl OnlineAutotuner {
             if self.active <= self.minimum {
                 bail!("Online autotune RAM margin insufficient at minimum concurrency");
             }
+            self.reset_epoch(now, completed, total_patches);
             self.change(self.active - 1, completed, "memory pressure: reduce admissions");
             self.counters.memory_pressure_reductions += 1;
-            self.reset_epoch(now, completed, total_patches);
             return Ok(());
         }
 
@@ -527,6 +557,8 @@ impl OnlineAutotuner {
         else { self.counters.reductions += 1; }
         self.active = target;
         self.draining = true;
+        self.drain_started_at = Some(self.epoch_start);
+        self.drain_started_completed = completed;
         eprintln!("ONLINE AUTOTUNE {from} -> {target} after {completed} songs: {reason}");
         if self.adjustments.len() == MAX_RETAINED_ADJUSTMENTS {
             self.adjustments.remove(0);
@@ -535,6 +567,8 @@ impl OnlineAutotuner {
             after_completed_songs: completed, from_workers: from,
             to_workers: target, reason: reason.to_owned(),
             available_ram_mib: self.last_available_mib,
+            drain_seconds: None,
+            drained_songs: None,
         });
     }
 
@@ -601,7 +635,7 @@ mod tests {
         let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
         let (mut done, mut patches) = (0, 0);
         let mut tried = Vec::new();
-        for elapsed in [18, 20, 28, 12] {
+        for elapsed in [18, 12, 28, 20] {
             tried.push(t.active);
             run_epoch(&mut t, &mut done, &mut patches, 8, elapsed, 120, &mut now);
         }
@@ -628,7 +662,7 @@ mod tests {
             seen.push(t.active);
             run_epoch(&mut t, &mut done, &mut patches, 8, duration, 150, &mut now);
         }
-        assert_eq!(seen, [6, 8, 10, 12, 12, 10, 8, 6]);
+        assert_eq!(seen, [6, 12, 8, 10, 10, 8, 12, 6]);
         let diag = t.into_diagnostics();
         assert!(diag.replication_completed);
         assert!(diag.search_completed);
@@ -747,7 +781,7 @@ mod tests {
         let mut now = Instant::now();
         let mut tuner = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
         let (mut songs, mut patches) = (0, 0);
-        let rates = [(6, 70.98), (8, 70.42), (10, 63.75), (12, 88.17)];
+        let rates = [(6, 70.98), (12, 88.17), (8, 70.42), (10, 63.75)];
         for (worker, rate) in rates {
             assert_eq!(tuner.active, worker);
             let remaining = 400 - (songs + 20);
@@ -761,18 +795,18 @@ mod tests {
         assert_eq!(diagnostics.probes.len(), 4);
         // This synthetic winner is conditional on RAM and horizon, not
         // a universal optimum for a Ryzen or any other machine.
-        assert!(diagnostics.probes[3].songs_per_minute
+        assert!(diagnostics.probes[1].songs_per_minute
             > diagnostics.probes[0].songs_per_minute);
-        assert!(diagnostics.probes[2].songs_per_minute
-            < diagnostics.probes[1].songs_per_minute);
+        assert!(diagnostics.probes[3].songs_per_minute
+            < diagnostics.probes[2].songs_per_minute);
     }
 
     #[test]
     fn monotone_up_down_and_flat_noise_choose_safely() {
         for (curve, expected) in [
-            ([55.0, 65.0, 75.0, 85.0], 12),
-            ([85.0, 75.0, 65.0, 55.0], 6),
-            ([70.0, 70.5, 69.9, 70.7], 6),
+            ([55.0, 85.0, 65.0, 75.0], 12),
+            ([85.0, 55.0, 75.0, 65.0], 6),
+            ([70.0, 70.7, 70.5, 69.9], 6),
         ] {
             let mut now = Instant::now();
             let mut t = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
@@ -793,8 +827,8 @@ mod tests {
         let mut t = OnlineAutotuner::new(6, 6, 12, Some(9000.0), now).unwrap();
         let (mut completed, mut patches) = (0, 0);
         for (workers, rate) in [
-            (6, 65.0), (8, 73.0), (10, 80.0), (12, 78.0),
-            (12, 78.0), (10, 80.0), (8, 73.0), (6, 65.0),
+            (6, 65.0), (12, 78.0), (8, 73.0), (10, 80.0),
+            (10, 80.0), (8, 73.0), (12, 78.0), (6, 65.0),
         ] {
             assert_eq!(t.active, workers);
             let remaining = 800 - (completed + 20);
@@ -831,8 +865,8 @@ mod tests {
         let mut long = OnlineAutotuner::new(6, 6, 12, Some(8000.0), long_time).unwrap();
         let (mut completed, mut p) = (0, 0);
         let mut scan_seconds = 0.0;
-        for rate in [70.98, 70.42, 63.75, 88.17,
-                     88.17, 63.75, 70.42, 70.98] {
+        for rate in [70.98, 88.17, 70.42, 63.75,
+                     63.75, 70.42, 88.17, 70.98] {
             let remaining = 400 - (completed + 20);
             scan_seconds += simulate_rate(&mut long, &mut completed,
                 &mut p, &mut long_time, rate, remaining, 6500.0);
@@ -903,9 +937,9 @@ mod tests {
         let (mut completed, mut patches) = (0, 0);
         let windows = [
             (6, 12, 2844, 12.53709, 82),
-            (8, 18, 4043, 12.0519457, 64),
-            (10, 8, 4010, 17.0551454, 56),
-            (12, 17, 4591, 12.2542338, 39),
+            (12, 17, 4591, 12.2542338, 65),
+            (8, 18, 4043, 12.0519457, 47),
+            (10, 8, 4010, 17.0551454, 39),
         ];
         for (worker, count, patch_count, seconds, remaining) in windows {
             assert_eq!(t.active, worker);
@@ -925,7 +959,7 @@ mod tests {
         let diagnostics = t.into_diagnostics();
         assert!(diagnostics.search_completed);
         assert_eq!(diagnostics.probes.iter().map(|probe| probe.workers)
-            .collect::<Vec<_>>(), [6, 8, 10, 12]);
+            .collect::<Vec<_>>(), [6, 12, 8, 10]);
         assert_eq!(diagnostics.counters.completed_coarse_sweeps, 1);
         assert_eq!(diagnostics.counters.memory_gate_holds, 0);
         assert!(diagnostics.last_exploration_budget.is_some());
@@ -953,10 +987,39 @@ mod tests {
     }
 
     #[test]
+    fn real_drain_timing_tracks_productive_old_capacity_work_without_reclassification() {
+        let now = Instant::now();
+        let mut t = OnlineAutotuner::new(3, 3, 7, Some(5000.0), now).unwrap();
+        // First admitted window: 12 songs. A transition may have other work
+        // already in-flight; do not charge it to the next candidate's rate.
+        t.observe(12, 1200, Some(4500.0), 100,
+            now + Duration::from_secs(13)).unwrap();
+        assert!(t.draining());
+        assert_eq!(t.adjustments.len(), 1);
+        assert_eq!(t.adjustments[0].drain_seconds, None);
+        t.settle(14, 1350, now + Duration::from_secs(18));
+        assert_eq!(t.adjustments[0].drained_songs, Some(2));
+        assert_eq!(t.adjustments[0].drain_seconds, Some(5.0));
+        assert!(!t.draining());
+        t.observe(22, 2500, Some(4400.0), 100,
+            now + Duration::from_secs(31)).unwrap();
+        let diag = t.into_diagnostics();
+        assert_eq!(diag.probes.len(), 2);
+        assert_eq!(diag.probes[0].workers, 3);
+        assert_eq!(diag.probes[0].completed_songs, 12);
+        assert_eq!(diag.probes[1].workers, 7);
+        assert_eq!(diag.probes[1].completed_songs, 8);
+        assert_eq!(diag.probes[1].patches, 1150);
+    }
+
+    #[test]
     fn candidate_schedule_covers_beyond_a_bad_local_peak() {
-        assert_eq!(candidate_schedule(6, 12, 6), [6, 8, 10, 12]);
+        assert_eq!(candidate_schedule(6, 12, 6), [6, 12, 8, 10]);
+        assert_eq!(candidate_schedule(6, 12, 12), [12, 6, 8, 10]);
         let plan = candidate_schedule(1, 16, 8);
-        assert!(plan.contains(&16));
         assert_eq!(plan[0], 8);
+        assert_eq!(plan[1], 16);
+        assert_eq!(plan[2], 1);
+        assert!(plan.contains(&9));
     }
 }

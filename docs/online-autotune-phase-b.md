@@ -178,3 +178,30 @@ Die zweite Messmatrix (privates lokales Verzeichnis `benchmark-autotune-e2e-2026
 **Nächster technische Gate vor weiteren Code-Optimierungen:** Die bestehenden privaten Scannerreports `round-01-autotune.scanner.json` und `round-02-autotune.scanner.json` enthalten `diagnostics.online_autotune.probes[]`, `adjustments[]`, `candidate_evidence[]`, `last_exploration_budget` und `counters`. Nur diese **aggregierten Felder ohne Songs, Track-Keys oder rohe Scannerlogs** ausgeben; insbesondere Kandidaten-Score nach Workerzahl, Dauer/Songanzahl pro Fenster, Übergang 6→8→10→12→8 bzw. endgültige Auswahl und Restarbeitsbudget. In `src/autotune.rs::change()` erzwingt jeder Workerwechsel `draining=true`; die Koordinator-Schleife in `src/features.rs` lässt danach erst alle bereits begonnenen Jobs fertig werden, ehe neue zugelassen werden. Idle- und Drain-Verluste, kalte Sessions, kurze Messfenster, Workload-Heterogenität und erzwungene Modellwarmups sind plausible Hypothesen, **keine bereits gemessenen Ursachen**. Keine weitere 10-Scan-Matrix allein zum Probieren anderer Tuning-Konstanten. Zuerst die bestehenden Einzelfenster verifizieren, dann eine allgemeine hardwareunabhängige Optimierung und getrennte Tests für kurz-/langlaufende Scans entwickeln; hard RAM-Gate, `resource`-Default, PR #16 und exakte numerische Parität unverändert lassen.
 
 **Verifikation:** Am damals laufenden PR-19-HEAD `d58bc1776cf0d810b69a8b0bcc7f5c700fab9e3b` waren alle acht GitHub-Actions-Workflows inzwischen **PASS**, darunter [Rust](https://github.com/chrober/bliss-mood-poc/actions/runs/40718168303), [Windows x64](https://github.com/chrober/bliss-mood-poc/actions/runs/40718167763) und [Original Essentia C++ Windows](https://github.com/chrober/bliss-mood-poc/actions/runs/40718167805). Das ist Code-/CI-Verifikation, kein Benchmark des nächsten, noch nicht geschriebenen Optimierers.
+
+## Detaillierte Autotune-Fensterdiagnose des zweiten E2E-Experiments und naechster Controller-Schritt (28.10.2026)
+
+Die bestehenden privaten Scannerberichte des *bereits durchgefuehrten* Windows-Folgebenchmarks wurden lokal aggregiert ausgegeben. **Es wird weder eine Songliste noch ein Scanner-Report in Git committed.** Die Diagnose zeigt echte **Patches/s pro Messfenster**, nicht normierte langlebige Workerleistung:
+
+| Runde | Worker | Songs im Fenster | Messdauer s | Gemessene Patches/s |
+|---|---:|---:|---:|---:|
+| 1 | 6 | 8 | 12,748 | 140,49 |
+| 1 | 8 | 16 | 12,677 | 275,77 |
+| 1 | 10 | 12 | 14,511 | 245,26 |
+| 1 | 12 | 8 | 14,275 | **98,85** |
+| 1 | 8 (erneut, Exploit) | 17 | 12,838 | 325,98 |
+| 2 | 6 | 8 | 12,521 | 143,04 |
+| 2 | 8 | 11 | 12,507 | 208,84 |
+| 2 | 10 | 8 | 12,767 | 177,96 |
+| 2 | 12 | 19 | 12,351 | **365,23** |
+| 2 | 12 (erneut, Exploit) | 25 | 12,089 | **550,65** |
+
+Die einzelnen Fenster sind durch unterschiedliche Song-Laengen, Patchmengen, ggf. Anlauf-/Drain- und I/O-Bedingungen konfundiert. Allein die drei beobachteten 12-Worker-Fenster liegen zwischen 98,85 und 550,65 Patches/s (Faktor ~5,57). In Runde 1 war die einzelne 12er-Probe deutlich schlechter als die erste 8er-Probe (275,77), woraufhin nach 65 Songs **12 → 8** entschieden wurde. Runde 2 blieb nach drei Expansionen bei 12. Diese Daten beweisen **keinen** inhärenten 12-Worker-Verlust, keine zuverlässige 8-Worker-Überlegenheit und kein automatisches Modellwarmup als tatsächliche Ursache. Sie beweisen, dass **ein einzelnes kurzes Fenster** als Entscheidungsevidenz unter dieser Streuung unzureichend sein kann.
+
+Nach der ersten abgeschlossenen Grobsuche wollte der Controller wegen `replication` alle vier Kandidaten wiederholen: Runde 1 `24 undispatched < 40 required` bei Fenster-Schaetzung 8 Songs; Runde 2 `22 < 95` bei 19 Songs pro Fenster. Deshalb blieb `replication_completed=false`, `observed_ranges_separated=false` und die Beste-Wahl ist nur deskriptiv. Ein zweiter Sweep darf nicht als Ergebnis "bestes Systemsetting" dargestellt werden, solange er fehlt.
+
+**Gezielte generische Änderung (experimentell):** Der *erste* Kandidaten-Sweep prueft nach dem real gewaehlten Startsetting zuerst den **am weitesten entfernten Rand** des RAM-/CPU-begrenzten zulässigen Bereichs (beispielsweise bei Start=min das Maximum), dann den gegenueberliegenden Rand und danach die bis dahin ungemessenen gleichmaessig verteilten Innenpunkte. So wird ein nichtmonotoner Durchsatzanstieg oberhalb eines lokalen Minimums **frueh** gesehen, bevor die Exploration eines kurzen Scans aus Budgetgruenden eingeschraenkt wird. Das ist eine durch andere Workerbereiche deterministisch getestete *Informationsreihenfolge*, **keine Vorliebe fuer 12 Worker**; weder ein Grenzpunkt noch ein Zwischenwert gilt automatisch als optimal. Die bestehende pro-Kandidat-RAM-Aufnahme bleibt strikt fail-closed, der Default `resource` unveraendert, alle Innenwerte bleiben bei ausreichendem Restbudget in der initialen Suche. Die zweite Replikationsrunde bleibt vorerst unveraendert, um die kausalen Effekte nicht zu vermischen.
+
+**Uebergangskosten messbar machen:** Jeder `TuningAdjustment`-Eintrag im opt-in Scanner-JSON traegt nach abgeschlossener Kapazitaetsumschaltung `drain_seconds` und `drained_songs`. Die Messung beginnt, wenn der Controller neue Admission fuer eine Umstellung aussetzt, und endet nach Abschluss aller bereits gestarteten alten Jobs (`settle`). Diese **Drain-Dauer ist NICHT gleichbedeutend mit vergeudeter Wartezeit**: Der Grossteil kann produktive Arbeit der alten Konfiguration sein. Ein deterministischer Test prueft eine 5s-Drain mit zwei alten Songabschluessen und strikt getrennte Messfenster. `None` bedeutet eine im Berichtszeitpunkt noch nicht abgeschlossene Drain-Phase. Keine privaten Medien, keine neuen Abhaengigkeiten.
+
+**Offen:** Exakte idle-/tail-latency-Kosten und kalte/native Prozesstarts nicht ursächlich bestimmt. Die neue Priorisierung und Telemetrie belegen keinen besseren realen E2E-Durchsatz. Nach CI und neuem exakten Windows-Artifact ist ein realer Folgevergleich erforderlich; zuvor die ueberarbeitete datensparsame Diagnostik auswerten. Laufzeitbenchmarks auf 100 Songs allein koennen keine langfristige Allgemeingueltigkeit beweisen.
