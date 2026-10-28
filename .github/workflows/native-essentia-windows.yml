@@ -72,11 +72,16 @@ jobs:
           else
             test ! -e "$source"
             git clone --quiet https://github.com/MTG/essentia.git "$source"
-            # This commit currently lives in an unmerged upstream PR.
-            git -C "$source" fetch --no-tags --depth=1 origin refs/pull/1540/head
+            # PR refs are mutable. Fetch the immutable, independently verified
+            # upstream commit instead of following the current PR 1540 head.
+            git -C "$source" fetch --no-tags --depth=1 origin b0661db99be4a8e2c6fabbe90a996f89786fdd8e
             git -C "$source" checkout --detach FETCH_HEAD
           fi
-          test "$(git -C "$source" rev-parse HEAD)" = b0661db99be4a8e2c6fabbe90a996f89786fdd8e
+          observed_sha=$(git -C "$source" rev-parse HEAD)
+          if test "$observed_sha" != b0661db99be4a8e2c6fabbe90a996f89786fdd8e; then
+            echo "ERROR: pinned upstream Essentia SHA mismatch: $observed_sha" >&2
+            exit 1
+          fi
           test "$(git -C "$source" remote get-url origin)" = https://github.com/MTG/essentia.git
           test -z "$(git -C "$source" status --porcelain)"
           echo "Pinned upstream Essentia SHA verified: $(git -C "$source" rev-parse HEAD)"

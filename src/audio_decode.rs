@@ -177,13 +177,16 @@ pub(crate) fn essentia_linear_resample(samples: &[f32], input_rate: usize) -> Ve
 }
 
 pub(crate) fn ffmpeg_pcm_mono_16k(input: &Path) -> Result<Vec<f32>> {
-    ffmpeg_pcm_mono_16k_cancelable(input, None, 1)
+    ffmpeg_pcm_mono_16k_cancelable(input, None, 1, None)
 }
 
 /// Identical audio math to the historical decoder; only when autotune passes
 /// a cancellation token do ffprobe/FFmpeg acquire a bounded, supervised Child.
+/// The scanner injects a live RAM telemetry callback; this shared DSP decoder
+/// must also compile in the standalone ONNX-free rust-mel-reference crate.
 pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
     input: &Path, cancellation: Option<&AtomicBool>, max_concurrent_decoders: usize,
+    available_memory_mib: Option<fn() -> Option<f64>>,
 ) -> Result<Vec<f32>> {
     // FFmpeg only decodes to float PCM at the *native* sample rate.
     // Probe stream metadata once to avoid FFmpeg's different default
@@ -209,9 +212,9 @@ pub(crate) fn ffmpeg_pcm_mono_16k_cancelable(
     // Only the experimental autotuner enforces a physical-memory-relative
     // output bound; do not alter legacy decoding or model fingerprints.
     let max_output = if cancellation.is_some() {
-        let free = crate::resources::memory_diagnostics()
-            .context("Autotune decoder requires effective free-RAM telemetry")?
-            .available_physical_mib;
+        let free = available_memory_mib
+            .and_then(|read| read())
+            .context("Autotune decoder requires effective free-RAM telemetry")?;
         pcm_output_budget(free, max_concurrent_decoders)?
     } else { usize::MAX };
     let output = subprocess_output_cancelable(
@@ -331,7 +334,7 @@ mod tests {
         use std::sync::atomic::AtomicBool;
         if std::process::Command::new("ffmpeg").arg("-version").output().is_err()
             || std::process::Command::new("ffprobe").arg("-version").output().is_err()
-            || crate::resources::memory_diagnostics().is_none() {
+            {
             // FFmpeg is an explicitly documented runtime prerequisite; unit
             // builds without it still exercise subprocess supervision tests.
             return;
@@ -363,7 +366,9 @@ mod tests {
         std::fs::write(&path, wav).unwrap();
         let baseline = super::ffmpeg_pcm_mono_16k(&path);
         let token = AtomicBool::new(false);
-        let guarded = super::ffmpeg_pcm_mono_16k_cancelable(&path, Some(&token), 1);
+        let guarded = super::ffmpeg_pcm_mono_16k_cancelable(
+            &path, Some(&token), 1, Some(|| Some(512.0)),
+        );
         let _ = std::fs::remove_file(&path);
         let baseline = baseline.unwrap();
         let guarded = guarded.unwrap();

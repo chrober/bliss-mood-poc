@@ -352,6 +352,8 @@ impl FeatureEngine {
                 let at = Instant::now();
                 let audio = crate::audio_decode::ffmpeg_pcm_mono_16k_cancelable(
                     path, self.cancellation.as_deref(), self.decoder_worker_budget,
+                    Some(|| crate::resources::memory_diagnostics()
+                        .map(|memory| memory.available_physical_mib)),
                 )?;
                 let decode_seconds = at.elapsed().as_secs_f64();
                 let at = Instant::now();

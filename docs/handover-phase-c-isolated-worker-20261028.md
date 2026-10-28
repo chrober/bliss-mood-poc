@@ -62,3 +62,13 @@
 3. [Current Phase B governor](online-autotune-phase-b.md).
 4. [Historical native/worker benchmark handover](handover-adaptive-host-sizing-20261028.md).
 5. [Ready-to-paste new-chat prompt](handover-prompt-adaptive-host-sizing-20261028.md) and [older chat background](chat-handover.md).
+
+## Current-session CI diagnosis and narrowly scoped corrective changes (2026-10-28)
+
+At live Draft PR #19 head `797c6d887ef4413e4574a1ddfd85a30ce43dd54f`, Rust checks [40678196734](https://github.com/chrober/bliss-mood-poc/actions/runs/40678196734) passed; Linux native [40678196795](https://github.com/chrober/bliss-mood-poc/actions/runs/40678196795) still failed on the separately compiled Mel reference. Other HEAD checks were initially in progress; inspect the fresh **fix-commit** checks before claiming any green result.
+
+- **Linux root cause:** `src/audio_decode.rs` had two `crate::resources` dependencies (the decoder and its synthetic PCM test). The scanner now injects a callable read of current effective free MiB at the *same pre-FFmpeg point* when a cancellation token is present. The independent, ONNX-free `rust-mel-reference` only uses the unchanged legacy decoder and no longer requires `crate::resources`. Missing injected RAM telemetry fails closed for autotune. Audio resampling, downmixing and FFmpeg arguments are not changed. Verify by building the standalone reference crate and by Rust + native parity CI on the **new exact SHA**.
+- **Windows root cause proven from [40674323927](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323927):** exact-key Essentia Waf cache **miss**; fresh clone fetched mutable `refs/pull/1540/head`, whose checked-out HEAD was `4d3851fdce759cb069a09d4c7fe0ccd3eb002152`, not pinned `b0661db99be4a8e2c6fabbe90a996f89786fdd8e`. GitHub confirms the pinned commit still exists. The workflow now fetches the **immutable full commit SHA** directly and retains exact-SHA, origin-URL and clean-worktree checks. Confirm actual fetching/build/parity on a new Windows CI run; do not infer that direct SHA fetch or later Waf/MinGW steps passed before execution.
+- Prior Windows uploaded diagnostics contained at least the installed MSYS2 package inventory; the SHA mismatch is specifically established by the full job log, not by assuming a corrupt Waf cache. Integrity checks remain mandatory.
+
+Still blocked: private real-audio all-head and 1280D bit parity, Windows process-tree Job Objects, Linux/macOS/Pi resource stress, and the autotune-only isolated pool integration. PR #19 must remain Draft; PR #16 remains untouched.

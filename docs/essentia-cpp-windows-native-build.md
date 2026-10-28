@@ -41,3 +41,9 @@ runtime smoke.
 Essentia remains AGPLv3. Generated native test packages are
 development-only and must not be redistributed as project releases
 without a separate licensing audit.
+
+## Pinned-source acquisition regression (28 October 2026, PR #19)
+
+Windows native job [40674323927](https://github.com/chrober/bliss-mood-poc/actions/runs/40674323927) missed the exact-toolchain upstream Waf cache, cloned MTG/essentia, and fetched the mutable `refs/pull/1540/head`. That ref had moved to `4d3851fdce759cb069a09d4c7fe0ccd3eb002152`. The workflow deliberately failed its `b0661db99be4a8e2c6fabbe90a996f89786fdd8e` SHA pin; this is **not** evidence of a compiler or DSP failure. The pinned commit remains available from upstream GitHub.
+
+On PR #19, the cache-miss path now directly fetches the **full immutable pinned SHA**, checks out `FETCH_HEAD`, and then performs the same exact HEAD, canonical remote URL and clean-tree integrity checks. The cache key and pin are unchanged. The remedy needs a fresh commit-matched Windows Actions run for verification; do not advance to numerical parity or distribution approval solely because source acquisition is corrected.
