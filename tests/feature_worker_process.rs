@@ -35,6 +35,21 @@ fn persistent_worker_reuses_process_and_responds_to_validated_ids() {
 }
 
 #[test]
+fn repeated_request_id_poison_retires_worker_without_implicit_retry() {
+    let mut child = FeatureWorkerProcess::spawn(
+        binary(), Duration::from_secs(5), Arc::new(AtomicBool::new(false))
+    ).unwrap();
+    assert!(child.request(WorkerRequest::ping(7, 1)).is_ok());
+    let error = child.request(WorkerRequest::ping(7, 2))
+        .err().expect("duplicate ID must be rejected by persistent worker");
+    assert!(format!("{error:#}").contains("exited") ||
+        format!("{error:#}").contains("failed") ||
+        format!("{error:#}").contains("fill whole buffer"));
+    assert!(child.request(WorkerRequest::ping(8, 3)).is_err(),
+        "protocol fault retires worker instead of silently reusing/retrying it");
+}
+
+#[test]
 fn owned_worker_is_hard_killed_on_timeout() {
     let mut child = FeatureWorkerProcess::spawn(
         binary(), Duration::from_millis(250), Arc::new(AtomicBool::new(false)),
