@@ -223,14 +223,21 @@ separately from model-generated checks.
    diversity and runtime overhead. Evidence must support any claim
    of improvement.
 
-The 12-pair local diagnostic instrument has been generated
-(`BLINDED_REVIEW_READY`, **12 pairs, 24 distinct tracks**) but
-**no human judgments have been supplied yet**. The 100-song local
-research cohort has exact matching 87D Genre, 56D Mood and
-1280D song embeddings (**100/100 valid; zero mismatches**);
-this is research feature availability, **not** a certified general
-metric, completed phase-0 parity, or an adequately large learned
-personal model. The prior 8 labeled pairs remain unchanged.
+**Updated experimental state (October 28, 2026):** the
+local 12-pair diagnostic instrument has now been
+**fully human-rated** (12/12 pairs, 24 distinct tracks,
+60/60 ratings, seven comments). The original 100-song
+cohort retains compatible 87D Genre, 56D Mood and
+1280D embeddings (**100/100 valid; zero mismatches**).
+The [local ordinal evaluator](similarity-local-listening-pilot12-evaluation-2026-10-28.md)
+is implemented and synthetic-tested on Linux and Windows.
+Its real model-vs-human comparison **still requires the
+locally sealed private model audit** and has not been
+completed in chat. Pair 10 is a declared human-identified
+nonmusic sensitivity case; original labels are preserved.
+These observations are **not** a certified general metric,
+completed phase-0 parity or an adequately large learned
+personal model. The prior eight labels remain unchanged.
 
 ## 6. Lyrion runtime constraints and implementation boundaries
 
@@ -257,9 +264,11 @@ personal model. The prior 8 labeled pairs remain unchanged.
 ## 7. Immediate next steps
 
 1. Keep the **general-metric evaluation** as the primary near-term
-   research activity. The blinded 12-pair local review CSV is ready,
-   with model selection scores withheld in its private audit.
-   Gather genuine listening judgments rather than inventing labels.
+   research activity. The 12-pair human listening judgments
+   are complete; run the new local ordinal evaluator with
+   the *original* private selection audit, explicitly reporting
+   both the full 12 and 11 music-only pairs. Preserve ratings
+   and do not pretend it is an unbiased metric holdout.
 2. Independently specify a compact personal triplet data contract
    and a baseline active/random/control sampling experiment using
    the same existing 100-song research cohort. Do not substitute it
