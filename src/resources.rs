@@ -404,22 +404,46 @@ mod native {
     pub fn process_memory_counters() -> Option<(u64, u64, u64)> {
         memory_for_pid(std::process::id())
     }
-    pub fn available_memory_bytes() -> Option<u64> {
+    fn memory_kib_field(stats: &str, label: &str) -> Option<u64> {
+        stats.lines().find(|line| line.starts_with(label))?
+            .split_whitespace().nth(1)?.parse().ok()
+    }
+    fn cgroup_memory() -> Option<(u64, u64)> {
+        // The cgroup v2 unified mount is usually /sys/fs/cgroup even inside
+        // containers; v1 uses its memory controller mount.
+        for (limit_path, used_path) in [
+            ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+            ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
+             "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+        ] {
+            let limit = fs::read_to_string(limit_path).ok()?
+                .trim().parse::<u64>().ok();
+            let used = fs::read_to_string(used_path).ok()?
+                .trim().parse::<u64>().ok();
+            if let (Some(limit), Some(used)) = (limit, used) {
+                return Some((limit, used));
+            }
+        }
+        None
+    }
+    fn effective_memory() -> Option<(u64, u64)> {
         let stats = fs::read_to_string("/proc/meminfo").ok()?;
-        let line = stats.lines().find(|line| line.starts_with("MemAvailable:"))?;
-        let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-        kib.checked_mul(1024)
+        let total = memory_kib_field(&stats, "MemTotal:")?.checked_mul(1024)?;
+        let available = memory_kib_field(&stats, "MemAvailable:")?.checked_mul(1024)?;
+        if total == 0 { return None; }
+        match cgroup_memory() {
+            Some((limit, usage)) if limit > 0 && limit < total =>
+                Some((limit, available.min(limit.saturating_sub(usage)))),
+            _ => Some((total, available.min(total))),
+        }
+    }
+    pub fn available_memory_bytes() -> Option<u64> {
+        effective_memory().map(|(_, available)| available)
     }
     pub fn memory_load() -> Option<f64> {
-        let stats = fs::read_to_string("/proc/meminfo").ok()?;
-        let get = |prefix: &str| -> Option<f64> {
-            stats.lines().find(|line| line.starts_with(prefix))?
-                .split_whitespace().nth(1)?.parse().ok()
-        };
-        let total = get("MemTotal:")?;
-        let available = get("MemAvailable:")?;
-        if total <= 0.0 { return None; }
-        Some(100.0 * (1.0 - available / total))
+        let (total, available) = effective_memory()?;
+        Some((100.0 * (1.0 - available as f64 / total as f64))
+            .clamp(0.0, 100.0))
     }
 }
 
