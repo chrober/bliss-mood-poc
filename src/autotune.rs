@@ -33,6 +33,8 @@ pub struct TuningCounters {
     pub memory_pressure_reductions: usize,
     pub memory_gate_holds: usize,
     pub insufficient_work_holds: usize,
+    pub exploration_budget_holds: usize,
+    pub unsafe_best_holds: usize,
 }
 
 /// Bounded rolling evidence per worker count. The ranges are descriptive,
@@ -101,6 +103,10 @@ pub struct OnlineAutotuner {
     reverse_sweep: bool,
     sweep_in_progress: bool,
     draining: bool,
+    // Once the remaining scan cannot amortize another sweep, do not restart
+    // exploration just because a later epoch completed.
+    exploration_budget_exhausted: bool,
+    typical_probe_songs: usize,
 }
 
 fn candidate_schedule(minimum: usize, maximum: usize, initial: usize) -> Vec<usize> {
@@ -147,6 +153,8 @@ impl OnlineAutotuner {
             adjustments: Vec::new(), counters: TuningCounters::default(),
             last_available_mib: available, exploit_epochs: 0,
             reverse_sweep: false, sweep_in_progress: true, draining: false,
+            exploration_budget_exhausted: false,
+            typical_probe_songs: MIN_EPOCH_SONGS,
         })
     }
 
@@ -238,14 +246,38 @@ impl OnlineAutotuner {
         }
         entry.push_back(measure);
         self.select_best_observed();
+        // Use the actual observed work per probe (not a fixed, host-specific
+        // count) to budget candidate windows on heterogeneous hardware.
+        self.typical_probe_songs = self.epoch_songs.max(MIN_EPOCH_SONGS);
         self.reset_epoch(now, completed, total_patches);
         // Preserve enough outstanding work for a useful epoch; otherwise use
         // the best already observed configuration rather than thrash at the end.
         if remaining_hint < MIN_EPOCH_SONGS {
             self.counters.insufficient_work_holds += 1;
-            if let Some((best, _)) = self.best {
-                self.change(best, completed, "end of scan: best sampled throughput");
-            }
+            self.exploit_safe_best(completed, headroom, "end of scan: best sampled throughput");
+            return Ok(());
+        }
+        if self.exploration_budget_exhausted {
+            self.exploit_safe_best(completed, headroom, "end of scan: insufficient search payback");
+            return Ok(());
+        }
+        // A new candidate needs at least one epoch. Budget about twice the
+        // measured window size per untested worker to reserve useful scan
+        // work for exploitation; never claim this is a statistical optimum.
+        // Once the initial sweep is complete, charge the optional replication
+        // sweep separately. RAM skips do not count as measured candidates.
+        let remaining_candidates = if self.next_candidate >= self.candidates.len() {
+            self.candidates.len()
+        } else {
+            self.candidates.len() - self.next_candidate
+        };
+        if remaining_candidates > 0 && remaining_hint <
+            self.typical_probe_songs.saturating_mul(remaining_candidates).saturating_mul(2)
+        {
+            self.exploration_budget_exhausted = true;
+            self.counters.exploration_budget_holds += 1;
+            self.exploit_safe_best(completed, headroom,
+                "stop exploration: insufficient remaining scan to repay probes");
             return Ok(());
         }
         // Run a reverse-ordered second sweep immediately after the first
@@ -270,9 +302,7 @@ impl OnlineAutotuner {
                     self.next_candidate = 0;
                     self.sweep_in_progress = true;
                 } else {
-                    if let Some((best, _)) = self.best {
-                        self.change(best, completed, "exploit best measured throughput");
-                    }
+                    self.exploit_safe_best(completed, headroom, "exploit best safe measured throughput");
                     return Ok(());
                 }
             }
@@ -301,10 +331,34 @@ impl OnlineAutotuner {
             self.change(target, completed, "non-monotonic coarse exploration");
             return Ok(());
         }
-        if let Some((best, _)) = self.best {
-            self.change(best, completed, "exploit best measured throughput");
-        }
+        self.exploit_safe_best(completed, headroom, "exploit best safe measured throughput");
         Ok(())
+    }
+
+    /// The best historical setting may no longer be RAM-admissible after a
+    /// change in memory pressure. Even exploitation must honor the same
+    /// additional-worker reservation as exploratory increases.
+    fn exploit_safe_best(&mut self, completed: usize, headroom: f64, reason: &str) {
+        let mut selected = None;
+        for (&worker, samples) in &self.evidence {
+            let extra = worker.saturating_sub(self.active);
+            if (extra as f64 * self.incremental_worker_mib) > headroom {
+                continue;
+            }
+            if let Some(score) = median(samples) {
+                if selected.is_none_or(|(_, highest)| score > highest) {
+                    selected = Some((worker, score));
+                }
+            }
+        }
+        if let Some((target, _)) = selected {
+            if self.best.is_some_and(|(best, _)| best != target) {
+                self.counters.unsafe_best_holds += 1;
+            }
+            self.change(target, completed, reason);
+        } else if self.best.is_some_and(|(best, _)| best > self.active) {
+            self.counters.unsafe_best_holds += 1;
+        }
     }
 
     /// Retained samples are bounded; ranking uses the rolling median, not the
