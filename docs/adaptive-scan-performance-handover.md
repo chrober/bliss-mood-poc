@@ -1,5 +1,8 @@
 # Adaptive feature scanner — performance and investigation handover
 
+> **Historical investigation only (28 October 2026):** Adaptive worker resizing and throughput autotune are deliberately excluded from the static worker scan CLI prepared in [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20). The user selected `--workers N` or explicit one-time `--workers auto`, retaining default 1. Four 100-song real-music benchmark campaigns (40 scans) are archived in [PR #19](https://github.com/chrober/bliss-mood-poc/blob/feat/ram-safe-online-autotune/docs/autotune-real-music-e2e-findings-20261028.md). The following adaptive recommendations are **not current product behavior**; consult [final architecture](multi-worker-song-analysis-final.md).
+
+
 > **LATEST HANDOVER (28 OCTOBER 2026):**
 > [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
 > plus [new-session prompt](handover-prompt-adaptive-host-sizing-20261028.md).

@@ -1,5 +1,8 @@
 # Lizenz- und Distributionsstrategie: Rust-Frontend, Essentia C++ und ONNX
 
+> **Source-merge decision (28 October 2026):** The user requires integrating the qualified **source** of the original Essentia C++ backend and static multi-worker scanner into `main` via [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20), **without treating the merge as a redistribution license grant**. The existing `distribution_release_status=BLOCKED`, `release_approved=false`, `license_inventory_complete=false` and 17 missing installed native notices remain unresolved and explicitly apply to binary packaging/publishing. No unaudited Windows native C++ EXE/DLL bundle should be publicly shipped by this merge. Legal obligations of publishing source (including AGPL-derived code) may still require independent review; this text is not legal clearance. Original research, inventories and release blocks below remain binding.
+
+
 **Stand:** 20. Oktober 2026 · **Kontext:** Draft-PR #17 (`feat/essentia-cpp-worker-backend`) · **Status:** Arbeits- und Entscheidungspapier, **keine** rechtliche Freigabe.
 
 Dieses Dokument fasst die Lizenz- und Distributionsüberlegungen für `bliss-mood-poc` zusammen. Es beschreibt den **bisherigen eigenständigen Rust-DSP-Pfad**, den **originalen Essentia-C++-Worker** sowie die Folgen einer Distribution auf **Windows, Linux, macOS und Raspberry Pi/piCorePlayer**. Es trennt belegte Tatsachen, plausible Arbeitshypothesen und noch nicht entschiedene Rechtsfragen.

@@ -1,5 +1,8 @@
 # Explicit track-manifest analysis using the existing adaptive worker scanner
 
+> **Product-scope update, 28 Oct 2026:** The supported manifest batch scanner in [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) uses fixed worker capacity and optionally one-time CPU-based `--workers auto`. Historical `--adaptive-workers` examples here are retained as research context **but do not work with the final CLI**. See [final multi-worker architecture and CLI commands](multi-worker-song-analysis-final.md). Native C++ executable/DLL distribution remains subject to separate blocked license review.
+
+
 > **28 OCTOBER 2026 UPDATE:** This document covers the original
 > manifest feature and its early CI sequence, and includes now-historical
 > "not yet measured" statements. See the [current PR #18 worker-sizing and

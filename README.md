@@ -1,5 +1,8 @@
 # bliss-mood-poc
 
+> **Static multi-worker integration (28 October 2026):** This branch selects scan worker capacity once at startup: `--workers N` or explicit `--workers auto`. The CLI default remains `--workers 1`. The existing dynamic flags (`--adaptive-workers`, `--adaptive-policy`, worker min/max and adaptive song gate) are no longer supported. Native Essentia C++ analysis, bounded manifest scans and pooled 1280D embeddings are retained. See [final multi-worker architecture](docs/multi-worker-song-analysis-final.md) and [Similarity handback](docs/handback-multi-worker-to-similarity-20261028.md). **Source integration into main is independent of native third-party binary distribution approval:** the latter remains BLOCKED pending license/notice review; no public native EXE/DLL release is authorized.
+
+
 Experimental Rust CLI for capability-based music feature analysis using MTG/Essentia Discogs-EffNet and MTG-Jamendo Mood/Theme and Genre plus Voice/Instrumental ONNX classification heads. It is being evaluated as an optional analysis sidecar for [bliss-rs](https://github.com/Polochon-street/bliss-rs) and Lyrion. Research/design context: [bliss-similarity-design](https://chrober.github.io/bliss-similarity-design/).
 
 **Status:** experimental; deterministic synthetic-audio numerical parity has passed against official Essentia/TensorFlow, but real-music quality and production suitability are not validated. Compilation and runtime integration are tracked by GitHub Actions. Do not use predicted scores for automatic production tagging or playlists until parity and quality checks have passed. No models are committed to Git.
@@ -39,7 +42,7 @@ Draft PR #17 is separate from similarity PR #16.
 
 ## Explicit manifest batch analysis (experimental)
 
-In the separate [adaptive manifest batch development branch](https://github.com/chrober/bliss-mood-poc/tree/feat/manifest-batch-adaptive-worker-analysis), `scan-features --tracks-file` is being introduced as a Bliss-DB-independent entry point for the **existing** bounded parallel/adaptive Rust scanner. It supports track-specific Genre/Mood/Voice classification sidecars and opt-in pooled 1280D song embedding JSON exports; it does not dump per-patch vectors. See [manifest batch architecture and safety](docs/manifest-batch-adaptive-analysis.md). The work is stacked on PR #17 and does not modify the PR #16 similarity workstream. Rust compile/test/clippy and a [three-WAV official-model integration run](https://github.com/chrober/bliss-mood-poc/actions/runs/39757431757) have passed: exact serial/fixed/adaptive output parity, skip/resume and corrupted-output fail-closed behavior. Those short synthetic scans are not representative throughput benchmarks, and the new atomic file publishing change must also pass CI.
+The fixed-worker `scan-features --tracks-file` entry point accepts a private UTF-8 list of source-root-relative exact track identities, without reading the Bliss database. It writes the feature sidecar and optional atomic pooled 1280D song embedding JSON files outside audio/model roots. `--embedding-dir` requires a manifest; scans retain strict duplicate/path validation, resume/skip and single SQLite-writer semantics. The audio frontend is optional `--audio-backend essentia` with an externally provisioned original Essentia C++ worker. See [manifest architecture](docs/manifest-batch-adaptive-analysis.md) for historical design detail and [the final fixed-worker CLI guide](docs/multi-worker-song-analysis-final.md) for supported commands. Experimental online-adaptive implementation remains isolated in PR #19 and is not part of this code path.
 
 ## Development handover (2026-10-19)
 
@@ -261,45 +264,13 @@ keeps previous CLI behavior.
 }
 ~~~
 
-## Native scanner diagnostics and optional adaptive concurrency
+## Native scanner diagnostics and static concurrency
 
-The Rust scan reports **stage totals** in its JSON diagnostics: FFprobe/
-FFmpeg decode (includes file/network I/O), Mel + patch preparation, ONNX
-inference, SHA-256 audio re-read, and per-worker ONNX session load. Values
-are **sums of overlapping per-song wall times**, not exclusive CPU times.
-They must not be compared directly to whole-scan wall time. Audio hashing
-performs a second full read of every source audio file; high decode/hash
-fractions are consistent with I/O constraints, not proof of NAS saturation.
-Windows and Linux sample system-wide CPU and physical RAM about every two
-seconds as classification results arrive.
+The scanner reports stage totals for FFprobe/FFmpeg decode (including file/network I/O), Mel/patch preprocessing, ONNX inference, SHA-256 source re-read, and per-worker model-session load. These are **sums of overlapping per-song wall times**, not exclusive CPU seconds, and may exceed whole-scan wall time. Windows/Linux resource diagnostics are observational and do not change the worker count.
 
-By default fixed --workers behavior remains unchanged. The opt-in flag
-**--adaptive-workers** dynamically changes the number of concurrent
-in-flight tracks. Per-worker ONNX sessions are reused and SQLite still has
-one writer. For the measured HP Ryzen 7 7730U with 16GB memory, start at
-six workers and permit a guarded range of four to eight. In adaptive mode
-Windows sets the analyzer process priority to BelowNormal.
+The CLI defaults to one worker for compatibility. To request fixed parallelism, pass `--workers 2`, `--workers 4`, etc. For **one-time conservative CPU sizing**, specify `--workers auto`: it uses the logical CPUs visible to the process, keeps roughly a quarter (at least two where possible) available and caps the automatic selection at eight. Explicit worker values between 1 and 64 must not exceed available logical CPU capacity; values beyond this fail, never silently clamp. When worker count exceeds one, set `--threads 1` to avoid ONNX oversubscription. The pool capacity never changes during a scan; there may be fewer busy workers near completion. Under memory pressure, the process may fail or stop safely, but never dynamically shrink the pool. Manual `--priority` values (Windows only) are independent of dynamic sizing.
 
-~~~powershell
-& {
-    Set-Location 'D:\LMS\bliss-mood-poc'
-    $exe = '.\bin\windows-x64\LATEST-RUN-ID\bliss-mood.exe'
-    & $exe scan-features --bliss-db .\bliss.db --db .\adaptive-test.db --models-dir .\models --models moodtheme,genre,voice --source-root '\\192.168.1.100\music' --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 --threads 1 --max-new 100 --max-errors 3 --json
-}
-~~~
-
-The controller requires at least 24 completed songs. It lowers active
-concurrency by one after two consecutive samples at 88% RAM or 90% CPU.
-It raises by one only after three samples below 79% RAM AND 65% CPU.
-Adjustments require at least a 20-second cooldown to avoid oscillation.
-Decisions are logged as ADAPTIVE WORKERS and recorded under the JSON
-diagnostics adjustments field. No active task is cancelled and no ONNX
-environment is recreated. On a system already around 85% RAM it should
-usually hold the six-worker baseline. This is a **protective resource
-heuristic, not a proven real-time throughput optimizer**; compare controlled
-equal-work scans to infer optimum worker settings. Missing OS metrics cause
-the controller to hold current concurrency. Fresh sidecar databases are
-necessary for honest benchmark comparisons.
+The old adaptive flags are intentionally rejected. [Archived autotune research](https://github.com/chrober/bliss-mood-poc/blob/feat/ram-safe-online-autotune/docs/autotune-real-music-e2e-findings-20261028.md) documents four private 100-song campaigns (40 full scans), without a reliable short-scan throughput advantage. Experimental online-autotune and ONNX process isolation are preserved in PR #19.
 
 ## Windows executable without local Rust/Visual Studio
 

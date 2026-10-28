@@ -1,5 +1,8 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **Static scanner integration supersedes historical adaptive plans (28 Oct 2026):** New code path [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) carries verified native Essentia C++ and manifest/1280D embedding analysis without runtime worker resizing. `--workers 1` remains default, `--workers auto` is one-time conservative CPU sizing. Former dynamic/adaptive implementation and four real-music benchmark campaigns remain *research* in [PR #19](https://github.com/chrober/bliss-mood-poc/pull/19). Consult [final architecture](multi-worker-song-analysis-final.md) and [Similarity handback](handback-multi-worker-to-similarity-20261028.md) for the actual production target. Legacy instructions below may be invalid for the static CLI.
+
+
 > **CURRENT 28 OCTOBER 2026 HANDOVER:** Start with
 > [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
 > and [its copy-paste prompt](handover-prompt-adaptive-host-sizing-20261028.md).
