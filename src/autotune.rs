@@ -123,6 +123,8 @@ impl OnlineAutotuner {
         })
     }
 
+    pub fn reserve_mib(&self) -> f64 { self.reserve_mib }
+
     pub fn permits_dispatch(&self, in_flight: usize) -> bool {
         in_flight < self.active
     }
