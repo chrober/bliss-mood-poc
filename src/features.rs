@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use crate::{ffmpeg_pcm_mono_16k, preprocess, sha256_file, storage, Timing};
+use crate::{preprocess, sha256_file, storage, Timing};
 use crate::essentia_worker::{BackendChoice, EssentiaWorker};
 
 const PREPROCESSING: &str = crate::audio_decode::RUST_PREPROCESSING;
@@ -348,7 +348,9 @@ impl FeatureEngine {
             }
             None => {
                 let at = Instant::now();
-                let audio = ffmpeg_pcm_mono_16k(path)?;
+                let audio = crate::audio_decode::ffmpeg_pcm_mono_16k_cancelable(
+                    path, self.cancellation.as_deref(),
+                )?;
                 let decode_seconds = at.elapsed().as_secs_f64();
                 let at = Instant::now();
                 let mel = preprocess::mel_spectrogram(&audio)?;
