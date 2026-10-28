@@ -41,7 +41,7 @@ fn repeated_request_id_poison_retires_worker_without_implicit_retry() {
     ).unwrap();
     assert!(child.request(WorkerRequest::ping(7, 1)).is_ok());
     let error = child.request(WorkerRequest::ping(7, 2))
-        .err().expect("duplicate ID must be rejected by persistent worker");
+        .expect_err("duplicate ID must be rejected by persistent worker");
     assert!(format!("{error:#}").contains("exited") ||
         format!("{error:#}").contains("failed") ||
         format!("{error:#}").contains("fill whole buffer"));
@@ -56,7 +56,7 @@ fn owned_worker_is_hard_killed_on_timeout() {
     ).unwrap();
     let start = Instant::now();
     let error = child.request(WorkerRequest::test_delay(1, 5000))
-        .err().expect("timeout must stop blocked child");
+        .expect_err("timeout must stop blocked child");
     assert!(format!("{error:#}").contains("timeout"));
     assert!(start.elapsed() < Duration::from_secs(3));
     assert!(child.request(WorkerRequest::ping(2, 0)).is_err());
@@ -99,6 +99,50 @@ fn cancellation_before_dispatch_retires_idle_worker() {
     let err = worker.request(WorkerRequest::ping(2, 2)).unwrap_err();
     assert!(format!("{err:#}").contains("cancelled"));
     assert!(worker.request(WorkerRequest::ping(3, 3)).is_err());
+}
+
+#[test]
+fn model_initialization_rejects_missing_onnx_files_without_silent_fallback() {
+    let mut worker = FeatureWorkerProcess::spawn(
+        binary(), Duration::from_secs(5), Arc::new(AtomicBool::new(false))
+    ).unwrap();
+    let absent = std::env::temp_dir().join(format!(
+        "lyrion-nonexistent-onnx-{}-{}", std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let request = WorkerRequest {
+        version: 1, request_id: 1,
+        operation: WorkerOperation::Initialize {
+            models_dir: absent,
+            registry: None,
+            models: "moodtheme,genre,voice".to_owned(),
+            audio_backend: "rust".to_owned(),
+            essentia_worker: None,
+            essentia_timeout_seconds: 900,
+            threads: 1,
+            export_embedding: true,
+        },
+    };
+    assert!(worker.request(request).is_err(), "invalid models must fail closed");
+    assert!(worker.request(WorkerRequest::ping(2, 5)).is_err(),
+        "erroring model init must retire the process");
+}
+
+#[test]
+fn song_request_before_initialization_fails_without_touching_audio_or_sqlite() {
+    let mut worker = FeatureWorkerProcess::spawn(
+        binary(), Duration::from_secs(5), Arc::new(AtomicBool::new(false))
+    ).unwrap();
+    let request = WorkerRequest {
+        version: 1, request_id: 1,
+        operation: WorkerOperation::AnalyzeSong {
+            source: std::path::PathBuf::from("never-read-me.wav"),
+            max_patches: None,
+        },
+    };
+    assert!(worker.request(request).is_err());
+    assert!(worker.request(WorkerRequest::ping(2, 9)).is_err());
 }
 
 #[test]
