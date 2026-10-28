@@ -13,6 +13,8 @@ from contextlib import closing
 import csv
 import json
 import math
+import os
+import ctypes
 from pathlib import Path
 import random
 import sqlite3
@@ -111,6 +113,90 @@ def exact_feature_rows(db: Path, track_keys: list[str],
 
 POLICY_MODES = ("fixed6", "adaptive2_gate24", "adaptive4_gate24",
                 "adaptive6_gate24", "adaptive2_gate8")
+SCALING_MODES = ("fixed6", "fixed8", "fixed10", "fixed12")
+
+
+def windows_memory_snapshot() -> dict[str, float] | None:
+    """Physical RAM headroom, independent of completion-driven scanner sampling.
+
+    Return None on unsupported platforms or failed Windows API calls: actual
+    scaling runs fail closed rather than interpreting missing data as free RAM.
+    """
+    if os.name != "nt":
+        return None
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    state = MEMORYSTATUSEX()
+    state.dwLength = ctypes.sizeof(state)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(state)):
+        return None
+    return {
+        "available_mib": state.ullAvailPhys / 1048576.0,
+        "total_mib": state.ullTotalPhys / 1048576.0,
+        "ram_percent": float(state.dwMemoryLoad),
+    }
+
+
+def memory_guard_reason(snapshot: dict[str, float] | None,
+                        min_available_mib: float,
+                        max_ram_percent: float) -> str | None:
+    if snapshot is None:
+        return "Unable to read Windows physical RAM; refusing unsafe scan"
+    if not all(math.isfinite(v) for v in snapshot.values()):
+        return "Invalid Windows physical RAM telemetry"
+    if snapshot["available_mib"] < min_available_mib:
+        return (f"Available physical RAM {snapshot['available_mib']:.0f} MiB "
+                f"below safety reserve {min_available_mib:.0f} MiB")
+    if snapshot["ram_percent"] >= max_ram_percent:
+        return (f"System RAM {snapshot['ram_percent']:.1f}% "
+                f"at/above safety limit {max_ram_percent:.1f}%")
+    return None
+
+
+def run_scanner_guarded(cmd: list[str], out, err,
+                        min_available_mib: float,
+                        max_ram_percent: float) -> tuple[int, float]:
+    """Monitor Windows RAM once per second; stop the entire native process tree.
+
+    This safety gate is independent of the adaptive controller and thus also
+    protects fixed-12 experiments. No result is declared valid on abort.
+    """
+    first = windows_memory_snapshot()
+    reason = memory_guard_reason(first, min_available_mib, max_ram_percent)
+    if reason:
+        raise RuntimeError("RAM safety preflight: " + reason)
+    min_seen = first["available_mib"]
+    with subprocess.Popen(cmd, stdout=out, stderr=err) as proc:
+        while proc.poll() is None:
+            snapshot = windows_memory_snapshot()
+            reason = memory_guard_reason(snapshot, min_available_mib, max_ram_percent)
+            if reason:
+                # Windows tree termination covers native Essentia child processes;
+                # killing only the Rust parent would leave ONNX workers running.
+                try:
+                    if os.name == "nt":
+                        subprocess.run(
+                            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            check=False, timeout=15,
+                        )
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.wait()
+                raise RuntimeError("RAM safety stop: " + reason)
+            min_seen = min(min_seen, snapshot["available_mib"])
+            time.sleep(1)
+        return proc.returncode, min_seen
+
 
 
 def mode_configuration(mode: str) -> tuple[int, bool, int, int]:
@@ -122,16 +208,16 @@ def mode_configuration(mode: str) -> tuple[int, bool, int, int]:
         return workers, True, 2, gate
     if mode == "adaptive2":
         return 2, True, 1, 24
-    if mode in ("fixed1", "fixed2", "fixed4", "fixed6"):
+    if mode in ("fixed1", "fixed2", "fixed4", "fixed6", "fixed8", "fixed10", "fixed12"):
         return int(mode.removeprefix("fixed")), False, 1, 24
     raise ValueError(f"Unknown bounded benchmark mode: {mode}")
 
 
 def schedule(repeats: int, seed: int, experiment: str = "baseline") -> list[tuple[int, str]]:
-    modes = list(POLICY_MODES) if experiment == "adaptive-policy" else [
-        "fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"
-    ]
-    if experiment not in ("baseline", "adaptive-policy"):
+    modes = (list(SCALING_MODES) if experiment == "native-scaling" else
+             list(POLICY_MODES) if experiment == "adaptive-policy" else
+             ["fixed1", "fixed2", "fixed4", "fixed6", "adaptive2"])
+    if experiment not in ("baseline", "adaptive-policy", "native-scaling"):
         raise ValueError("Unknown experiment")
     rng = random.Random(seed)
     rng.shuffle(modes)
@@ -178,10 +264,12 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
     with stdout_path.open("w", encoding="utf-8") as out, stderr_path.open(
         "w", encoding="utf-8"
     ) as err:
-        proc = subprocess.run(cmd, stdout=out, stderr=err, check=False)
+        returncode, guarded_ram_min_mib = run_scanner_guarded(
+            cmd, out, err, args.min_available_ram_mib, args.max_system_ram_percent
+        )
     elapsed = time.perf_counter() - start
-    if proc.returncode != 0:
-        raise RuntimeError(f"{stem} failed (exit {proc.returncode}); inspect {stderr_path}")
+    if returncode != 0:
+        raise RuntimeError(f"{stem} failed (exit {returncode}); inspect {stderr_path}")
     summary = json.loads(stdout_path.read_text(encoding="utf-8"))
     validate_report(summary, expected)
     diag = summary.get("diagnostics") or {}
@@ -217,6 +305,18 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
             raise AssertionError("Adaptive controller violated gate or worker bounds")
     elif adjustments or diag.get("adaptive_min_completed_songs") is not None:
         raise AssertionError("Fixed worker run unexpectedly changed worker count or gate")
+    if not is_adaptive:
+        if (diag.get("initial_workers") != workers
+                or diag.get("final_workers") != workers
+                or diag.get("configured_max_workers") != workers):
+            raise AssertionError(f"{stem}: scanner did not honor fixed {workers} workers")
+    if diag.get("logical_cpu_capacity", 0) < workers:
+        raise AssertionError(f"{stem}: reported CPU capacity below requested workers")
+    peak_active = diag.get("peak_active_analyses")
+    if not isinstance(peak_active, int) or not 1 <= peak_active <= workers:
+        raise AssertionError(f"{stem}: invalid observed concurrency")
+    if not 1 <= diag.get("native_child_processes_max", 0) <= workers:
+        raise AssertionError(f"{stem}: missing or excessive native Essentia processes")
     record = {
         "round": round_no, "mode": mode,
         "requested_priority": args.scan_priority,
@@ -244,6 +344,11 @@ def analyze(args: argparse.Namespace, round_no: int, mode: str,
         "system_cpu_average_percent": diag.get("system_cpu_average_percent"),
         "system_cpu_max_percent": diag.get("system_cpu_max_percent"),
         "system_ram_max_percent": diag.get("system_ram_max_percent"),
+        "system_available_ram_min_mib": diag.get("system_available_ram_min_mib"),
+        "guarded_available_ram_min_mib": round(guarded_ram_min_mib, 2),
+        "process_private_mib_max": diag.get("process_private_bytes_max_mib"),
+        "native_child_private_mib_max": diag.get("native_child_private_bytes_max_mib"),
+        "process_tree_working_set_mib_max": diag.get("process_tree_working_set_max_mib"),
         "process_tree_private_mib_max": diag.get("process_tree_private_bytes_max_mib"),
         "process_tree_incomplete_samples": diag.get("process_tree_incomplete_samples"),
         "native_child_processes_max": diag.get("native_child_processes_max"),
@@ -272,6 +377,17 @@ def summarize(runs: list[dict]) -> list[dict]:
                  if g["process_tree_private_mib_max"] is not None),
                 default=None),
             "observed_adaptive_adjustments": sum(g["adjustments"] for g in group),
+            "min_guarded_available_ram_mib": round(min(
+                g["guarded_available_ram_min_mib"] for g in group), 2),
+            "peak_native_child_private_mib": max((
+                g["native_child_private_mib_max"] for g in group
+                if g["native_child_private_mib_max"] is not None), default=None),
+            "median_system_cpu_average_percent": (
+                round(statistics.median(
+                    g["system_cpu_average_percent"] for g in group), 2)
+                if all(g["system_cpu_average_percent"] is not None for g in group)
+                else None),
+
         }
         for mode, group in sorted(groups.items())
     ]
@@ -290,9 +406,9 @@ def main() -> None:
     parser.add_argument("--models", default="moodtheme,genre,voice")
     parser.add_argument("--expected-tracks", type=int,
                         help="Fail if the deliberate sample has a different song count")
-    parser.add_argument("--experiment", choices=("baseline", "adaptive-policy"),
+    parser.add_argument("--experiment", choices=("baseline", "adaptive-policy", "native-scaling"),
                         default="baseline",
-                        help="Baseline fixed 1/2/4/6 vs adaptive 2, or controlled 5-mode adaptive policy study")
+                        help="Baseline, controlled adaptive policy, or fixed 6/8/10/12 native scaling")
     parser.add_argument("--scan-priority", choices=("normal", "below-normal", "above-normal"),
                         default="normal",
                         help="Apply identical observed Windows priority to all scan modes")
@@ -300,7 +416,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261022)
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--min-available-ram-mib", type=float, default=1536,
+                        help="Fail closed and stop full process tree below this available physical RAM")
+    parser.add_argument("--max-system-ram-percent", type=float, default=90,
+                        help="Fail closed and stop full process tree at this system RAM percentage")
     args = parser.parse_args()
+    if (not math.isfinite(args.min_available_ram_mib)
+            or args.min_available_ram_mib < 512
+            or not math.isfinite(args.max_system_ram_percent)
+            or not 50 <= args.max_system_ram_percent <= 95):
+        parser.error("RAM safety requires reserve >=512 MiB and max RAM 50..95%")
     if args.repeats not in (2, 4):
         parser.error("--repeats must be 2 or 4 for balanced run order")
     if not 1 <= args.timeout_seconds <= 7200:
@@ -344,6 +469,14 @@ def main() -> None:
                      indent=2))
     if args.plan_only:
         return
+    if os.name != "nt":
+        parser.error("Actual native-scaling benchmarks require Windows RAM safety telemetry")
+    if args.experiment == "native-scaling" and (os.cpu_count() or 0) < 12:
+        parser.error("Native scaling requires at least 12 logical CPUs; no oversubscription")
+    reason = memory_guard_reason(
+        windows_memory_snapshot(), args.min_available_ram_mib, args.max_system_ram_percent)
+    if reason:
+        parser.error("RAM safety preflight: " + reason)
     args.cohort = mapped
     args.manifest_file = args.output_dir / "selected-tracks.txt"
     args.analyzer = args.analyzer.resolve()
@@ -370,6 +503,8 @@ def main() -> None:
         "models": args.models,
         "experiment": args.experiment,
         "scan_priority": args.scan_priority,
+        "min_available_ram_mib": args.min_available_ram_mib,
+        "max_system_ram_percent": args.max_system_ram_percent,
         "schedule": plan,
         "note": "PRIVATE LOCAL BENCHMARK; never commit or upload outputs",
     }
@@ -395,6 +530,10 @@ def main() -> None:
                         "aggregates": summarize(records),
                         "exact_numeric_parity": True},
                        indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        with (args.output_dir / "runs.csv").open("w", newline="", encoding="utf-8") as csvout:
+            writer = csv.DictWriter(csvout, fieldnames=list(records[0]))
+            writer.writeheader()
+            writer.writerows(records)
         print(f"PASS {ordinal}/{len(plan)} {mode}: {rec['wall_seconds']:.2f}s; "
               f"resizes={rec['adjustments']}", flush=True)
     if digest(args.cohort_db) != original_cohort_hash:
