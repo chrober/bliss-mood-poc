@@ -451,6 +451,23 @@ mod native {
         None
     }
 
+    /// Aggregate remaining headroom of every visible constraining cgroup.
+    /// A parent's limit can be tighter than the current child even if its
+    /// memory.max is 'max'; the minimum free value governs admission.
+    pub(super) fn tighten_cgroup_budget(
+        previous: Option<(u64, u64)>, limit: u64, usage: u64, host_total: u64,
+    ) -> Option<(u64, u64)> {
+        if limit == 0 || limit >= host_total {
+            return previous;
+        }
+        let free = limit.saturating_sub(usage);
+        Some(match previous {
+            Some((smallest_total, smallest_free)) =>
+                (smallest_total.min(limit), smallest_free.min(free)),
+            None => (limit, free),
+        })
+    }
+
     /// Consider all *visible* ancestor cgroup limits, not just the child or
     /// mount root. A child can be 'max' while its parent is strongly limited.
     fn cgroup_memory(host_total: u64) -> Option<(u64, u64)> {
@@ -475,14 +492,7 @@ mod native {
                 let usage = fs::read_to_string(dir.join(usage_name))
                     .ok().and_then(|v| v.trim().parse::<u64>().ok());
                 if let (Some(limit), Some(usage)) = (limit, usage) {
-                    if limit > 0 && limit < host_total {
-                        let free = limit.saturating_sub(usage);
-                        tightest = Some(match tightest {
-                            Some((smallest_total, smallest_free)) =>
-                                (smallest_total.min(limit), smallest_free.min(free)),
-                            None => (limit, free),
-                        });
-                    }
+                    tightest = tighten_cgroup_budget(tightest, limit, usage, host_total);
                 }
                 if dir == root || !dir.pop() || !dir.starts_with(root) { break; }
             }
@@ -549,6 +559,21 @@ mod tests {
             native::cgroup_relative_path("0::/", true).unwrap(),
             std::path::PathBuf::new()
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parent_cgroup_pressure_limits_child_memory_even_if_child_has_headroom() {
+        const MIB: u64 = 1024 * 1024;
+        let host = 16 * 1024 * MIB;
+        // Parent has only 600 MiB left, although child reports 1.5 GiB.
+        let parent = native::tighten_cgroup_budget(None, 4096 * MIB, 3496 * MIB, host);
+        let child = native::tighten_cgroup_budget(parent, 2048 * MIB, 512 * MIB, host);
+        assert_eq!(child, Some((2048 * MIB, 600 * MIB)));
+        // Unlimited child and overcommitted child never create extra headroom.
+        assert_eq!(native::tighten_cgroup_budget(child, u64::MAX, 0, host), child);
+        assert_eq!(native::tighten_cgroup_budget(child, 1024 * MIB, 2048 * MIB, host),
+                   Some((1024 * MIB, 0)));
     }
 
     #[cfg(target_os = "linux")]
