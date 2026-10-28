@@ -1,6 +1,6 @@
 //! Phase C vertical slice: a bounded, versioned IPC protocol to a supervised
-//! instance of this executable. No ONNX or audio is sent yet; the real
-//! FeatureEngine remains on its validated thread path until parity is proven.
+//! instance of this executable. Its hidden child already supports the real
+//! ONNX FeatureEngine; scan-features is not migrated until real-audio parity.
 #![allow(dead_code)] // Supervised client is staged until the actual ONNX migration.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,137 @@ use std::os::unix::process::CommandExt;
 unsafe extern "C" {
     #[link_name = "kill"]
     fn signal_process_group(process_group: i32, signal: i32) -> i32;
+}
+
+// Windows 8+ supports nested Job Objects. The worker is assigned before
+// any IPC is dispatched, so it cannot launch Essentia/FFmpeg descendants
+// outside the Job between creation and assignment. Fail closed on any error.
+#[cfg(windows)]
+mod windows_job {
+    use anyhow::{Context, Result};
+    use std::{ffi::c_void, io, mem, os::windows::io::AsRawHandle, process::Child, ptr};
+    type Handle = *mut c_void;
+    const EXTENDED_LIMIT_INFO: i32 = 9;
+    const KILL_ON_JOB_CLOSE: u32 = 0x2000;
+
+    #[repr(C)]
+    struct BasicLimits {
+        per_process_user_time: i64,
+        per_job_user_time: i64,
+        limit_flags: u32,
+        minimum_working_set: usize,
+        maximum_working_set: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+    #[repr(C)]
+    struct IoCounters {
+        read_ops: u64, write_ops: u64, other_ops: u64,
+        read_bytes: u64, write_bytes: u64, other_bytes: u64,
+    }
+    #[repr(C)]
+    struct ExtendedLimits {
+        basic: BasicLimits,
+        io: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory: usize,
+        peak_job_memory: usize,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(job: Handle, class: i32, data: *const c_void, len: u32) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    pub(super) struct OwnedJob(Handle);
+    impl OwnedJob {
+        pub(super) fn attach(child: &Child) -> Result<Self> {
+            // SAFETY: no attributes or name; the returned handle is owned here.
+            let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+            if handle.is_null() {
+                return Err(io::Error::last_os_error()).context("CreateJobObjectW failed");
+            }
+            let job = Self(handle);
+            // SAFETY: zeroed repr(C) POD has valid representation.
+            let mut limits: ExtendedLimits = unsafe { mem::zeroed() };
+            limits.basic.limit_flags = KILL_ON_JOB_CLOSE;
+            // SAFETY: valid owned Job handle and pointer to a live C ABI struct.
+            let configured = unsafe {
+                SetInformationJobObject(job.0, EXTENDED_LIMIT_INFO,
+                    (&raw const limits).cast(), mem::size_of::<ExtendedLimits>() as u32)
+            };
+            if configured == 0 {
+                return Err(io::Error::last_os_error())
+                    .context("Windows Job Object KILL_ON_JOB_CLOSE setup failed");
+            }
+            // SAFETY: Child owns a live process handle with assignment rights.
+            // No IPC request is sent before this function returns successfully.
+            let assigned = unsafe {
+                AssignProcessToJobObject(job.0, child.as_raw_handle().cast())
+            };
+            if assigned == 0 {
+                return Err(io::Error::last_os_error())
+                    .context("AssignProcessToJobObject failed");
+            }
+            Ok(job)
+        }
+    }
+    impl Drop for OwnedJob {
+        fn drop(&mut self) {
+            // SAFETY: close exactly the unique handle created above.
+            unsafe { CloseHandle(self.0); }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::{io::BufRead, io::BufReader, process::{Command, Stdio}};
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
+            fn IsProcessInJob(process: Handle, job: Handle, in_job: *mut i32) -> i32;
+            fn WaitForSingleObject(handle: Handle, timeout_ms: u32) -> u32;
+        }
+        #[test]
+        fn kill_on_close_terminates_actual_windows_grandchild() {
+            // Powershell is available on windows-2022. Entirely synthetic
+            // 20-second sleepers, no music, models or private artifacts.
+            let script = "$p=Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 20') -PassThru -WindowStyle Hidden; [Console]::WriteLine($p.Id); Start-Sleep -Seconds 20";
+            let mut cmd = Command::new("powershell.exe");
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+            let mut root = super::super::OwnedChild::attach(
+                cmd.spawn().expect("spawn root")
+            ).expect("root must be in a kill-on-close Job");
+            let mut line = String::new();
+            BufReader::new(root.child.stdout.take().unwrap())
+                .read_line(&mut line).expect("read descendant PID");
+            let pid: u32 = line.trim().parse().expect("descendant PID");
+            const SYNCHRONIZE: u32 = 0x0010_0000;
+            const QUERY_LIMITED: u32 = 0x1000;
+            // SAFETY: pid was just returned by Start-Process; handle is retained.
+            let descendant = unsafe { OpenProcess(SYNCHRONIZE | QUERY_LIMITED, 0, pid) };
+            assert!(!descendant.is_null(), "cannot inspect descendant");
+            let mut in_job = 0;
+            // SAFETY: handles are valid; in_job points to a writable BOOL.
+            let result = unsafe {
+                IsProcessInJob(descendant, root.job.as_ref().unwrap().0, &mut in_job)
+            };
+            assert_ne!(result, 0, "IsProcessInJob failed");
+            assert_ne!(in_job, 0, "grandchild escaped its Job");
+            drop(root); // must kill root AND grandchild.
+            // SAFETY: OpenProcess kept the descendant object live for waiting.
+            let waited = unsafe { WaitForSingleObject(descendant, 5000) };
+            unsafe { CloseHandle(descendant); }
+            assert_eq!(waited, 0, "grandchild survived Job close");
+        }
+    }
 }
 
 const PROTOCOL_VERSION: u16 = 1;
@@ -182,25 +313,54 @@ pub fn serve_stdio(
     Ok(())
 }
 
-struct OwnedChild(Child);
+struct OwnedChild {
+    child: Child,
+    #[cfg(windows)]
+    job: Option<windows_job::OwnedJob>,
+}
+
+impl OwnedChild {
+    fn attach(child: Child) -> Result<Self> {
+        #[cfg(windows)]
+        {
+            let mut child = child;
+            let job = match windows_job::OwnedJob::attach(&child) {
+                Ok(job) => job,
+                Err(error) => {
+                    // Never dispatch an ONNX request without containment.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            };
+            Ok(Self { child, job: Some(job) })
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(Self { child })
+        }
+    }
+}
 
 impl Drop for OwnedChild {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            // Close Job first to kill descendants before reaping the leader.
+            drop(self.job.take());
+        }
         #[cfg(unix)]
         {
-            // Our supervised executable was spawned as a new process group
-            // leader. Negative PGID targets its descendants as well as itself.
-            // Signal *before* wait/reap, avoiding leader PID reuse.
-            if let Ok(group) = i32::try_from(self.0.id()) {
+            // Signal the owned process group before reaping the leader.
+            if let Ok(group) = i32::try_from(self.child.id()) {
                 if group > 0 {
-                    // SAFETY: POSIX kill(-pgid, SIGKILL) targets only the
-                    // process group owned by this specifically spawned child.
+                    // SAFETY: negative PGID is for the still-owned child group.
                     unsafe { signal_process_group(-group, 9); }
                 }
             }
         }
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -228,10 +388,11 @@ impl FeatureWorkerProcess {
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
         #[cfg(unix)]
         command.process_group(0);
-        let mut child = OwnedChild(command.spawn()
-            .with_context(|| format!("Cannot start feature worker {}", executable.display()))?);
-        let stdin = child.0.stdin.take().context("Feature-worker stdin unavailable")?;
-        let stdout = child.0.stdout.take().context("Feature-worker stdout unavailable")?;
+        let mut child = OwnedChild::attach(command.spawn()
+            .with_context(|| format!("Cannot start feature worker {}", executable.display()))?)
+            .context("Cannot confine feature-worker child")?;
+        let stdin = child.child.stdin.take().context("Feature-worker stdin unavailable")?;
+        let stdout = child.child.stdout.take().context("Feature-worker stdout unavailable")?;
         Ok(Self {
             child: Some(child), stdin: Some(stdin), stdout: Some(stdout),
             handshake_pending: true, timeout, cancellation,
