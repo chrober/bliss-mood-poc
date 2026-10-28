@@ -159,6 +159,26 @@ mod tests {
     }
 
     #[test]
+    fn separate_scans_have_isolated_cancellation_signals() {
+        let troubled = MemoryWatchdog::start_with_sampler(
+            512.0, Duration::from_millis(2), || Some(100.0)
+        ).unwrap();
+        let healthy = MemoryWatchdog::start_with_sampler(
+            512.0, Duration::from_millis(2), || Some(2400.0)
+        ).unwrap();
+        for _ in 0..100 {
+            if troubled.check().is_err() { break; }
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(troubled.check().is_err());
+        assert!(troubled.cancellation_token().load(Ordering::Acquire));
+        assert!(healthy.check().is_ok());
+        assert!(!healthy.cancellation_token().load(Ordering::Acquire));
+        troubled.request_cancel();
+        assert!(healthy.check().is_ok());
+    }
+
+    #[test]
     fn watchdog_stops_cleanly_without_spurious_fault() {
         let watch = MemoryWatchdog::start_with_sampler(
             512.0, Duration::from_millis(2), || Some(2000.0)
