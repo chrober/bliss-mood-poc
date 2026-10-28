@@ -535,7 +535,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn parses_safe_unified_and_legacy_cgroup_paths() {
-        let fixture = "0::/user.slice/app.scope\\n5:cpu,memory:/docker/child\\n";
+        let fixture = "0::/user.slice/app.scope\n5:cpu,memory:/docker/child\n";
         assert_eq!(
             native::cgroup_relative_path(fixture, true).unwrap(),
             std::path::PathBuf::from("user.slice/app.scope")
