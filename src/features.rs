@@ -237,6 +237,7 @@ pub struct FeatureEngine {
     frontend: Option<EssentiaWorker>,
     preprocessing: &'static str,
     cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    decoder_worker_budget: usize,
 }
 
 fn classify(session: &mut Session, vector: &[f32], count: usize, kind: OutputType) -> Result<Vec<f32>> {
@@ -279,12 +280,13 @@ impl FeatureEngine {
     pub fn with_backend(
         profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
     ) -> Result<Self> {
-        Self::with_backend_cancel(profiles, threads, backend, None)
+        Self::with_backend_cancel(profiles, threads, backend, None, 1)
     }
 
     fn with_backend_cancel(
         profiles: Vec<Profile>, threads: usize, backend: &BackendChoice,
         cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        decoder_worker_budget: usize,
     ) -> Result<Self> {
         if profiles.is_empty() || threads == 0 {
             bail!("At least one model and one inference thread required");
@@ -322,7 +324,7 @@ impl FeatureEngine {
         Ok(Self { encoder, heads, load_secs: started.elapsed().as_secs_f64(),
             counted_load: false, threads, frontend,
             embedding_enabled: false, last_song_embedding: None,
-            preprocessing: backend.preprocessing(), cancellation })
+            preprocessing: backend.preprocessing(), cancellation, decoder_worker_budget })
     }
 
     /// An opt-in f64 pooled 1280D song embedding. Legacy scans never enable it.
@@ -349,7 +351,7 @@ impl FeatureEngine {
             None => {
                 let at = Instant::now();
                 let audio = crate::audio_decode::ffmpeg_pcm_mono_16k_cancelable(
-                    path, self.cancellation.as_deref(),
+                    path, self.cancellation.as_deref(), self.decoder_worker_budget,
                 )?;
                 let decode_seconds = at.elapsed().as_secs_f64();
                 let at = Instant::now();
@@ -1218,6 +1220,7 @@ fn scan_parallel(
                             .map(|report| (report, engine.take_song_embedding())),
                         None => match FeatureEngine::with_backend_cancel(
                             profiles.clone(), options.threads, &backend, cancellation.clone(),
+                            pool_size,
                         ) {
                             Ok(mut created) => {
                                 if options.embedding_dir.is_some() {
