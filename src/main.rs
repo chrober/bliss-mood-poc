@@ -9,6 +9,7 @@ mod essentia_worker;
 mod feature_lookup;
 mod parallel;
 mod resources;
+mod autotune;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -198,6 +199,9 @@ enum Action {
         /// Explicit limits above the host capacity fail instead of oversubscribing.
         #[arg(long, default_value = "auto", value_parser = parse_max_workers_spec)]
         max_workers: usize,
+        /// Opt-in nonmonotonic throughput exploration, or the legacy threshold policy.
+        #[arg(long, default_value = "resource", value_parser = ["resource", "autotune"])]
+        adaptive_policy: String,
         /// Minimum completed songs before either adaptive up/down adjustment.
         /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
         #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
@@ -474,10 +478,13 @@ fn main() -> Result<()> {
             source_root, only_track, max_new, max_errors, threads, workers,
             audio_backend, essentia_worker, essentia_timeout_seconds,
             adaptive_workers, priority, min_workers, max_workers,
-            adaptive_min_completed_songs, dry_run, json,
+            adaptive_policy, adaptive_min_completed_songs, dry_run, json,
         } => {
             if tracks_file.is_some() && library_root.is_some() {
                 bail!("--library-root is only supported with --bliss-db");
+            }
+            if adaptive_policy == "autotune" && !adaptive_workers {
+                bail!("--adaptive-policy autotune requires --adaptive-workers");
             }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
             let max_workers = parallel::max_worker_count(max_workers)?;
@@ -509,6 +516,7 @@ fn main() -> Result<()> {
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
                 adaptive_workers, min_workers, max_workers,
+                adaptive_policy: &adaptive_policy,
                 adaptive_min_completed_songs: adaptive_gate, dry_run, backend,
             })?;
             priority_report.collect_native_workers();
