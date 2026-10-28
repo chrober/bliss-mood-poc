@@ -10,6 +10,7 @@ mod feature_lookup;
 mod parallel;
 mod resources;
 mod autotune;
+mod memory_watchdog;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
