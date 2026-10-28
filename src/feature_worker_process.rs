@@ -110,10 +110,15 @@ pub fn serve_stdio() -> Result<()> {
     let mut writer = output.lock();
     writer.write_all(HELLO)?;
     writer.flush()?;
+    let mut last_request_id = 0_u64;
     while let Some(payload) = read_frame(&mut reader, REQUEST)? {
         let request: WorkerRequest = serde_json::from_slice(&payload)
             .context("Malformed feature-worker request")?;
         require_valid_request(&request)?;
+        if request.request_id <= last_request_id {
+            bail!("Feature-worker request IDs must increase monotonically");
+        }
+        last_request_id = request.request_id;
         let (reply, stop) = match request.operation {
             WorkerOperation::Ping { nonce } => (WorkerReply::Pong { nonce }, false),
             WorkerOperation::Shutdown => (WorkerReply::Stopping, true),
@@ -221,6 +226,10 @@ impl FeatureWorkerProcess {
                     break Err(anyhow::anyhow!("Feature-worker IPC transport disconnected")),
             }
         };
+        // Do not accept a successful response after a concurrent RAM alarm.
+        let outcome = if self.cancellation.load(Ordering::Acquire) {
+            Err(anyhow::anyhow!("Feature-worker request cancelled by RAM watchdog"))
+        } else { outcome };
         // A failed request must not leave a live worker in the background.
         if outcome.is_err() {
             drop(child);
