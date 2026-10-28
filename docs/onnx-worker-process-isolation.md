@@ -1,5 +1,8 @@
 # Isolating ONNX inference in killable worker processes
 
+> **Live implementation/CI audit, 28 October 2026:** See [current Phase C handover](handover-phase-c-isolated-worker-20261028.md). On inspected source `e2b1a0a4bd256d88e8704abcc8bf158878296ddc`, the hidden child actually runs initialized `FeatureEngine` inference and can return optional 1280D pooled embeddings. The exact direct-versus-isolated comparator is implemented but has **no recorded private real-model parity PASS**. The parent `scan-features` remains on the old in-process worker-thread path. Rust tests/Clippy, Windows binary, Genre and Voice workflows passed; **Linux and Windows native Essentia workflows failed**, the former due to missing `crate::resources` in the ONNX-free `rust-mel-reference` crate. Windows pinned-source integrity failure requires investigation, not pin bypass. Unix process-group teardown does **not** equal Windows process-tree containment. Treat older "first synthetic slice" wording below as historical milestones, not the current endpoint.
+
+
 **Status (28 October 2026): staged real-FeatureEngine child execution is implemented in Draft PR #19, but not integrated into `scan-features`, not numerically parity-validated on real audio and not production RAM-safe.** This is the next safety boundary for experimental online autotune, after scan-local cancellation of native Essentia IPC and the experimental FFmpeg child. It must not change model evaluation, preprocessing, embedding sums, classifier scores, or SQLite storage semantics.
 
 ## Why cooperative checks are insufficient
