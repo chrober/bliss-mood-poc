@@ -3,13 +3,15 @@
 //! It controls admission; already-running native sessions are not destroyed.
 use anyhow::{bail, Result};
 use serde::Serialize;
-use std::{collections::BTreeSet, time::{Duration, Instant}};
+use std::{collections::{BTreeMap, BTreeSet, VecDeque}, time::{Duration, Instant}};
 
 const WORKER_MEMORY_FLOOR_MIB: f64 = 256.0;
 const RESERVE_MIN_MIB: f64 = 512.0;
 const MIN_EPOCH_SONGS: usize = 8;
 const MIN_EPOCH_DURATION: Duration = Duration::from_secs(12);
 const IMPROVEMENT_MARGIN: f64 = 0.05;
+const MAX_RETAINED_PROBES: usize = 256;
+const RECENT_SAMPLES_PER_WORKER: usize = 8;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Probe {
@@ -31,6 +33,17 @@ pub struct TuningCounters {
     pub insufficient_work_holds: usize,
 }
 
+/// Bounded rolling evidence per worker count. The ranges are descriptive,
+/// not formal confidence intervals: workloads change between song windows.
+#[derive(Debug, Serialize)]
+pub struct CandidateEvidence {
+    pub workers: usize,
+    pub samples: usize,
+    pub median_patches_per_second: f64,
+    pub minimum_patches_per_second: f64,
+    pub maximum_patches_per_second: f64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TuningAdjustment {
     pub after_completed_songs: usize,
@@ -48,6 +61,11 @@ pub struct TuningDiagnostics {
     pub best_tested_workers: Option<usize>,
     pub best_observed_patches_per_second: Option<f64>,
     pub search_completed: bool,
+    pub replication_completed: bool,
+    pub observed_ranges_separated: bool,
+    pub candidate_evidence: Vec<CandidateEvidence>,
+    pub total_probes: usize,
+    pub retained_probe_limit: usize,
     pub reserve_mib: f64,
     pub estimated_incremental_worker_mib: f64,
     pub probes: Vec<Probe>,
@@ -72,6 +90,8 @@ pub struct OnlineAutotuner {
     epoch_baseline_patches: usize,
     best: Option<(usize, f64)>,
     probes: Vec<Probe>,
+    evidence: BTreeMap<usize, VecDeque<f64>>,
+    visited: BTreeSet<usize>,
     adjustments: Vec<TuningAdjustment>,
     counters: TuningCounters,
     last_available_mib: f64,
@@ -119,6 +139,7 @@ impl OnlineAutotuner {
             next_candidate: 0, epoch_start: now, epoch_songs: 0,
             epoch_patches: 0, epoch_baseline_completed: 0,
             epoch_baseline_patches: 0, best: None, probes: Vec::new(),
+            evidence: BTreeMap::new(), visited: BTreeSet::new(),
             adjustments: Vec::new(), counters: TuningCounters::default(),
             last_available_mib: available, exploit_epochs: 0, draining: false,
         })
@@ -193,6 +214,9 @@ impl OnlineAutotuner {
             self.reset_epoch(now, completed, total_patches);
             return Ok(());
         }
+        if self.probes.len() == MAX_RETAINED_PROBES {
+            self.probes.remove(0);
+        }
         self.probes.push(Probe {
             workers: self.active,
             completed_songs: self.epoch_songs,
@@ -202,9 +226,13 @@ impl OnlineAutotuner {
             songs_per_minute: 60.0 * self.epoch_songs as f64 / seconds,
         });
         self.counters.probes += 1;
-        if self.best.is_none_or(|(_, speed)| measure > speed * (1.0 + IMPROVEMENT_MARGIN)) {
-            self.best = Some((self.active, measure));
+        self.visited.insert(self.active);
+        let entry = self.evidence.entry(self.active).or_default();
+        if entry.len() == RECENT_SAMPLES_PER_WORKER {
+            entry.pop_front();
         }
+        entry.push_back(measure);
+        self.select_best_observed();
         self.reset_epoch(now, completed, total_patches);
         // Preserve enough outstanding work for a useful epoch; otherwise use
         // the best already observed configuration rather than thrash at the end.
@@ -248,6 +276,45 @@ impl OnlineAutotuner {
         Ok(())
     }
 
+    /// Retained samples are bounded; ranking uses the rolling median, not the
+    /// highest single sample. Once the initial coarse pass is complete, an
+    /// unreplicated challenger cannot displace the incumbent.
+    fn select_best_observed(&mut self) {
+        let initial_pass = self.counters.probes <= self.candidates.len();
+        let mut selected = self.best.and_then(|(workers, _)| {
+            self.evidence.get(&workers).and_then(|values| {
+                median(values).map(|score| (workers, score))
+            })
+        });
+        for (&workers, scores) in &self.evidence {
+            if !initial_pass && scores.len() < 2
+                && selected.is_some_and(|(current, _)| current != workers) {
+                continue;
+            }
+            if let Some(score) = median(scores) {
+                if selected.is_none_or(|(_, best)| score > best * (1.0 + IMPROVEMENT_MARGIN)) {
+                    selected = Some((workers, score));
+                }
+            }
+        }
+        self.best = selected;
+    }
+
+    fn candidate_evidence(&self) -> Vec<CandidateEvidence> {
+        self.evidence.iter().filter_map(|(&workers, scores)| {
+            let midpoint = median(scores)?;
+            Some(CandidateEvidence {
+                workers,
+                samples: scores.len(),
+                median_patches_per_second: midpoint,
+                minimum_patches_per_second: scores.iter().copied()
+                    .fold(f64::INFINITY, f64::min),
+                maximum_patches_per_second: scores.iter().copied()
+                    .fold(f64::NEG_INFINITY, f64::max),
+            })
+        }).collect()
+    }
+
     fn reset_epoch(&mut self, now: Instant, completed: usize, patches: usize) {
         self.epoch_start = now;
         self.epoch_songs = 0;
@@ -273,18 +340,44 @@ impl OnlineAutotuner {
     }
 
     pub fn into_diagnostics(self) -> TuningDiagnostics {
+        let candidates = self.candidate_evidence();
+        let replicated = self.candidates.iter().all(|worker|
+            self.evidence.get(worker).is_some_and(|samples| samples.len() >= 2));
+        let separated = replicated && self.best.is_some_and(|(best, _)| {
+            let winner = candidates.iter().find(|c| c.workers == best);
+            winner.is_some_and(|w| candidates.iter()
+                .filter(|c| c.workers != best)
+                .all(|other| w.minimum_patches_per_second >
+                    other.maximum_patches_per_second * (1.0 + IMPROVEMENT_MARGIN)))
+        });
         TuningDiagnostics {
             strategy: "bounded-nonmonotonic-coarse-explore",
             initial_workers: self.initial, final_workers: self.active,
             best_tested_workers: self.best.map(|p| p.0),
             best_observed_patches_per_second: self.best.map(|p| p.1),
-            search_completed: self.candidates.iter().all(|candidate|
-                self.probes.iter().any(|probe| probe.workers == *candidate)),
+            search_completed: self.candidates.iter().all(|c| self.visited.contains(c)),
+            replication_completed: replicated,
+            observed_ranges_separated: separated,
+            candidate_evidence: candidates,
+            total_probes: self.counters.probes,
+            retained_probe_limit: MAX_RETAINED_PROBES,
             reserve_mib: self.reserve_mib,
             estimated_incremental_worker_mib: self.incremental_worker_mib,
             probes: self.probes, counters: self.counters, adjustments: self.adjustments,
         }
     }
+}
+
+/// Median of at most eight finite nonnegative samples; no additional
+/// dependencies or unbounded sample retention.
+fn median(values: &VecDeque<f64>) -> Option<f64> {
+    if values.is_empty() { return None; }
+    let mut ordered: Vec<f64> = values.iter().copied().collect();
+    ordered.sort_by(f64::total_cmp);
+    let at = ordered.len() / 2;
+    Some(if ordered.len().is_multiple_of(2) {
+        (ordered[at - 1] + ordered[at]) / 2.0
+    } else { ordered[at] })
 }
 
 #[cfg(test)]
@@ -320,6 +413,8 @@ mod tests {
         let result = t.into_diagnostics();
         assert_eq!(result.best_tested_workers, Some(12));
         assert!(result.search_completed);
+        assert!(!result.replication_completed);
+        assert!(!result.observed_ranges_separated);
         assert!(result.probes[2].patches_per_second < result.probes[0].patches_per_second);
     }
 
@@ -345,6 +440,52 @@ mod tests {
         assert_eq!(diag.probes[1].workers, next);
         assert_eq!(diag.probes[1].completed_songs, 8);
         assert_eq!(diag.probes[1].patches, 40);
+    }
+
+    #[test]
+    fn ranking_uses_repeated_medians_and_rejects_single_post_pass_outlier() {
+        let now = Instant::now();
+        let mut tuner = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        for (worker, speeds) in [(6, vec![6.0, 6.2]), (8, vec![5.0, 5.3]),
+                                 (10, vec![4.0, 4.5]), (12, vec![8.0, 8.2])] {
+            tuner.evidence.insert(worker, VecDeque::from(speeds));
+            tuner.visited.insert(worker);
+        }
+        tuner.counters.probes = 8;
+        tuner.select_best_observed();
+        assert_eq!(tuner.best.map(|v| v.0), Some(12));
+        let result = tuner.into_diagnostics();
+        assert!(result.replication_completed);
+        assert!(result.observed_ranges_separated);
+        assert_eq!(result.candidate_evidence.len(), 4);
+        assert!((result.best_observed_patches_per_second.unwrap() - 8.1).abs() < 1e-9);
+
+        let mut second = OnlineAutotuner::new(6, 6, 12, Some(8000.0), now).unwrap();
+        second.best = Some((12, 8.0));
+        second.evidence.insert(12, VecDeque::from(vec![8.0, 8.2]));
+        second.evidence.insert(10, VecDeque::from(vec![18.0]));
+        second.counters.probes = 9;
+        second.select_best_observed();
+        assert_eq!(second.best.map(|v| v.0), Some(12),
+            "one anomalously fast single probe must not displace the incumbent");
+    }
+
+    #[test]
+    fn retained_probe_samples_are_bounded_for_library_scans() {
+        let now = Instant::now();
+        let mut tuner = OnlineAutotuner::new(1, 1, 1, Some(4000.0), now).unwrap();
+        let mut total = 0;
+        let mut patches = 0;
+        for i in 1..=300 {
+            total += 8;
+            patches += 40;
+            tuner.observe(total, patches, Some(3500.0), 10000,
+                now + Duration::from_secs(i * 20)).unwrap();
+        }
+        let diagnostics = tuner.into_diagnostics();
+        assert_eq!(diagnostics.total_probes, 300);
+        assert_eq!(diagnostics.probes.len(), MAX_RETAINED_PROBES);
+        assert_eq!(diagnostics.candidate_evidence[0].samples, RECENT_SAMPLES_PER_WORKER);
     }
 
     #[test]
