@@ -39,6 +39,46 @@ class IsolatedParityTests(unittest.TestCase):
         right["timings"] = {"total_seconds": 999.0}
         self.assertEqual(parity.compare_reports(left, right), (3, 3))
 
+    def test_both_executions_missing_requested_head_must_fail(self):
+        left = report()
+        right = report()
+        del left["classifications"]["voice"]
+        del right["classifications"]["voice"]
+        with self.assertRaisesRegex(ValueError, "Requested classification-head IDs"):
+            parity.compare_reports(
+                left, right, expected_models={"moodtheme", "genre", "voice"}
+            )
+
+    def test_official_56_87_2_score_counts_cannot_both_shrink(self):
+        left = report()
+        for model, count in parity.OFFICIAL_HEAD_SCORES.items():
+            scores = left["classifications"][model]["scores"]
+            scores.update({f"{model}_{i}": 0.25 for i in range(count - 1)})
+            self.assertEqual(len(scores), count)
+        import copy
+        right = copy.deepcopy(left)
+        self.assertEqual(
+            parity.compare_reports(
+                left, right, expected_models=set(parity.OFFICIAL_HEAD_SCORES),
+                expected_label_counts=parity.OFFICIAL_HEAD_SCORES,
+            ),
+            (3, 145),
+        )
+        del left["classifications"]["moodtheme"]["scores"]["moodtheme_0"]
+        del right["classifications"]["moodtheme"]["scores"]["moodtheme_0"]
+        with self.assertRaisesRegex(ValueError, "expected 56 classification labels"):
+            parity.compare_reports(
+                left, right, expected_models=set(parity.OFFICIAL_HEAD_SCORES),
+                expected_label_counts=parity.OFFICIAL_HEAD_SCORES,
+            )
+
+    def test_selected_model_list_rejects_empty_and_duplicate_ids(self):
+        self.assertEqual(parity.selected_model_ids("moodtheme, genre,voice"),
+                         {"moodtheme", "genre", "voice"})
+        for value in ("", "genre,", ",genre", "genre,,voice", "genre,genre"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "distinct"):
+                parity.selected_model_ids(value)
+
     def test_tiny_f32_score_difference_is_not_tolerated(self):
         left = report()
         right = report()

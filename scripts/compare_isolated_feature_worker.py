@@ -20,7 +20,22 @@ def f32_bits(value: float) -> bytes:
     return struct.pack("<f", float(value))
 
 
-def compare_reports(direct: dict, isolated: dict) -> tuple[int, int]:
+OFFICIAL_HEAD_SCORES = {"moodtheme": 56, "genre": 87, "voice": 2}
+
+
+def selected_model_ids(value: str) -> set[str]:
+    """Reject empty or duplicate model requests before any inference starts."""
+    models = [part.strip() for part in value.split(",")]
+    if not models or any(not name for name in models) or len(set(models)) != len(models):
+        raise ValueError("Expected distinct, nonempty comma-separated model IDs")
+    return set(models)
+
+
+def compare_reports(
+    direct: dict, isolated: dict, *,
+    expected_models: set[str] | None = None,
+    expected_label_counts: dict[str, int] | None = None,
+) -> tuple[int, int]:
     """Check all source/model identities and exact f32 classifier score bits.
 
     Timing is intentionally excluded because running in another process
@@ -37,6 +52,8 @@ def compare_reports(direct: dict, isolated: dict) -> tuple[int, int]:
     isolated_heads = isolated["classifications"]
     if direct_heads.keys() != isolated_heads.keys():
         raise ValueError("Selected classification-head IDs differ")
+    if expected_models is not None and set(direct_heads) != expected_models:
+        raise ValueError("Requested classification-head IDs missing or unexpected")
     total_labels = 0
     for model in sorted(direct_heads):
         left, right = direct_heads[model], isolated_heads[model]
@@ -50,6 +67,14 @@ def compare_reports(direct: dict, isolated: dict) -> tuple[int, int]:
         labels = left["scores"]
         if labels.keys() != right["scores"].keys():
             raise ValueError(f"{model}: classification labels differ")
+        if not labels:
+            raise ValueError(f"{model}: no classification labels returned")
+        if expected_label_counts is not None and model in expected_label_counts:
+            expected_count = expected_label_counts[model]
+            if len(labels) != expected_count:
+                raise ValueError(
+                    f"{model}: expected {expected_count} classification labels, got {len(labels)}"
+                )
         for label in labels:
             try:
                 l, r = float(labels[label]), float(right["scores"][label])
@@ -133,6 +158,15 @@ def main() -> int:
     parser.add_argument("--embedding", action="store_true",
                         help="Compare every pooled 1280D f32 bit via hidden in-process diagnostic")
     opts = parser.parse_args()
+    requested_models = selected_model_ids(opts.models)
+    # Custom registries may legitimately use different class counts. With the
+    # bundled official registry, require every expected Mood/Genre/Voice score.
+    expected_counts = OFFICIAL_HEAD_SCORES if opts.registry is None else None
+    def compare_expected(left: dict, right: dict) -> tuple[int, int]:
+        return compare_reports(
+            left, right, expected_models=requested_models,
+            expected_label_counts=expected_counts,
+        )
     shared = [
         "--models-dir", str(opts.models_dir),
         "--models", opts.models,
@@ -151,7 +185,7 @@ def main() -> int:
     if opts.embedding:
         isolated_args.append("--embedding")
     isolated_output = run_analysis(isolated_args)
-    head_count, label_count = compare_reports(legacy, isolated_output["report"])
+    head_count, label_count = compare_expected(legacy, isolated_output["report"])
     if opts.embedding:
         direct_output = run_analysis(
             base + ["internal-direct-analyze-features", str(opts.source)]
@@ -159,8 +193,8 @@ def main() -> int:
         )
         # Verify the extra in-process embedding diagnostic has not changed
         # classification outcomes compared to the original public CLI.
-        compare_reports(legacy, direct_output["report"])
-        compare_reports(direct_output["report"], isolated_output["report"])
+        compare_expected(legacy, direct_output["report"])
+        compare_expected(direct_output["report"], isolated_output["report"])
         embedded = compare_embeddings(
             direct_output.get("embedding"),
             isolated_output.get("embedding"),
