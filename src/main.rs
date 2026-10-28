@@ -59,6 +59,12 @@ struct Cli {
     action: Action,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum AdaptivePolicy {
+    Resource,
+    Autotune,
+}
+
 #[derive(Subcommand)]
 enum Action {
     /// Classify diagnostic 1280-D embeddings using the ONNX 56-class head.
@@ -200,8 +206,8 @@ enum Action {
         #[arg(long, default_value = "auto", value_parser = parse_max_workers_spec)]
         max_workers: usize,
         /// Opt-in nonmonotonic throughput exploration, or the legacy threshold policy.
-        #[arg(long, default_value = "resource", value_parser = ["resource", "autotune"])]
-        adaptive_policy: String,
+        #[arg(long, value_enum, default_value = "resource")]
+        adaptive_policy: AdaptivePolicy,
         /// Minimum completed songs before either adaptive up/down adjustment.
         /// Default 24; requires --adaptive-workers. Does not change 20-second cooldown.
         #[arg(long, requires = "adaptive_workers", value_parser = parse_adaptive_min_completed_songs)]
@@ -483,7 +489,7 @@ fn main() -> Result<()> {
             if tracks_file.is_some() && library_root.is_some() {
                 bail!("--library-root is only supported with --bliss-db");
             }
-            if adaptive_policy == "autotune" && !adaptive_workers {
+            if adaptive_policy == AdaptivePolicy::Autotune && !adaptive_workers {
                 bail!("--adaptive-policy autotune requires --adaptive-workers");
             }
             let (worker_count, is_auto) = parallel::worker_count(&workers)?;
@@ -516,7 +522,9 @@ fn main() -> Result<()> {
                 only_track: only_track.as_deref(),
                 max_new, max_errors, threads, workers: worker_count,
                 adaptive_workers, min_workers, max_workers,
-                adaptive_policy: &adaptive_policy,
+                adaptive_policy: if adaptive_policy == AdaptivePolicy::Autotune {
+                    "autotune"
+                } else { "resource" },
                 adaptive_min_completed_songs: adaptive_gate, dry_run, backend,
             })?;
             priority_report.collect_native_workers();
