@@ -1257,6 +1257,16 @@ fn scan_parallel(
                     },
                 )?;
                 in_flight -= 1;
+                if in_flight == 0 {
+                    if let Some(controller) = tuner.as_mut() {
+                        if controller.draining() {
+                            controller.settle(
+                                summary.analyzed, diagnostics.cumulative_patches,
+                                Instant::now(),
+                            );
+                        }
+                    }
+                }
                 if summary.failures > failures_before {
                     // Stop dispatching new songs on the first inference or
                     // storage failure. Drain existing work to avoid starting
@@ -1272,6 +1282,16 @@ fn scan_parallel(
                     },
                         )?;
                         in_flight -= 1;
+                        if in_flight == 0 {
+                            if let Some(controller) = tuner.as_mut() {
+                                if controller.draining() {
+                                    controller.settle(
+                                        summary.analyzed, diagnostics.cumulative_patches,
+                                        Instant::now(),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
                 if summary.failures + summary.missing_files >= options.max_errors {
@@ -1303,6 +1323,16 @@ fn scan_parallel(
                     },
             )?;
             in_flight -= 1;
+            if in_flight == 0 {
+                if let Some(controller) = tuner.as_mut() {
+                    if controller.draining() {
+                        controller.settle(
+                            summary.analyzed, diagnostics.cumulative_patches,
+                            Instant::now(),
+                        );
+                    }
+                }
+            }
         }
         Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
