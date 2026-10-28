@@ -1,5 +1,8 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **LATEST CONTINUATION — 28 OCTOBER 2026:** The active isolated worker/online autotune workstream is [Draft PR #19](https://github.com/chrober/bliss-mood-poc/pull/19), not PR #18 or historical PR #5. **Start with [handover-phase-c-isolated-worker-20261028.md](handover-phase-c-isolated-worker-20261028.md)** and [the updated ready-to-paste prompt](handover-prompt-adaptive-host-sizing-20261028.md). Inspected Phase C code SHA `e2b1a0a4`: the hidden process runs the actual FeatureEngine, exact all-head and 1280D parity comparison exists but has not been executed successfully on real private media, and normal scanning still uses Rust worker threads. **CI is partly RED**: two native Essentia checks failed; Linux E0433 dependency in `rust-mel-reference`, Windows pinned upstream source stage undiagnosed. Historical claims below are kept for background only.
+
+
 > **CURRENT 28 OCTOBER 2026 HANDOVER:** Start with
 > [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
 > and [its copy-paste prompt](handover-prompt-adaptive-host-sizing-20261028.md).
