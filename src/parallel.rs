@@ -579,7 +579,13 @@ mod tests {
         assert_eq!(worker_count("1").unwrap(), (1, false));
         for spec in ["0", "65", "-1", "NaN", "4.5", ""] {
             assert!(worker_count(spec).is_err(), "{spec}");
-            assert!(spec.parse::<usize>().is_err() || max_worker_count(spec.parse::<usize>().unwrap()).is_err(), "{spec}");
+            // CLI parser rejects numeric zero; internal zero is only the
+            // already-validated representation of the 'auto' keyword.
+            if let Ok(numeric) = spec.parse::<usize>() {
+                if numeric != 0 {
+                    assert!(max_worker_count(numeric).is_err(), "{spec}");
+                }
+            }
         }
         let available = available_worker_capacity();
         assert_eq!(max_worker_count(0).unwrap(), available);
