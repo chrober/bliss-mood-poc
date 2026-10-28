@@ -636,6 +636,8 @@ struct ScanDiagnostics {
     adjustments: Vec<crate::parallel::WorkerAdjustment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     online_autotune: Option<crate::autotune::TuningDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory_watchdog: Option<crate::memory_watchdog::WatchdogDiagnostics>,
     #[serde(skip)]
     cpu_sum: f64,
 }
@@ -1001,6 +1003,7 @@ struct CompletionPolicy<'a> {
     tracks_total: usize,
     embedding_dir: Option<&'a Path>,
     tuner: &'a mut Option<crate::autotune::OnlineAutotuner>,
+    watchdog: Option<&'a crate::memory_watchdog::MemoryWatchdog>,
 }
 
 fn save_completion(
@@ -1012,7 +1015,20 @@ fn save_completion(
     adaptive: &mut Option<crate::parallel::AdaptiveWorkers>,
     policy: CompletionPolicy<'_>,
 ) -> Result<()> {
-    let (job, result) = rx.recv().context("All feature workers exited before returning results")?;
+    let (job, result) = if let Some(watch) = policy.watchdog {
+        loop {
+            watch.check()?;
+            match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(result) => break result,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) =>
+                    bail!("All feature workers exited before returning results"),
+            }
+        }
+    } else {
+        rx.recv().context("All feature workers exited before returning results")?
+    };
+    if let Some(watch) = policy.watchdog { watch.check()?; }
     match result {
         Ok((report, embedding)) => match persist_scan_output(
             conn, &job.track, job.state, &report, embedding, policy.embedding_dir,
@@ -1084,6 +1100,12 @@ fn scan_parallel(
         )?)
     } else { None };
     let initial = tuner.as_ref().map_or(preferred_initial, |t| t.active);
+    let watchdog = if let Some(ref tuner) = tuner {
+        crate::resources::reset_native_cancellation();
+        Some(crate::memory_watchdog::MemoryWatchdog::start(tuner.reserve_mib())?)
+    } else {
+        None
+    };
     let mut adaptive = if options.adaptive_workers && options.adaptive_policy == "resource" {
         Some(crate::parallel::AdaptiveWorkers::with_min_completed_songs(
             initial, options.min_workers.min(initial), pool_size,
@@ -1171,6 +1193,7 @@ fn scan_parallel(
         let mut stopped_for_errors = false;
         let tracks_limit = tracks.len();
         for track in tracks {
+            if let Some(watch) = watchdog.as_ref() { watch.check()?; }
             // max-new counts attempted tracks, not only successful writes.
             if options.max_new.is_some_and(|max| summary.pending >= max) {
                 summary.limit_reached = true;
@@ -1215,7 +1238,11 @@ fn scan_parallel(
                 save_completion(
                     &result_rx, &mut conn, &mut summary, &mut diagnostics,
                     &mut monitor, &mut adaptive,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
+                    CompletionPolicy {
+                        expected: options.max_new, tracks_total: tracks_limit,
+                        embedding_dir: options.embedding_dir, tuner: &mut tuner,
+                        watchdog: watchdog.as_ref(),
+                    },
                 )?;
                 in_flight -= 1;
                 if summary.failures > failures_before {
@@ -1226,7 +1253,11 @@ fn scan_parallel(
                         save_completion(
                             &result_rx, &mut conn, &mut summary, &mut diagnostics,
                             &mut monitor, &mut adaptive,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
+                    CompletionPolicy {
+                        expected: options.max_new, tracks_total: tracks_limit,
+                        embedding_dir: options.embedding_dir, tuner: &mut tuner,
+                        watchdog: watchdog.as_ref(),
+                    },
                         )?;
                         in_flight -= 1;
                     }
@@ -1239,6 +1270,7 @@ fn scan_parallel(
             if stopped_for_errors {
                 break;
             }
+            if let Some(watch) = watchdog.as_ref() { watch.check()?; }
             task_tx.send(FeatureJob { track, path, state })
                 .context("Feature work queue unexpectedly closed")?;
             summary.model_sessions_initialized = true;
@@ -1252,12 +1284,20 @@ fn scan_parallel(
             save_completion(
                 &result_rx, &mut conn, &mut summary, &mut diagnostics,
                 &mut monitor, &mut adaptive,
-                    CompletionPolicy { expected: options.max_new, tracks_total: tracks_limit, embedding_dir: options.embedding_dir, tuner: &mut tuner },
+                    CompletionPolicy {
+                        expected: options.max_new, tracks_total: tracks_limit,
+                        embedding_dir: options.embedding_dir, tuner: &mut tuner,
+                        watchdog: watchdog.as_ref(),
+                    },
             )?;
             in_flight -= 1;
         }
         Ok(stopped_for_errors || summary.failures + summary.missing_files >= options.max_errors)
     })?;
+    if let Some(watch) = watchdog.as_ref() {
+        watch.check()?;
+        diagnostics.memory_watchdog = Some(watch.snapshot());
+    }
     diagnostics.peak_active_analyses = peak_active_analyses.load(Ordering::SeqCst);
     if let Some(controller) = adaptive {
         diagnostics.final_workers = controller.active;
