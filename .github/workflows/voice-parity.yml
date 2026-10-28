@@ -197,7 +197,7 @@ jobs:
               assert serial_rows == parallel_rows
           print("PASS: 12 score vectors byte-identical, exact max-new, read-only Bliss DB")
           PY
-      - name: Stress eight ONNX sessions and verify bounded failing scans
+      - name: Stress available ONNX worker sessions and verify bounded failing scans
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -214,17 +214,24 @@ jobs:
                   db.executemany("INSERT INTO TracksV2 VALUES (?, NULL)",
                                 [(f"track-{n:02}.{ext}",) for n in range(8)])
           PY
+          # Derive the *same* process-permitted logical CPU ceiling the Rust
+          # scanner reports; shared GitHub runners often expose only 4 CPUs.
+          # Keep eight fixture tracks, but never oversubscribe the host.
+          cpu_capacity=$(python -c 'import json; print(json.load(open("parallel-first.json"))["diagnostics"]["logical_cpu_capacity"])')
+          export STRESS_WORKERS="$((cpu_capacity < 8 ? cpu_capacity : 8))"
+          export INVALID_WORKERS="$((cpu_capacity < 4 ? cpu_capacity : 4))"
+          test "$STRESS_WORKERS" -ge 1
           target/release/bliss-mood scan-features \
             --bliss-db stress-bliss.db --db stress-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root stress \
-            --workers 8 --threads 1 --max-new 8 --max-errors 5 --json > stress-summary.json
+            --workers "$STRESS_WORKERS" --threads 1 --max-new 8 --max-errors 5 --json > stress-summary.json
           python - <<'PY'
-          import json,sqlite3
+          import json, os, sqlite3
           data=json.load(open("stress-summary.json"))
-          assert data["workers"]==8 and data["analyzed"]==8 and data["failures"]==0,data
+          assert data["workers"]==int(os.environ["STRESS_WORKERS"]) and data["analyzed"]==8 and data["failures"]==0,data
           with sqlite3.connect("stress-output.db") as db:
               assert db.execute("SELECT count(*) FROM feature_tracks").fetchone()[0]==24
-          print("PASS: all eight worker sessions initialize in one ONNX Runtime environment")
+          print("PASS: all eight tracks analyzed with host-bounded ONNX sessions")
           PY
           # The first three invalid sources must stop the run, even though
           # --max-new exceeds the number of successfully analyzed songs.
@@ -232,7 +239,7 @@ jobs:
           target/release/bliss-mood scan-features \
             --bliss-db invalid-bliss.db --db invalid-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root invalid \
-            --workers 4 --threads 1 --max-new 3 --max-errors 5 \
+            --workers "$INVALID_WORKERS" --threads 1 --max-new 3 --max-errors 5 \
             > invalid-summary.json 2> invalid-errors.txt
           code=$?
           set -e
@@ -249,7 +256,7 @@ jobs:
           target/release/bliss-mood scan-features \
             --bliss-db invalid-bliss.db --db invalid-limit-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root invalid \
-            --workers 4 --threads 1 --max-new 8 --max-errors 2 \
+            --workers "$INVALID_WORKERS" --threads 1 --max-new 8 --max-errors 2 \
             > /dev/null 2> invalid-limit-errors.txt
           code=$?
           set -e
@@ -259,20 +266,27 @@ jobs:
           echo "PASS: hard error budget stops bad library scans"
       - name: Verify adaptive scanner stage diagnostics and identical classifications
         run: |
+          cpu_capacity=$(python -c 'import json; print(json.load(open("parallel-first.json"))["diagnostics"]["logical_cpu_capacity"])')
+          export ADAPTIVE_INITIAL="$((cpu_capacity < 6 ? cpu_capacity : 6))"
+          export ADAPTIVE_MIN="$((cpu_capacity < 4 ? cpu_capacity : 4))"
+          export ADAPTIVE_MAX="$((cpu_capacity < 8 ? cpu_capacity : 8))"
+          test "$ADAPTIVE_INITIAL" -ge 2
           target/release/bliss-mood scan-features \
             --bliss-db stress-bliss.db --db adaptive-output.db \
             --models-dir models --models moodtheme,genre,voice --source-root stress \
-            --workers 6 --adaptive-workers --min-workers 4 --max-workers 8 \
+            --workers "$ADAPTIVE_INITIAL" --adaptive-workers \
+            --min-workers "$ADAPTIVE_MIN" --max-workers "$ADAPTIVE_MAX" \
             --threads 1 --max-new 8 --max-errors 3 --json > adaptive-summary.json
           python - <<'PY'
-          import json, sqlite3
+          import json, os, sqlite3
           data = json.load(open("adaptive-summary.json"))
           assert data["analyzed"] == 8 and data["failures"] == 0, data
-          assert data["workers"] == 6, data
+          assert data["workers"] == int(os.environ["ADAPTIVE_INITIAL"]), data
           d = data["diagnostics"]
           assert d["completed_songs"] == 8, d
-          assert d["initial_workers"] == 6, d
-          assert 4 <= d["final_workers"] <= 8, d
+          assert d["initial_workers"] == int(os.environ["ADAPTIVE_INITIAL"]), d
+          assert int(os.environ["ADAPTIVE_MIN"]) <= d["final_workers"] <= int(os.environ["ADAPTIVE_MAX"]), d
+          assert d["configured_max_workers"] == int(os.environ["ADAPTIVE_MAX"]), d
           assert d["cumulative_decode_seconds"] > 0, d
           assert d["cumulative_features_seconds"] > 0, d
           assert d["cumulative_inference_seconds"] > 0, d
