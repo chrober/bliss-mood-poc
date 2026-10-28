@@ -5,6 +5,7 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
@@ -70,7 +71,11 @@ pub enum WorkerReply {
     Pong { nonce: u64 },
     Stopping,
     DelayComplete,
-    Initialized { models: Vec<String> },
+    Initialized {
+        models: Vec<String>,
+        /// Cache/model fingerprints computed from exact selected model files.
+        model_keys: BTreeMap<String, String>,
+    },
     Analyzed {
         report: serde_json::Value,
         embedding: Option<serde_json::Value>,
