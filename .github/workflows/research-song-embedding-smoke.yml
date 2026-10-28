@@ -1,0 +1,152 @@
+name: Research - pinned Rust-v5 1280D song embedding export
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - "research/song_embedding.rs"
+      - "scripts/apply_rust_v5_embedding_export.py"
+      - "scripts/check_song_embedding_smoke.py"
+      - ".github/workflows/research-song-embedding-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  song-embedding-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout immutable corrected Rust-v5 source (not a merge)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - name: Assert pinned revision and apply separately versioned research-only overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_rust_v5_embedding_export.py --checkout validated-rust-v5
+          git -C validated-rust-v5 diff --check
+          git -C validated-rust-v5 diff --stat
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+          key: research-1280d-v1
+      - name: Rust unit tests - deterministic pooling and invalid input
+        run: |
+          /usr/bin/time -f 'cargo_test_elapsed_s=%e max_rss_kib=%M' \
+            cargo test --locked --manifest-path validated-rust-v5/Cargo.toml song_embedding::tests
+      - name: Compile isolated research executable (no PR-17 release cache overwrite)
+        run: |
+          /usr/bin/time -f 'cargo_build_elapsed_s=%e max_rss_kib=%M' \
+            cargo build --locked --release --manifest-path validated-rust-v5/Cargo.toml
+          validated-rust-v5/target/release/bliss-mood analyze-features --help | grep -q -- '--embedding-out'
+      - name: Ensure both ffmpeg and ffprobe are installed on the hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+      - name: Generate deterministic public-domain-style synthetic PCM test audio
+        run: |
+          python3 - <<'PY'
+          import math, struct, wave
+          with wave.open("smoke.wav", "wb") as out:
+              out.setnchannels(1)
+              out.setsampwidth(2)
+              out.setframerate(16000)
+              for i in range(6 * 16000):
+                  t = i / 16000
+                  sample = .25 * math.sin(2 * math.pi * 440 * t) + .12 * math.sin(2 * math.pi * 900 * t)
+                  out.writeframesraw(struct.pack("<h", int(sample * 32767)))
+          PY
+      - name: Download official encoder and heads for one-song smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          /usr/bin/time -f 'model_download_elapsed_s=%e' bash -c '
+            set -euo pipefail
+            for spec in \
+              "feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx" \
+              "classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx" \
+              "classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json" \
+              "classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.onnx" \
+              "classification-heads/mtg_jamendo_moodtheme mtg_jamendo_moodtheme-discogs-effnet-1.json"; do
+              read -r dir file <<< "$spec"
+              curl --fail --location --retry 3 --connect-timeout 20 --max-time 900 --silent --show-error \
+                "https://essentia.upf.edu/models/$dir/$file" -o "models/$file"
+              test -s "models/$file"
+            done
+          '
+          sha256sum models/*
+      - name: Run off/on and 1-vs-2 ONNX thread parity on exactly one input
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-output
+          exe=validated-rust-v5/target/release/bliss-mood
+          common=(analyze-features smoke.wav --models-dir models --models moodtheme,genre --json)
+          /usr/bin/time -f 'baseline_inference_elapsed_s=%e' \
+            "$exe" "${common[@]}" --threads 1 --db research-output/off.db --track-key smoke.wav \
+              > research-output/off.json
+          /usr/bin/time -f 'embedding_inference_elapsed_s=%e' \
+            "$exe" "${common[@]}" --threads 1 --db research-output/on.db --track-key smoke.wav \
+              --embedding-out research-output/embedding.json > research-output/on.json
+          /usr/bin/time -f 'threads2_inference_elapsed_s=%e' \
+            "$exe" "${common[@]}" --threads 2 \
+              --embedding-out research-output/embedding-threads2.json > research-output/threads2.json
+          "$exe" embedding-dump smoke.wav --models-dir models --threads 1 \
+            --max-patches 64 > research-output/patch-dump.json
+          python3 scripts/check_song_embedding_smoke.py --directory research-output \
+            --summary research-output/smoke-check-summary.json
+          cat research-output/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify embedding-only --track-key WITHOUT --db (regression for local export)
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=validated-rust-v5/target/release/bliss-mood
+          "$exe" analyze-features smoke.wav --models-dir models --models moodtheme,genre \
+            --threads 1 --json --track-key smoke.wav \
+            --embedding-out research-output/embedding-only.json \
+            > research-output/embedding-only-report.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("research-output")
+          emb = json.loads((root / "embedding-only.json").read_text())
+          original = json.loads((root / "embedding.json").read_text())
+          assert emb["track_file"] == "smoke.wav"
+          assert emb["vector_f32"] == original["vector_f32"]
+          assert emb["audio_sha256"] == original["audio_sha256"]
+          assert emb["representation_fingerprint"] == original["representation_fingerprint"]
+          assert not (root / "embedding-only.db").exists()
+          print("PASS: --track-key + --embedding-out succeeds without writing any SQLite DB")
+          PY
+      - name: Publish smoke assertions ONLY - no audio or embedding vectors
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-1280d-smoke-assertions
+          path: research-output/smoke-check-summary.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,129 @@
+name: MagnaTagATune multipart audio archive range preflight
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/magnatagatune-archive-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  range-directory:
+    name: Verify MTT clip membership without audio download
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deterministic multipart ZIP-tail reader (no internet)
+        run: |
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+
+      - name: Download only two official metadata CSVs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          echo "Runner vCPUs: $(nproc)"
+          echo "metadata_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for file in comparisons_final.csv clip_info_final.csv; do
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 240 \
+              --silent --show-error "$base/$file" -o "benchmark-private/$file"
+          done
+          test "$(stat -c%s benchmark-private/comparisons_final.csv)" -gt 10000
+          test "$(stat -c%s benchmark-private/clip_info_final.csv)" -gt 200000
+          echo "metadata_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Read multipart ZIP directory via small HTTP byte ranges only
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          echo "zip_range_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          # Each first-byte probe MUST return HTTP 206; otherwise no
+          # expensive audio download is allowed.
+          for n in 1 2 3; do
+            file=$(printf 'mp3.zip.%03d' "$n")
+            code=$(curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 150 --max-filesize 100000 \
+              --silent --show-error \
+              --header 'Accept-Encoding: identity' \
+              --range 0-0 \
+              --dump-header "benchmark-private/probe_$n.headers" \
+              --output "benchmark-private/probe_$n.bin" \
+              --write-out '%{http_code}' "$base/$file")
+            echo "$file HTTP range probe status=$code"
+            test "$code" = 206 || { echo "::error::HTTP Range unavailable, stop without downloading ZIP"; exit 1; }
+          done
+          # The central directory is in the *last* bytes of the final
+          # split part. MAX-FILESIZE protects against an ignored range
+          # request returning ~737 MB of copyrighted audio.
+          code=$(curl --fail --location --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 --max-filesize 9500000 \
+            --silent --show-error \
+            --header 'Accept-Encoding: identity' \
+            --range -8388608 \
+            --dump-header benchmark-private/tail.headers \
+            --output benchmark-private/zip-tail.bin \
+            --write-out '%{http_code}' "$base/mp3.zip.003")
+          test "$code" = 206 || { echo "::error::ZIP tail must be HTTP 206"; exit 1; }
+          test "$(stat -c%s benchmark-private/zip-tail.bin)" -le 8388608
+          echo "zip_range_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+          # Parse Content-Range, not Content-Length from redirects.
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def parse(name, expected=None):
+              headers = Path(name).read_text(encoding="iso-8859-1")
+              ranges = re.findall(
+                  r"(?im)^content-range:\s*bytes\s+(\d+)-(\d+)/(\d+)\s*$",
+                  headers
+              )
+              if not ranges:
+                  raise SystemExit("Missing Content-Range for " + name)
+              start, end, total = map(int, ranges[-1])
+              if expected is not None and (start, end) != expected:
+                  raise SystemExit("Incorrect first-byte partial response")
+              return start, end, total
+          sizes = []
+          for n in range(1, 4):
+              _, _, size = parse(f"benchmark-private/probe_{n}.headers", (0, 0))
+              sizes.append(size)
+          start, end, reported = parse("benchmark-private/tail.headers")
+          size = Path("benchmark-private/zip-tail.bin").stat().st_size
+          if reported != sizes[2] or size != 8388608 or start != reported-size or end != reported-1:
+              raise SystemExit("Unexpected ZIP tail byte range or length")
+          with open("benchmark-private/zip-sizes.txt", "w", encoding="ascii") as out:
+              out.write(" ".join(map(str, sizes)) + "\n")
+          print("Multipart ZIP part sizes (bytes):", sizes)
+          print("Combined archive (GiB):", round(sum(sizes) / 2**30, 3))
+          print("Downloaded tail only (MiB):", round(size / 2**20, 2))
+          PY
+
+      - name: Audit all required clip paths against ZIP directory without audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r part1 part2 part3 < benchmark-private/zip-sizes.txt
+          /usr/bin/time -f 'zip_membership_wall_s=%e peak_rss_kib=%M' \
+            python3 scripts/audit_magnatagatune_archive.py \
+              --last-part-tail benchmark-private/zip-tail.bin \
+              --part-sizes "$part1" "$part2" "$part3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --report results/mtt-multipart-zip-summary.json
+
+      - name: Upload only aggregate ZIP membership report, never audio
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnatagatune-multipart-zip-membership
+          path: results/mtt-multipart-zip-summary.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,8 +1,54 @@
 # Bliss + Mood/Genre fusion for Lyrion — integration workstream
 
-**Status (2026-10-19):** Architecture/implementation handover; **not yet
+**Status (2026-10-22):** Architecture/implementation handover; **not yet
 deployed**. This is the current product priority, ahead of scanner
 performance and the deferred [platform-resource roadmap](platform-resource-roadmap.md).
+
+## General-first similarity with optional personal metric (decision 2026-10-22)
+
+**The general-purpose song-similarity metric is mandatory and must
+work well without any per-user survey or trained matrix.** Selecting
+this general metric remains the project's primary empirical goal.
+Individual metric learning is an **optional extension**, not a
+replacement or prerequisite.
+
+After a separate learned per-user metric passes coverage,
+provenance, calibration and quality gates, the listener may
+choose **0–100% personal influence**. Mathematically,
+`S_effective = (1-alpha)*S_general + alpha*S_personal`
+on explicitly **calibrated comparable score scales**, where
+`alpha = personal_blend_percent / 100` only when the
+personal model is usable. **Without a usable learned model,
+`alpha_effective=0` and scoring is 100% GENERAL**,
+regardless of the saved slider value. A valid personal
+model at 0% gives general-only, while 100% uses the
+personal metric. Training failure, an incompatible
+fingerprint, insufficient evidence or unavailable
+features must leave the general fallback working.
+
+**Keep three decisions separate:** how general Genre/Mood/
+1280D/Bliss evidence is fused; how *personal versus general*
+scores are blended; and where candidate tracks come from
+(Bliss-first/feature-first/hybrid). Existing BlissMixerLab
+`learned_blend` controls its **separate 23D Bliss learned
+versus variance-derived adaptive weighting**; it is
+not already a general/personal Genre/Mood/Embedding slider.
+The early two Genre/Mood influence settings described below
+also remain a different prototype feature.
+
+Any future Lab adapter applies the scoring policy only
+within eligible Lyrion candidate sets; it must not bypass
+repeat, virtual-library or source restrictions.
+On any unusable personal query, use consistent
+general-only ranking instead of uncalibrated mixed
+fallbacks on isolated candidates.
+
+**Normative cross-repo design specification:**
+[General-first similarity and optional 0–100% per-user
+blend](similarity-general-personal-blending-architecture.md).
+This is documentation only: there are no changes to
+`chrober/bliss-learner`, `chrober/lms-blissmixer-lab`,
+upstream Bliss, PR #13/#17 or deployed runtime settings.
 
 ## Target user experience
 

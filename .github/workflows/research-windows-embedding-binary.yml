@@ -1,0 +1,109 @@
+name: Research - Windows x64 1280D song embedding CLI (experimental)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - ".github/workflows/research-windows-embedding-binary.yml"
+      - "research/song_embedding.rs"
+      - "scripts/apply_rust_v5_embedding_export.py"
+
+permissions:
+  contents: read
+
+jobs:
+  research-windows-1280d:
+    name: Build and verify isolated Windows research CLI
+    runs-on: windows-2022
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout PR 16 research overlay
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout immutable corrected Rust v5 source (PR 17 not modified)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - name: Apply fingerprinted research-only overlay
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            python scripts/apply_rust_v5_embedding_export.py --checkout validated-rust-v5
+            if ($LASTEXITCODE -ne 0) { throw 'Pinned research overlay failed' }
+            git -C validated-rust-v5 diff --check
+            if ($LASTEXITCODE -ne 0) { throw 'Research patch whitespace check failed' }
+          }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+          key: research-windows-1280d-v1
+      - name: Run song-embedding Rust unit tests and build Windows MSVC release binary
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            cargo test --locked --manifest-path validated-rust-v5/Cargo.toml --target x86_64-pc-windows-msvc song_embedding::tests
+            if ($LASTEXITCODE -ne 0) { throw 'Research song embedding Rust unit tests failed' }
+            cargo build --locked --release --manifest-path validated-rust-v5/Cargo.toml --target x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw 'Research song embedding MSVC build failed' }
+          }
+      - name: Verify required command-line option and provenance without opening audio
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $Exe = 'validated-rust-v5/target/x86_64-pc-windows-msvc/release/bliss-mood.exe'
+            if (!(Test-Path -LiteralPath $Exe -PathType Leaf)) { throw 'Built executable missing' }
+            $helpText = & $Exe analyze-features --help
+            if ($LASTEXITCODE -ne 0) { throw 'Research CLI did not start on Windows' }
+            if (($helpText -join "`n") -notmatch '--embedding-out') {
+              throw 'Built executable does not support --embedding-out'
+            }
+            $Head = (& git -C validated-rust-v5 rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $Head -cne '2c3d44401436b3b41b6e067199016a1ed2335fbf') {
+              throw 'Rust-v5 checkout is not the immutable pinned revision'
+            }
+            Write-Host 'Research Windows 1280D CLI: PASS, no audio or models accessed'
+          }
+      - name: Stage standalone experimental binary with exact version information
+        run: |
+          & {
+            $ErrorActionPreference = 'Stop'
+            $Release = 'validated-rust-v5/target/x86_64-pc-windows-msvc/release'
+            $Dist = 'dist-research-1280d'
+            New-Item -ItemType Directory -Force -Path $Dist | Out-Null
+            Copy-Item -LiteralPath (Join-Path $Release 'bliss-mood.exe') -Destination $Dist
+            Get-ChildItem -LiteralPath $Release -File -Filter '*.dll' |
+              Copy-Item -Destination $Dist
+            @(
+              'Experimental research-only executable, not a production release.'
+              'Does not contain private music, Song embeddings or ONNX models.'
+              'Requires user-supplied FFmpeg/ffprobe on PATH and official ONNX encoder/heads and JSON metadata.'
+              'Use only for bounded local feature experiments; no whole-library scan.'
+              'The --embedding-out argument writes one new JSON sidecar (no overwrite).'
+              'The --db argument must NOT be passed when exporting; existing feature DB is read-only.'
+              'Pinned Rust-v5 commit: 2c3d44401436b3b41b6e067199016a1ed2335fbf'
+              "Research overlay commit: $env:GITHUB_SHA"
+            ) | Set-Content -LiteralPath (Join-Path $Dist 'BUILD.txt') -Encoding utf8
+            $File = Join-Path $Dist 'bliss-mood.exe'
+            $Hash = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$Hash *bliss-mood.exe" | Set-Content -LiteralPath (Join-Path $Dist 'SHA256SUMS.txt') -Encoding ascii
+            Get-ChildItem -LiteralPath $Dist | Select-Object Name,Length
+          }
+      - name: Upload binary only (no original audio, models or song vectors)
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-song-embedding-windows-x64
+          path: dist-research-1280d/
+          if-no-files-found: error
+          retention-days: 14

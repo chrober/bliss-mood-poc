@@ -1,0 +1,187 @@
+name: FMA-Small genre retrieval benchmark (research)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/fma-genre-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      per_genre:
+        description: 'Distinct-artist validation tracks per genre, 2..100'
+        required: true
+        default: '10'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fma-genre-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fma-genre-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      FMA_PER_GENRE: ${{ inputs.per_genre || '10' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned corrected Rust-v5 scanner in a separate directory
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+
+      - name: Verify bounded validation-only study
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          per_genre = int(os.environ["FMA_PER_GENRE"])
+          if not 2 <= per_genre <= 100:
+              raise SystemExit("FMA_PER_GENRE must be 2..100")
+          print("FMA validation only; tracks per genre:", per_genre)
+          PY
+          # Synthetic metadata schema and retrieval/Top-K abstention gates:
+          # avoid a 7.2-GiB download if the evaluation semantics regress.
+          python3 -m unittest discover -s tests -p 'test_audit_fma_metadata.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_fma_genre.py'
+          echo "Runner CPUs: $(nproc)"
+          echo "Workflow runs one audio analysis subprocess at a time (--threads 1)."
+          echo "Multi-track/adaptive workers require a separately tested batch scheduler."
+
+      - name: Build genuine Rust-v5 analyzer and install FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          cargo build --release --locked \
+            --manifest-path validated-rust-v5/Cargo.toml \
+            --target-dir validated-rust-v5/target
+          ./validated-rust-v5/target/release/bliss-mood analyze-features --help
+
+      - name: Fetch original Essentia encoder and Genre classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 30 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.onnx
+          fetch classification-heads/mtg_jamendo_genre mtg_jamendo_genre-discogs-effnet-1.json
+          sha256sum models/*
+
+      - name: Restore bounded private FMA-Small VALIDATION selection cache
+        id: fma_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-unscreened-selected-v1-pergenre-${{ env.FMA_PER_GENRE }}-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
+
+      - name: Download publisher metadata and FMA audio ONLY on cache miss
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fma-private results
+          python3 - <<'PY'
+          import shutil
+          free = shutil.disk_usage(".").free
+          print("Runner free disk before FMA data download (GiB):", round(free/1024**3, 2))
+          if free < 9 * 1024**3:
+              raise SystemExit("Insufficient scratch space for 7.2 GiB FMA-Small ZIP")
+          PY
+          base=https://os.unil.cloud.switch.ch/fma
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 2400 --silent --show-error \
+            "$base/fma_metadata.zip" -o fma-private/fma_metadata.zip
+          if [[ "${{ steps.fma_cache.outputs.cache-hit }}" != "true" ]]; then
+            /usr/bin/time -f 'fma_source_download_elapsed_s=%e peak_kib=%M' \
+              curl --fail --location --retry 3 --retry-all-errors \
+                --connect-timeout 30 --max-time 5400 --silent --show-error \
+                "$base/fma_small.zip" -o fma-private/fma_small.zip
+            test "$(stat -c%s fma-private/fma_small.zip)" -gt 7000000000
+          fi
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("fma-private/fma_metadata.zip") as archive:
+              print("Verified official FMA metadata archive:",len(archive.infolist()))
+          PY
+
+      - name: Restore or pack source-pinned selected FMA songs
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--bundle fma-private/fma-selected-cache/selected.zip
+                --manifest fma-private/fma-selected-cache/selection.json
+                --metadata-zip fma-private/fma_metadata.zip
+                --per-genre "$FMA_PER_GENRE" --seed 20261021)
+          if [[ "${{ steps.fma_cache.outputs.cache-hit }}" == "true" ]]; then
+            python3 scripts/fma_selected_audio_cache.py verify "${args[@]}"
+          else
+            python3 scripts/fma_selected_audio_cache.py pack "${args[@]}" \
+              --source-audio-zip fma-private/fma_small.zip
+            rm -f fma-private/fma_small.zip
+          fi
+          echo "fma_selected_cache_hit=${{ steps.fma_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "fma_selected_cache_mib=$(du -sm fma-private/fma-selected-cache | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save only selected FMA-Small audio rather than full archive
+        if: steps.fma_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: fma-private/fma-selected-cache
+          key: fma-small-unscreened-selected-v1-pergenre-${{ env.FMA_PER_GENRE }}-f923bbef327820456d50965c3c320c3c7b6dab8456449429fd78f7ec96a5d02c
+
+      - name: Analyze VALIDATION songs and calculate seven Genre retrieval metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/benchmark_fma_genre.py \
+            --metadata-zip fma-private/fma_metadata.zip \
+            --audio-zip fma-private/fma-selected-cache/selected.zip \
+            --selected-cache-manifest fma-private/fma-selected-cache/selection.json \
+            --binary validated-rust-v5/target/release/bliss-mood \
+            --models-dir models \
+            --db fma-private/fma-validation-features.db \
+            --report results/fma-validation-genre-summary.json \
+            --per-genre "$FMA_PER_GENRE" \
+            --split validation \
+            --seed 20261021
+          python3 - <<'PY'
+          import json
+          with open("results/fma-validation-genre-summary.json", encoding="utf8") as file:
+              report = json.load(file)
+          assert report["dataset"]["official_split"] == "validation"
+          print("FMA distinct validation artists:", report["dataset"]["distinct_artists"])
+          print("Random P@5:", report["baseline_random_precision_at_5"])
+          for name, details in report["metric_results"].items():
+              print(f"{name}: P@5={details['precision_at_5']['macro_mean']} "
+                    f"mAP@10={details['map_at_10']['macro_mean']} "
+                    f"nDCG@10={details['ndcg_at_10']['macro_mean']} "
+                    f"queries={details['precision_at_5']['query_count']}")
+          PY
+
+      - name: Upload only aggregate FMA validation metrics (no audio/labels/vectors)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fma-genre-validation-aggregate-report
+          path: results/fma-validation-genre-summary.json
+          if-no-files-found: error
+          retention-days: 14

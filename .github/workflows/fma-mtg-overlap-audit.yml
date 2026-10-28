@@ -1,0 +1,89 @@
+name: FMA-Small vs MTG-Jamendo metadata provenance (research)
+
+on:
+  push:
+    branches: [feat/similarity-metric-evaluation]
+    paths:
+      - '.github/workflows/fma-mtg-overlap-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fma-mtg-metadata-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fma-mtg-development-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Offline header fixture corrected; keep fail-fast gates before downloading
+      # the ~342-MiB official metadata ZIP.
+      - name: Test synthetic FMA artist and title joins before network
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_audit_fma_mtg_overlap.py'
+          python3 -m unittest discover -s tests -p 'test_audit_deam_mtg_overlap.py'
+          echo "FMA official test artist/title not accessed by this workflow." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download canonical research metadata only (NO AUDIO)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-private audit-results
+          echo "metadata_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 30 --max-time 1800 --silent --show-error \
+            https://os.unil.cloud.switch.ch/fma/fma_metadata.zip \
+            -o audit-private/fma_metadata.zip
+          test "$(stat -c%s audit-private/fma_metadata.zip)" -gt 100000000
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 500 --silent --show-error \
+            https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/raw.meta.tsv \
+            -o audit-private/mtg-raw.meta.tsv
+          test "$(stat -c%s audit-private/mtg-raw.meta.tsv)" -gt 10000
+          echo "metadata_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Match FMA TRAINING and VALIDATION metadata to MTG catalog only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "audit_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'metadata_overlap_elapsed_s=%e peak_rss_kib=%M' \
+            python3 scripts/audit_fma_mtg_overlap.py \
+              --fma-metadata-zip audit-private/fma_metadata.zip \
+              --mtg-metadata-tsv audit-private/mtg-raw.meta.tsv \
+              --output audit-results/fma-mtg-development-overlap.json
+          echo "audit_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json
+          with open("audit-results/fma-mtg-development-overlap.json",encoding="utf8") as f:
+              d=json.load(f)
+          assert d["coverage"]["training"] == 6400
+          assert d["coverage"]["validation"] == 800
+          assert d["coverage"]["test_metadata_rows_not_inspected"] == 800
+          assert d["policy"]["fma_splits_inspected"] == ["training","validation"]
+          assert d["status"].endswith("NOT_verified_ONNX_training_disjointness")
+          for split in ("training","validation"):
+              stat=d["by_split"][split]
+              assert (stat["joinable_artist_title"]+stat["no_usable_artist_title"]
+                      == stat["development_rows"])
+              assert (stat["possible_exact_artist_title_catalog_matches"]
+                      <= stat["possible_artist_only_catalog_matches"]
+                      <= stat["joinable_artist_title"])
+          print("FMA test untouched; metadata screen complete; no per-track values in output.")
+          PY
+
+      - name: Publish only aggregate provenance screen, not audio or metadata
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fma-mtg-development-catalog-provenance-only
+          path: audit-results/fma-mtg-development-overlap.json
+          if-no-files-found: error
+          retention-days: 14

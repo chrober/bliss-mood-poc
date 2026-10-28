@@ -1,5 +1,20 @@
 # Model-independent features and future mixing strategies
 
+**Research update (2026-10-21):** The stored 87D Genre and 56D
+Mood/Theme heads are only **one** possible song representation.
+Direct 1280D Discogs-EffNet embeddings from the shared encoder
+and carefully calibrated combinations of Embedding/Genre/Mood are
+separate A/B/C research approaches. The encoder produces 1280D
+patch features internally, but schema-v3 does not persist a pooled
+1280D song vector. Since this initial design note, the optional
+1280D research exporter and paired MTT/FMA benchmarks have been
+implemented; the relevant proven results, parity limits and current
+status are tracked in the
+[central roadmap](similarity-lyrion-roadmap.md) and
+[three-representation study](similarity-three-representation-approaches-handover-2026-10-21.md).
+Representation fusion is **not** the same decision as
+Bliss-first/feature-first/hybrid candidate selection.
+
 ## Current implementation (experimental)
 
 The Rust proof of concept [bliss-mood-poc](../README.md) implements an
@@ -139,3 +154,9 @@ sidecar is the first unsolved implementation seam. Separate Mood/Genre
 signals and an explicitly experimental opt-in preview come before any
 feature-first or hybrid candidate admission. Platform resource tuning is
 [deferred](platform-resource-roadmap.md).
+
+## Next research axis (2026-10-21): Compare *representations*, not just metrics
+
+The current seven metrics have been evaluated on already-pooled **87D Genre / 56D Mood/Theme classifier scores** only. The shared Discogs-EffNet model also internally provides **1,280D audio embeddings per patch**, but schema-v3 currently stores only the classifier heads. **No 1,280D song-level embedding baseline or multi-signal fusion has yet been evaluated.**
+
+The next controlled experiment explicitly compares **A: per-head classification similarity**, **B: pooled direct 1,280D embedding cosine**, and **C: calibrated/rank-based task-aware fusion**, using identical clips and reference questions with strict cohort provenance. See [the canonical new-session handover](similarity-representation-comparison-handover-2026-10-21.md) for definitions, 1280D export/pooling design, reproducibility/parity gates, external Essentia/cosine.club precedents, CI costs, ground-truth caveats and prioritized implementation. Do not confuse fusion of similarity signals with Lyrion's separate Bliss-first / Feature-first / Hybrid candidate-admission strategy choice. Official FMA TEST remains unexamined, full MTT is exploratory, and no production choice has been made.
