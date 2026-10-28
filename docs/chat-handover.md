@@ -1,5 +1,15 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **CURRENT 28 OCTOBER 2026 HANDOVER:** Start with
+> [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
+> and [its copy-paste prompt](handover-prompt-adaptive-host-sizing-20261028.md).
+> This file is a **historical** account of older PR #5 / October 19
+> experiments. The current PR #18 includes real 30-scan Windows priority
+> and 10-scan native adaptive-gate experiments, and system-dependent
+> `--max-workers auto` in place of the historical default eight.
+> Re-check the PR head and CI, do **not** treat older fixed/auto defaults
+> and open investigations below as current facts.
+
 > **Purpose:** Start a new development chat without losing the current project
 > state. The detailed performance experiment, raw benchmark measurements,
 > implementation details and open questions are in

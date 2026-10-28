@@ -1,5 +1,15 @@
 # Adaptive feature scanner — performance and investigation handover
 
+> **LATEST HANDOVER (28 OCTOBER 2026):**
+> [handover-adaptive-host-sizing-20261028.md](handover-adaptive-host-sizing-20261028.md)
+> plus [new-session prompt](handover-prompt-adaptive-host-sizing-20261028.md).
+> The following October 19 results were obtained using different scanner
+> generations/backends and are preserved as historical evidence. Native
+> 100-song 30-priority-scan and 10-policy-scan results, current host CPU
+> ceiling, model/parity status, and completed CI live in the latest handover.
+> Older notes such as fixed auto max=8 and "native performance unmeasured"
+> must **not** be treated as current PR #18 implementation statements.
+
 **Captured:** 2026-10-19, Europe/Vienna.
 **Repository:** https://github.com/chrober/bliss-mood-poc
 **Implementation baseline:** main `55b35dab1a873c3e61ecd639b7430caf0b09034c`,

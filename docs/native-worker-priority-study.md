@@ -1,7 +1,12 @@
 # Windows scanner / original Essentia C++ worker priority control
 
-**Status:** implemented in draft PR #18; qualification requires the green CI
-checks **for the final commit** and a new Windows x64 artifact. This change does
+**Status:** implemented in draft PR #18. The first verified exact Windows
+priority build completed on an earlier source commit. For the current
+October 28 code baseline and its green checks, plus **measured** results,
+see [current host-sizing handover](handover-adaptive-host-sizing-20261028.md).
+Do not reuse a Windows artifact from a mismatched code commit.
+The original qualification policy still requires the green CI
+checks **for the code being tested** and a matching Windows x64 artifact. This change does
 not alter the class/mood/voice model weights, feature computation, original
 Essentia C++ backend, existing song files or Bliss database.
 
@@ -216,3 +221,21 @@ configurations on a four-CPU Raspberry Pi.
 The historical Windows 100-song performance results remain unchanged.
 New host-dependent settings require a new matching Windows binary;
 do not reuse pre-change artifacts for auto max-worker experiments.
+
+## Subsequent completed controls (28 October 2026)
+
+The originally proposed priority matrix **has now been measured locally**:
+30 real-music scans on the same 100-song cohort, three priorities, five
+fixed/adaptive worker configurations, twice each, with exact classifier
+and 1280D embedding parity and actual scanner/native child priority
+verification. The results show no convincing speedup from `AboveNormal`
+under these conditions. For complete medians, methodology and caveats,
+refer to [current handover](handover-adaptive-host-sizing-20261028.md).
+
+A separate 10-scan adaptive-start/gate experiment found that moving
+the start from 2 to 4 or 6 improved wall time more than changing the
+song gate from 24 to 8; however, all adaptive modes were capped at six
+and every growing mode reached six. This **does not** establish six
+as the performance optimum. The next step is controlled native C++
+fixed 6/8/10/12 scaling, while host-dependent CPU capacity is an
+upper safety bound and actual memory cost remains to be validated.

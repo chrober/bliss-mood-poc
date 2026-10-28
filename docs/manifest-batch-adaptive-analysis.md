@@ -1,5 +1,13 @@
 # Explicit track-manifest analysis using the existing adaptive worker scanner
 
+> **28 OCTOBER 2026 UPDATE:** This document covers the original
+> manifest feature and its early CI sequence, and includes now-historical
+> "not yet measured" statements. See the [current PR #18 worker-sizing and
+> performance handover](handover-adaptive-host-sizing-20261028.md) for
+> verified **30-scan priority** and **10-scan adaptive-policy** results,
+> system-dependent `--max-workers auto` implementation, current CI
+> and next native fixed 6/8/10/12 performance experiment.
+
 **Status:** experimental implementation on `feat/manifest-batch-adaptive-worker-analysis`; based on the exact PR #17 C++/Rust backend. This is **not** a release qualification or a measured performance improvement. PR #16 remains unaffected.
 
 ## Problem and scope
