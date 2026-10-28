@@ -1,0 +1,48 @@
+name: Feature worker Linux ARM64 process and resource safety
+
+on:
+  pull_request:
+    paths:
+      - "src/feature_worker_process.rs"
+      - "src/resources.rs"
+      - "src/memory_watchdog.rs"
+      - "src/main.rs"
+      - "tests/feature_worker_process.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/feature-worker-linux-arm64.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-worker-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Record ARM64 architecture and visible Linux memory controller
+        run: |
+          set -euo pipefail
+          uname -a
+          test "$(uname -m)" = aarch64
+          printf 'cgroup membership:\n'
+          cat /proc/self/cgroup
+          printf 'Visible current memory limit (not a new hard limit):\n'
+          test ! -f /sys/fs/cgroup/memory.max || cat /sys/fs/cgroup/memory.max
+      - name: Run actual persistent feature-worker IPC and descendant teardown on ARM64
+        run: |
+          set -euo pipefail
+          cargo test --locked --test feature_worker_process -- --test-threads=1
+      - name: Exercise production cgroup budget parsing and RAM watchdog logic on ARM64
+        run: |
+          set -euo pipefail
+          cargo test --locked --bin bliss-mood resources::tests::
+          cargo test --locked --bin bliss-mood memory_watchdog::tests::
+      - name: Exercise both Unix descendant teardown tests in production binary
+        run: |
+          set -euo pipefail
+          cargo test --locked --bin bliss-mood feature_worker_process::tests::owned_unix_ -- --nocapture
