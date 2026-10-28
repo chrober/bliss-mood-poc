@@ -13,6 +13,7 @@ on:
       - ".github/workflows/windows-binary.yml"
       - "scripts/benchmark_native_adaptive_manifest.py"
       - "scripts/run_autotune_e2e_windows.ps1"
+      - "scripts/verify_windows_build_identity.ps1"
       - "tests/test_benchmark_native_adaptive_manifest.py"
   push:
     branches: [main]
@@ -26,6 +27,7 @@ on:
       - ".github/workflows/windows-binary.yml"
       - "scripts/benchmark_native_adaptive_manifest.py"
       - "scripts/run_autotune_e2e_windows.ps1"
+      - "scripts/verify_windows_build_identity.ps1"
       - "tests/test_benchmark_native_adaptive_manifest.py"
 
 permissions:
@@ -46,16 +48,65 @@ jobs:
           python-version: "3.11"
       - name: Parse-check local PR19 autotune PowerShell launcher without executing music
         run: |
-          $tokens = $null
-          $errors = $null
-          $source = (Resolve-Path 'scripts/run_autotune_e2e_windows.ps1').Path
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            $source, [ref]$tokens, [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -ne 0) {
-            throw ("PowerShell syntax errors: " + ($errors -join "; "))
+          foreach ($file in @(
+            'scripts/run_autotune_e2e_windows.ps1',
+            'scripts/verify_windows_build_identity.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            $source = (Resolve-Path $file).Path
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $source, [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -ne 0) {
+              throw ("PowerShell syntax errors in " + $file + ": " + ($errors -join "; "))
+            }
           }
-          Write-Host 'PASS: local-only autotune PowerShell syntax; no private media accessed'
+          Write-Host 'PASS: local-only PowerShell syntax; no private media accessed'
+      - name: Verify synthetic BUILD.txt merge/source SHA semantics
+        run: |
+          $head = 'a' * 40
+          $merge = 'b' * 40
+          $other = 'c' * 40
+          $fixture = Join-Path $env:RUNNER_TEMP 'autotune-build-identity-synthetic.txt'
+          $verifier = (Resolve-Path 'scripts/verify_windows_build_identity.ps1').Path
+
+          @("Commit: $merge", "Source PR head commit: $head") |
+            Set-Content -LiteralPath $fixture -Encoding utf8
+          $checked = & $verifier -BuildPath $fixture -ExpectedSourceSha $head
+          if ($checked.checkout_commit -ne $merge -or
+              $checked.source_head_commit -ne $head -or
+              -not $checked.pull_request_merge_checkout) {
+            throw 'Rejected legitimate GitHub PR merge checkout or source identity'
+          }
+
+          @("Commit: $head", "Source PR head commit: $head") |
+            Set-Content -LiteralPath $fixture -Encoding utf8
+          $checked = & $verifier -BuildPath $fixture -ExpectedSourceSha $head
+          if ($checked.pull_request_merge_checkout) {
+            throw 'Mistook an ordinary source checkout for a PR merge'
+          }
+
+          # Invalid fixtures use strings with embedded newlines to preserve
+          # the exact number and order of BUILD.txt lines in PowerShell.
+          foreach ($invalid in @(
+            "Commit: $merge`nSource PR head commit: $other",
+            "Commit: invalid`nSource PR head commit: $head",
+            "Commit: $merge`nSource PR head commit: invalid",
+            "Commit: $merge`nSource PR head commit: $head`nCommit: $head"
+          )) {
+            $invalid | Set-Content -LiteralPath $fixture -Encoding utf8
+            $rejected = $false
+            try {
+              & $verifier -BuildPath $fixture -ExpectedSourceSha $head | Out-Null
+            } catch {
+              $rejected = $true
+            }
+            if (-not $rejected) {
+              throw 'Accepted synthetic forged/ambiguous BUILD.txt metadata'
+            }
+          }
+          Write-Host 'PASS: PR merge SHA accepted; mismatched/invalid BUILD.txt rejected'
       - name: Verify native adaptive benchmark regression tests on Windows
         run: |
           python -m unittest discover -s tests -p 'test_benchmark_native_adaptive_manifest.py' -v

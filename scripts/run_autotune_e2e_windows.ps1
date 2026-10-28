@@ -116,11 +116,16 @@ param(
             throw "Unvollstaendiges CI-Artefakt: $file"
         }
     }
-    $buildText = Get-Content -LiteralPath $build -Raw
-    if ($buildText -notmatch "(?m)^Commit:[ \t]*$codeSha\r?$" -or
-        $buildText -notmatch "(?m)^Source PR head commit:[ \t]*$codeSha\r?$") {
-        throw 'BUILD.txt weist nicht die erwartete Source-SHA nach'
+    # Pull-request Actions check out a temporary merge commit. BUILD.txt's
+    # "Commit" may differ from the PR source HEAD: the second field must equal
+    # the verified workflow head SHA, while the first must be a valid full SHA.
+    $identityScript = Join-Path $PSScriptRoot 'verify_windows_build_identity.ps1'
+    if (-not (Test-Path -LiteralPath $identityScript -PathType Leaf)) {
+        throw "CI-Build-Identitaetspruefung fehlt: $identityScript"
     }
+    $identity = & $identityScript -BuildPath $build -ExpectedSourceSha $codeSha
+    Write-Host "CI-Checkout-Commit: $($identity.checkout_commit)"
+    Write-Host "CI-Source-Commit:   $($identity.source_head_commit)"
     $hashLines = @(Get-Content -LiteralPath $hashFile |
         Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?bliss-mood\.exe\s*$' })
     if ($hashLines.Count -ne 1) {
