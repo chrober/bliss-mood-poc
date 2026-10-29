@@ -120,32 +120,32 @@ foreach ($command in @('git', 'gh', 'python')) {
 Require-Dir $Repo 'original Git repository'
 Write-Host '=== ISOLATED GIT WORKTREE ===' -ForegroundColor Cyan
 if (-not $Synced) {
-    Invoke-GitChecked @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
-    $sha = ([string](Invoke-GitChecked @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
+    Invoke-GitChecked -Arguments @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
+    $sha = ([string](Invoke-GitChecked -Arguments @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
     if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'Invalid remote bridge commit SHA' }
     if (-not (Test-Path -LiteralPath $Worktree)) {
-        Invoke-GitChecked @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $sha) | Out-Null
+        Invoke-GitChecked -Arguments @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $sha) | Out-Null
     }
 }
 Require-Dir $Worktree 'isolated bridge Git worktree'
-$root = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', '--show-toplevel'))).Trim()
+$root = ([string](Invoke-GitChecked -Arguments @('-C', $Worktree, 'rev-parse', '--show-toplevel'))).Trim()
 if ([IO.Path]::GetFullPath($root).TrimEnd('\') -ine
     [IO.Path]::GetFullPath($Worktree).TrimEnd('\')) {
     throw 'Bridge worktree does not match expected isolated path'
 }
-$dirty = @(Invoke-GitChecked @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal') |
+$dirty = @(Invoke-GitChecked -Arguments @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal') |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 if ($dirty.Count -gt 0) { throw 'Isolated worktree has changes; refusing checkout' }
 if (-not $Synced) {
-    $head = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
+    $head = ([string](Invoke-GitChecked -Arguments @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
     if ($head -cne $sha) {
-        Invoke-GitChecked @('-C', $Worktree, 'checkout', '--detach', $sha) | Out-Null
+        Invoke-GitChecked -Arguments @('-C', $Worktree, 'checkout', '--detach', $sha) | Out-Null
         # Re-enter the UPDATED script rather than executing stale in-memory code.
         & (Join-Path $Worktree 'scripts\bootstrap_native_similarity_scan_compare.ps1') -Mode $Mode -Repo $Repo -Worktree $Worktree -PlanDir $PlanDir -ReportDir $ReportDir -BinDir $BinDir -Worker $Worker -ModelsDir $ModelsDir -AudioRoot $AudioRoot -Synced
         return
     }
 }
-$head = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
+$head = ([string](Invoke-GitChecked -Arguments @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
 Write-Host "Bridge source commit: $head" -ForegroundColor Green
 
 Write-Host '=== PINNED SCANNER AND PRIVATE NATIVE WORKER ===' -ForegroundColor Cyan
