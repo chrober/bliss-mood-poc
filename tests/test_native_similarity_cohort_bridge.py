@@ -1,6 +1,7 @@
 """Synthetic 100-track native similarity bridge tests; no user songs, network or ONNX."""
 from __future__ import annotations
 import hashlib
+import csv
 from contextlib import closing
 import json
 from pathlib import Path
@@ -168,6 +169,63 @@ class NativeBridgeTests(unittest.TestCase):
         self.assertNotIn("Artist-", output)
         self.assertNotIn("Titel", output)
         self.assertNotIn(str(self.audio), output)
+
+    def test_original_12_human_labels_replayed_privately_without_retraining(self):
+        bridge.prepare(self.prep_args())
+        tracks, defs = bridge.read_cohort(
+            self.old, {"genre", "moodtheme"}, bridge.OLD_FRONTEND)
+        vectors = bridge.validate_embeddings(self.old_emb, tracks, defs)
+        keys = sorted(tracks)
+        rated_csv, sealed_json = self.root/"human.csv", self.root/"sealed.json"
+        rows, private = [], []
+        for i in range(12):
+            left, right = keys[i*2], keys[i*2+1]
+            source = {
+                key: {"genre": tracks[key]["genre"]["scores"],
+                      "moodtheme": tracks[key]["moodtheme"]["scores"],
+                      "embedding": vectors[key]}
+                for key in (left, right)
+            }
+            scores = bridge.model_scores(source[left], source[right])
+            rows.append({
+                "left": left, "right": right,
+                "genre_similarity_1to5": str(i % 5 + 1),
+                "mood_energy_similarity_1to5": str((i * 2) % 5 + 1),
+                "timbre_similarity_1to5": str((i * 3) % 5 + 1),
+                "next_track_suitability_1to5": str((i * 4) % 5 + 1),
+                "confidence_1to3": "3", "notes": "Fiktiver Hörtest",
+            })
+            private.append({
+                "pair_number": i + 1, "left": left, "right": right,
+                "similarity_scores_not_probabilities": scores
+            })
+        with rated_csv.open("w", encoding="cp1252", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]), delimiter="\t")
+            writer.writeheader()
+            writer.writerows(rows)
+        sealed_json.write_text(json.dumps({
+            "schema": "private_blinded_local_ab_pilot_selection_v1",
+            "pairs_private_do_not_open_before_review": private
+        }), encoding="utf-8")
+        args = self.comp_args()
+        args.ratings = rated_csv
+        args.pilot_audit = sealed_json
+        result = bridge.compare(args)
+        audit = result["original_12_pair_human_sensitivity"]
+        self.assertTrue(audit["original_sealed_scores_reproduced"])
+        self.assertTrue(audit["human_ratings_verified_from_local_csv"])
+        self.assertEqual(audit["sample_sizes"], {"all": 12, "music": 11})
+        for sample in audit["paired_model_vs_human"].values():
+            self.assertEqual(len(sample), 5)
+            for model in sample.values():
+                self.assertEqual(len(model), 4)
+                for values in model.values():
+                    self.assertEqual(values["previous_spearman"],
+                                     values["native_spearman"])
+        aggregate = (self.result/"aggregate-native-cohort-comparison.json").read_text()
+        self.assertNotIn("Artist-", aggregate)
+        self.assertNotIn("Hörtest", aggregate)
+        self.assertNotIn("Titel", aggregate)
 
     def test_modified_original_audio_fails_before_any_output(self):
         file = self.audio / "Artist-003" / "Album 001" / "Titel 003.flac"
