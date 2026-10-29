@@ -1,0 +1,37 @@
+name: WP2 Personal / WP3 Bliss-Essentia synthetic contracts
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/audit_bliss_essentia_join.py'
+      - 'scripts/general_personal_blend_contract.py'
+      - 'tests/test_audit_bliss_essentia_join.py'
+      - 'tests/test_general_personal_blend_contract.py'
+      - '.github/workflows/research-bliss-personal-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: WP2/WP3 no-audio synthetic safety gates (\${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: \${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile research contracts
+        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py
+      - name: WP3 read-only exact-join and private aggregate regression
+        run: python -m unittest discover -s tests -p 'test_audit_bliss_essentia_join.py' -v
+      - name: WP2 General/Personal model fallback and legacy learner regression
+        run: python -m unittest discover -s tests -p 'test_general_personal_blend_contract.py' -v
+      - name: Existing experimental features are not silently changed
+        run: python -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py' -v
