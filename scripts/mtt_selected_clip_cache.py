@@ -121,13 +121,19 @@ class SelectedClipCache:
 
 
 def build(cache: Path, required: dict[str, zipfile.ZipInfo],
-          archive_parts: list[Path], part_sizes: list[int]) -> dict:
+          archive_parts: list[Path] | None, part_sizes: list[int],
+          *, remote_range_source: bool = False) -> dict:
     if cache.exists():
         raise FileExistsError("Refuse overwrite of immutable research audio cache")
     if len(required) != EXPECTED_REQUIRED_CLIPS:
         raise ValueError("Cached audio cardinality differs from registered study")
-    from benchmark_magnatagatune import extract_mp3
-    source = LocalMultipartRanges(archive_parts, part_sizes)
+    from benchmark_magnatagatune import extract_mp3, RangeFetcher
+    if remote_range_source and archive_parts:
+        raise ValueError('Select remote sparse ranges OR local source archive, never both')
+    if not remote_range_source and not archive_parts:
+        raise ValueError('Local cache build requires complete source archives')
+    source = (RangeFetcher(part_sizes) if remote_range_source
+              else LocalMultipartRanges(archive_parts, part_sizes))
     cache.parent.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(cache, mode="x", allowZip64=True) as dest:
@@ -143,7 +149,10 @@ def build(cache: Path, required: dict[str, zipfile.ZipInfo],
         data = verify(cache, required)
         if data["cache_file_bytes"] > MAX_PACKAGE_BYTES:
             raise ValueError("Created cache exceeds 300 MiB research bound")
-        return {**data, "source_zip_bytes_read": source.total_bytes}
+        return {**data, "source_zip_bytes_read": source.total_bytes,
+                "source_mode": "sparse_crc_checked_http_ranges" if remote_range_source
+                               else "local_publisher_archive",
+                "range_requests": source.requests if remote_range_source else 0}
     except BaseException:
         cache.unlink(missing_ok=True)
         raise
@@ -158,9 +167,13 @@ def main() -> None:
     p.add_argument("--comparisons", type=Path, required=True)
     p.add_argument("--clips", type=Path, required=True)
     p.add_argument("--source-parts", type=Path, nargs=3)
+    p.add_argument("--remote-range-source", action="store_true",
+                   help="Build 1019 clips from bounded publisher HTTP 206 ranges only; no full ZIP parts")
     args = p.parse_args()
-    if args.mode == "build" and not args.source_parts:
-        p.error("Build requires three original archive source parts")
+    if args.mode == "build" and bool(args.source_parts) == bool(args.remote_range_source):
+        p.error("Choose exactly one: --source-parts or --remote-range-source")
+    if args.mode == "verify" and (args.source_parts or args.remote_range_source):
+        p.error("Verify requires neither archive source nor remote download")
     began = time.monotonic()
     original, _ = zip_member_directory(args.tail, args.part_sizes)
     paths, question_count, unique_questions = needed_paths(args.comparisons, args.clips)
@@ -168,7 +181,8 @@ def main() -> None:
             or question_count != 533 or unique_questions != 346):
         raise ValueError("Dataset changed: fail closed instead of caching wrong audio")
     required = resolve_members(paths, original)
-    result = (build(args.cache, required, args.source_parts, args.part_sizes)
+    result = (build(args.cache, required, args.source_parts, args.part_sizes,
+                    remote_range_source=args.remote_range_source)
               if args.mode == "build" else verify(args.cache, required))
     result.update({
         "mode": args.mode,
