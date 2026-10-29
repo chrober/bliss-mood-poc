@@ -1,5 +1,8 @@
 # Handover: Lyrion Similarity nach erfolgreichem nativen 100-Song-Preflight (29.10.2026)
 
+> **Nachtrag 29.10.2026 – Scanner-Orchestrierung implementiert, echter Scan weiterhin offen:** Auf dem isolierten Bridge-Branch liegen jetzt `scripts/bootstrap_native_similarity_scan_compare.ps1` und der rein lesende `scripts/verify_native_similarity_frozen_inputs.py`. Der **neue erste PowerShell-Einstieg** inklusive sicherer Worktree-Aktualisierung steht unter [Native Scan-→-Compare-Automatisierung](native-similarity-100-scan-compare-automation-20261029.md). Bestehender Preflight bleibt eingefroren; kein `prepare` oder Neu-Sampling. Synthetische Windows- und Linux-CI: [Run 40876343552](https://github.com/chrober/bliss-mood-poc/actions/runs/40876343552) **PASS**, einschließlich Windows-PowerShell-Parse-Checks. **Noch kein lokaler nativer Scan, keine 4.950-paarigen Realwerte, keine 12/11-Neuauswertung** – diese werden erst nach Ausführung am Windows-Rechner als reale Ergebnisse dokumentiert. PR #16 unberührt; öffentliche Verteilung des nativen Kits weiterhin BLOCKED.
+
+
 **Aktuell verbindlicher Einstieg für die nächste Chat-Session.**
 **Forschungsziel: Eine robuste, möglichst gute ALLGEMEINE Song-Ähnlichkeitsmetrik für Lyrion entwickeln, die ohne persönliches Training funktioniert.** Eine erlernte persönliche Metrik sowie ein späteres 0–100%-Blending bleiben optional und nachgeordnet. Keine weiteren verpflichtenden manuellen Songpaare; keine erneute Worker-Autotuning-Forschung.
 
