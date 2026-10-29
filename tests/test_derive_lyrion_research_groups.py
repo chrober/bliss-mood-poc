@@ -36,6 +36,10 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
             """)
             conn.execute("INSERT INTO metadata VALUES(?,?)",
                          ("schema_identity","lyrion-track-identities-v1"))
+            conn.execute("INSERT INTO metadata VALUES(?,?)",
+                         ("lms_scan_time","20261029120000"))
+            conn.execute("INSERT INTO metadata VALUES(?,?)",
+                         ("media_roots_identity","a"*64))
             for i,key in enumerate(source.all_groups):
                 mbid=str(uuid.uuid5(uuid.NAMESPACE_DNS,f"recording-{i}"))
                 conn.execute("INSERT INTO track_identity VALUES(?,?,?,?)",
@@ -133,6 +137,15 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
                          (next(iter(self.source.all_groups)),))
             conn.commit()
         with self.assertRaisesRegex(ValueError,"Incomplete Lyrion grouping"):
+            self.derive()
+        self.assertFalse(self.out.exists())
+
+    def test_rejects_malformed_snapshot_scan_roots_metadata(self):
+        with closing(sqlite3.connect(self.snapshot)) as conn:
+            conn.execute("UPDATE metadata SET value=? WHERE key='media_roots_identity'",
+                         ("not-a-sha",))
+            conn.commit()
+        with self.assertRaisesRegex(ValueError,"Snapshot scan/root metadata"):
             self.derive()
         self.assertFalse(self.out.exists())
 
