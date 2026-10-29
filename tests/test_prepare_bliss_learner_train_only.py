@@ -1,6 +1,7 @@
 """Synthetic WP2-P2 train-only staging, no original Bliss writes or personal labels."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -35,7 +36,7 @@ class TrainOnlyStagingTests(unittest.TestCase):
                 all_rows.append((key,*([artist+member*.5]+[.5]*22)))
             self.trips.append(trio)
         cols=", ".join('"'+c+'" REAL NOT NULL' for c in BLISS_COLUMNS)
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn:
             conn.execute(f'CREATE TABLE TracksV2 ("File" TEXT PRIMARY KEY, {cols})')
             conn.executemany(
                 f'INSERT INTO TracksV2 VALUES ({",".join("?" for _ in range(24))})',all_rows
@@ -52,7 +53,7 @@ class TrainOnlyStagingTests(unittest.TestCase):
         self.assertGreaterEqual(result["train_triplets"],5)
         newdir=self.root/"staged"
         train=json.loads((newdir/"train-only-triplets.json").read_text())
-        with sqlite3.connect(newdir/"train-only-bliss.db") as db:
+        with closing(sqlite3.connect(newdir/"train-only-bliss.db")) as db:
             columns=[a[1] for a in db.execute("PRAGMA table_info(TracksV2)").fetchall()]
             self.assertEqual(columns,["File",*BLISS_COLUMNS])
             keys={a[0] for a in db.execute("SELECT File FROM TracksV2")}
@@ -73,7 +74,7 @@ class TrainOnlyStagingTests(unittest.TestCase):
         self.assertEqual(before,_sha256(self.db))
 
     def test_missing_bliss_feature_causes_fail_before_output_creation(self):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn:
             conn.execute("UPDATE TracksV2 SET Tempo=\'invalid_not_numeric\'")
             conn.commit()
         with self.assertRaisesRegex(ValueError,"lacks unique"):
