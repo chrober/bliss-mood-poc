@@ -79,6 +79,47 @@ vectors. The private manifest contains real source-relative
 song identities, MUST be kept only on the local workstation.
 Synthetic Linux and Windows CI uses no user music.
 
+## Corrected frozen-cohort selection (2026-10-29)
+
+The first real local preflight reported
+`baseline_feature_cohort: Unexpected head, preprocessing or model identity`.
+**Root cause in the bridge design:** the reader assumed that every
+`feature_tracks` row in the *historical* benchmark SQLite
+belonged to just one exact Rust-v5 Genre/Mood pair. PR #16's
+original reviewed 100-song pilot instead used its deterministic
+dominant-model cohort selection (count descending, stable model
+fingerprint tiebreak), then the exact joined Genre+Mood keys
+in binary path order with seed 20261021. The actual database's
+additional historical/other-head rows must not be silently
+interpreted as a corrupt 100-song cohort.
+
+The reader now mirrors PR #16's original eligible dominant
+Genre+Mood selection and exact joined 100 keys, then validates
+the independently preserved **100 encrypted-name JSON
+embeddings**, source audio fingerprints, ONNX weights, class
+order and both classification heads. Alternative DSP
+preprocessing on a dominant cohort, different fingerprint
+definitions, invalid feature rows, changed 100-song membership
+or extraneous native output rows remain **hard errors**.
+No previous user files are modified. Synthetic regression
+tests cover historical voice/earlier-backend rows and
+fail-closed rejection of a dominant wrong frontend.
+Linux and Windows regression tests passed in
+[workflow 40873290274](https://github.com/chrober/bliss-mood-poc/actions/runs/40873290274).
+
+The already installed bootstrap updates the *separate,
+clean* worktree automatically. To retry the preflight,
+**do not** repeat the manual checkout or downloads; run:
+
+~~~powershell
+& 'D:\LMS\bliss-mood-native-bridge\scripts\bootstrap_native_similarity_preflight.ps1'
+~~~
+
+Its `prepare` step never starts native audio inference.
+If another named stage fails, fix that specific invariant
+before attempting `scan`. Do not delete or bypass
+older research records to force a successful audit.
+
 ## Preferred fully automatic Windows preflight (2026-10-29 update)
 
 The first real local preflight failed with only "ValueError";
