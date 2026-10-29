@@ -46,6 +46,84 @@ RATING_FIELDS = ("genre_similarity_1to5", "mood_energy_similarity_1to5",
                  "timbre_similarity_1to5", "next_track_suitability_1to5")
 
 
+
+# Diagnostics deliberately expose only invariant names and numbered cohort
+# positions, never private track keys, source paths, notes, or model vectors.
+# Only literal allowlisted validation messages may leave the local process.
+SAFE_ERRORS = frozenset({
+    "Unsafe track identity",
+    "Unsafe source-relative track identity",
+    "Music source escapes root or is not a file",
+    "Existing feature SQLite input is missing",
+    "Feature sidecar schema is not v3",
+    "Unexpected head, preprocessing or model identity",
+    "Invalid track key",
+    "Missing/invalid source-audio SHA256",
+    "Invalid audio patch count",
+    "Invalid classification score shape",
+    "Nonfinite/out-of-range classification score",
+    "Degenerate Genre/Mood head vector",
+    "Voice softmax is not normalized",
+    "Invalid stored model metadata",
+    "Invalid stored model hashes/classes",
+    "Unexpected ONNX filenames or backend deployment hashes",
+    "Invalid recorded SHA256",
+    "Unexpected native aggregation",
+    "Unexpected previous Genre/Mood aggregation",
+    "Mixed model definitions within source DB",
+    "Duplicate track/head feature row",
+    "Must have exactly 100 fully analyzed tracks and exact required heads",
+    "Inconsistent source audio or patch count across heads",
+    "Incomplete model definitions",
+    "Required official ONNX model or class metadata is missing",
+    "ONNX weights differ from frozen Rust-v5 cohort",
+    "Ordered classification labels differ from baseline",
+    "Voice model metadata not valid",
+    "Embedding directory does not exist",
+    "Embedding folder must contain precisely the same 100 JSON exports",
+    "Embedding audio/encoder/patch/frontend identity mismatch",
+    "Invalid pooled embedding representation fingerprint",
+    "Embedding vector not finite/unit-normalized",
+    "Mixed embedding representations",
+    "New output directory already exists",
+    "Output may not overlap an input or its parent directory",
+    "Missing local music root, scanner or trusted native worker",
+    "Scanner EXE hash is different from the verified CI binary",
+    "Native worker EXE does not match supplied expected SHA256",
+    "Original music file no longer matches frozen audio SHA256",
+})
+
+
+class BridgeStageError(Exception):
+    def __init__(self, stage: str, source: Exception):
+        self.stage = stage
+        message = str(source)
+        self.reason = message if message in SAFE_ERRORS else type(source).__name__
+        super().__init__(f"{stage}: {self.reason}")
+
+
+def checked_stage(stage: str, func, *args, **kwargs):
+    print(f"[CHECK] {stage}", file=sys.stderr, flush=True)
+    try:
+        result = func(*args, **kwargs)
+    except (OSError, ValueError, sqlite3.DatabaseError, KeyError, TypeError,
+            AssertionError, UnicodeError) as error:
+        raise BridgeStageError(stage, error) from error
+    print(f"[PASS] {stage}", file=sys.stderr, flush=True)
+    return result
+
+
+def check_audio_sources(tracks: dict, root: Path) -> None:
+    for number, key in enumerate(sorted(tracks), 1):
+        # One numeric index is actionable for local diagnostics without
+        # disclosing the private file key in command output.
+        def check_one():
+            source = safe_song_path(key, root)
+            if digest(source) != tracks[key]["genre"]["audio_sha256"]:
+                raise ValueError("Original music file no longer matches frozen audio SHA256")
+        checked_stage(f"audio_sha256_{number:03d}_of_100", check_one)
+
+
 def digest(path: Path) -> str:
     result = hashlib.sha256()
     with path.open("rb") as stream:
@@ -250,30 +328,39 @@ def verify_disjoint_output(out: Path, inputs: list[Path]) -> None:
 
 
 def prepare(args) -> dict:
-    tracks, definitions = read_cohort(
+    tracks, definitions = checked_stage(
+        "baseline_feature_cohort", read_cohort,
         args.baseline_db, {"genre", "moodtheme"}, OLD_FRONTEND)
-    old_vectors = validate_embeddings(args.baseline_embeddings, tracks, definitions)
-    hashes = validate_model_files(args.models_dir, definitions)
-    if not args.audio_root.is_dir() or not args.scanner.is_file() or not args.worker.is_file():
-        raise ValueError("Missing local music root, scanner or trusted native worker")
-    scanner_hash = digest(args.scanner)
-    if scanner_hash != args.expected_scanner_sha256.lower():
-        raise ValueError("Scanner EXE hash is different from the verified CI binary")
-    worker_hash = digest(args.worker)
-    if args.expected_worker_sha256 and worker_hash != args.expected_worker_sha256.lower():
-        raise ValueError("Native worker EXE does not match supplied expected SHA256")
-    # Preflight ALL audio hashes before committing even one output file.
-    for key in sorted(tracks):
-        source = safe_song_path(key, args.audio_root)
-        if digest(source) != tracks[key]["genre"]["audio_sha256"]:
-            raise ValueError("Original music file no longer matches frozen audio SHA256")
+    old_vectors = checked_stage(
+        "baseline_embedding_exports", validate_embeddings,
+        args.baseline_embeddings, tracks, definitions)
+    hashes = checked_stage(
+        "onnx_model_weights_and_class_metadata", validate_model_files,
+        args.models_dir, definitions)
+
+    def verify_binaries():
+        if not args.audio_root.is_dir() or not args.scanner.is_file() or not args.worker.is_file():
+            raise ValueError("Missing local music root, scanner or trusted native worker")
+        scanner_hash = digest(args.scanner)
+        if scanner_hash != args.expected_scanner_sha256.lower():
+            raise ValueError("Scanner EXE hash is different from the verified CI binary")
+        worker_hash = digest(args.worker)
+        if args.expected_worker_sha256 and worker_hash != args.expected_worker_sha256.lower():
+            raise ValueError("Native worker EXE does not match supplied expected SHA256")
+        return scanner_hash, worker_hash
+
+    scanner_hash, worker_hash = checked_stage(
+        "verified_scanner_and_native_worker", verify_binaries)
+    # Verify all 100 original music files before writing any manifest.
+    check_audio_sources(tracks, args.audio_root)
     assert len(old_vectors) == N
     manifest = "".join(k + "\n" for k in sorted(tracks)).encode("utf-8")
     before = digest(args.baseline_db)
     output = args.out_dir
-    verify_disjoint_output(output, [args.baseline_db, args.baseline_embeddings,
-                                   args.audio_root, args.models_dir,
-                                   args.scanner, args.worker])
+    checked_stage("new_output_directory_safety", verify_disjoint_output,
+                  output, [args.baseline_db, args.baseline_embeddings,
+                           args.audio_root, args.models_dir,
+                           args.scanner, args.worker])
     provenance = {
         "schema": "native_similarity_cohort_bridge_v1",
         "status": "PREFLIGHT_VERIFIED_NO_NATIVE_SCAN_YET",
@@ -603,8 +690,13 @@ def main() -> int:
         report = prepare(args) if args.action == "prepare" else compare(args)
         # No source paths/song titles or raw vectors are printed.
         print(json.dumps(report, ensure_ascii=False, indent=2))
-    except (OSError, ValueError, sqlite3.DatabaseError, KeyError, TypeError, AssertionError) as error:
-        parser.exit(2, "Native cohort bridge stopped safely: " + type(error).__name__ + "\n")
+    except BridgeStageError as error:
+        parser.exit(2, f"Native cohort bridge failed at {error.stage}: {error.reason}\n")
+    except (OSError, ValueError, sqlite3.DatabaseError, KeyError, TypeError,
+            AssertionError, UnicodeError) as error:
+        # Do not print the private source path in unclassified exceptions.
+        reason = str(error) if str(error) in SAFE_ERRORS else type(error).__name__
+        parser.exit(2, "Native cohort bridge stopped safely: " + reason + "\n")
     return 0
 
 
