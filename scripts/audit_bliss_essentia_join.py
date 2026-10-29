@@ -18,6 +18,7 @@ import sqlite3
 import sys
 
 import evaluate_similarity as ev
+from evaluate_mtt_embedding_ab import filename_for_key, validate_embedding
 
 # Source contract: chrober/bliss-learner src/main.rs FEATURE_COLUMNS (main, 2026-10-29).
 BLISS_COLUMNS = (
@@ -121,11 +122,13 @@ def compatible_essentia_provenance(
 
 
 def report(bliss_db: Path, feature_db: Path, *, limit: int = 100,
-           seed: int = 20261029) -> dict:
+           seed: int = 20261029, embedding_dir: Path | None = None) -> dict:
     if type(limit) is not int or not 1 <= limit <= MAX_SAMPLE:
         raise ValueError("Sample limit must be 1..300")
     if type(seed) is not int:
         raise ValueError("Sampling seed must be an integer")
+    if embedding_dir is not None and not embedding_dir.is_dir():
+        raise ValueError("Optional embedding directory is unavailable")
     with closing(open_bliss(bliss_db)) as bliss:
         with closing(ev.open_database(feature_db)) as essentia:
             cohorts = {
@@ -144,12 +147,17 @@ def report(bliss_db: Path, feature_db: Path, *, limit: int = 100,
                 "bliss_duplicate_exact_key": 0,
                 "bliss_invalid_23d": 0,
                 "bliss_23d_valid_and_paired": 0,
+                "embedding_valid_and_paired": None if embedding_dir is None else 0,
+                "embedding_missing": None if embedding_dir is None else 0,
+                "embedding_invalid_or_incompatible": None if embedding_dir is None else 0,
             }
+            embedding_fingerprint = None
             # Research-only in-memory vector sample; never returned or written.
             # A real PCA/CCA/PLS stage must use a separately approved private,
             # group-labelled train/test dataset; this stage proves coverage only.
             for key in sample["tracks"]:
-                if compatible_essentia_provenance(essentia, key, cohorts) is None:
+                provenance = compatible_essentia_provenance(essentia, key, cohorts)
+                if provenance is None:
                     counts["essentia_head_provenance_rejected_in_sample"] += 1
                     continue
                 status, _bliss_values = bliss_vector(bliss, key)
@@ -159,6 +167,27 @@ def report(bliss_db: Path, feature_db: Path, *, limit: int = 100,
                     counts["bliss_duplicate_exact_key"] += 1
                 elif status == "valid":
                     counts["bliss_23d_valid_and_paired"] += 1
+                    if embedding_dir is not None:
+                        sidecar = embedding_dir / filename_for_key(key)
+                        if not sidecar.is_file():
+                            counts["embedding_missing"] += 1
+                        else:
+                            try:
+                                if sidecar.stat().st_size > 1024 * 1024:
+                                    raise ValueError("Embedding sidecar unexpectedly large")
+                                data = json.loads(sidecar.read_text(encoding="utf-8"))
+                                if not isinstance(data, dict):
+                                    raise ValueError("Invalid embedding sidecar object")
+                                validate_embedding(
+                                    data, key, *provenance,
+                                    cohorts["genre"]["preprocessing_version"],
+                                    embedding_fingerprint,
+                                )
+                            except (ValueError, TypeError, KeyError, OSError, UnicodeError):
+                                counts["embedding_invalid_or_incompatible"] += 1
+                            else:
+                                counts["embedding_valid_and_paired"] += 1
+                                embedding_fingerprint = data["representation_fingerprint"]
                 else:
                     counts["bliss_invalid_23d"] += 1
             assert (
@@ -169,12 +198,19 @@ def report(bliss_db: Path, feature_db: Path, *, limit: int = 100,
                 + counts["bliss_23d_valid_and_paired"]
                 == sample["sample_size"]
             )
+            if embedding_dir is not None:
+                assert (counts["embedding_valid_and_paired"]
+                        + counts["embedding_missing"]
+                        + counts["embedding_invalid_or_incompatible"]
+                        == counts["bliss_23d_valid_and_paired"])
             return {
                 "schema": "bliss_essentia_exact_key_join_aggregate_v1",
                 "status": "RESEARCH_READ_ONLY_COVERAGE_NOT_MUSICAL_VALIDATION",
                 "bliss_feature_dimensions": len(BLISS_COLUMNS),
                 "essentia_head_dimensions": {"genre": 87, "moodtheme": 56},
-                "embedding_1280d": "NOT_ASSESSED_SEPARATE_SIDECARS_REQUIRED",
+                "embedding_1280d": ("NOT_ASSESSED_SEPARATE_SIDECARS_REQUIRED"
+                                    if embedding_dir is None else
+                                    "CHECKED_AGAINST_PINNED_RESEARCH_RUST_V5_EMBEDDING_FORMAT"),
                 "sampling": {
                     "source": "selected_dominant_essentia_87d_56d_cohort",
                     "method": "deterministic_reservoir_across_exact_sorted_head_keys",
@@ -201,6 +237,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bliss-db", type=Path, required=True)
     p.add_argument("--feature-db", type=Path, required=True)
+    p.add_argument("--embedding-dir", type=Path,
+                   help="Optional existing 1280D Rust-v5 JSON research sidecars; read-only")
     p.add_argument("--limit", type=int, default=100)
     p.add_argument("--seed", type=int, default=20261029)
     p.add_argument("--out", type=Path,
@@ -210,7 +248,8 @@ def main() -> int:
         if args.out is not None and args.out.exists():
             raise FileExistsError("Refuse existing report")
         outcome = report(args.bliss_db, args.feature_db,
-                         limit=args.limit, seed=args.seed)
+                         limit=args.limit, seed=args.seed,
+                         embedding_dir=args.embedding_dir)
         payload = json.dumps(outcome, indent=2, allow_nan=False) + "\n"
         if args.out is None:
             print(payload, end="")
