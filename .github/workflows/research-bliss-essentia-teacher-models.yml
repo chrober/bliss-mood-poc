@@ -8,6 +8,7 @@ on:
       - 'scripts/research_bliss_only_teacher_geometry.py'
       - 'scripts/run_local_bliss_essentia_teacher_study.py'
       - 'scripts/derive_lyrion_research_groups.py'
+      - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
       - 'tests/test_research_bliss_only_teacher_geometry.py'
       - 'tests/test_run_local_bliss_essentia_teacher_study.py'
@@ -44,5 +45,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_run_local_bliss_essentia_teacher_study.py' -v
       - name: Existing BlissMixerLab artist identity snapshot and Lyrion album metadata adapter
         run: python -m unittest discover -s tests -p 'test_derive_lyrion_research_groups.py' -v
+      - name: PowerShell Windows full launcher syntax check
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $source = Join-Path (Get-Location).Path 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'The standalone research PowerShell launcher has syntax errors.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
