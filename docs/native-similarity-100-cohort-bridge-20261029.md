@@ -1,5 +1,7 @@
 # Reproducible 100-song Rust-v5 -> native Essentia similarity bridge (2026-10-29)
 
+> **Aktueller realer Status (29.10.2026):** Der Nutzer hat den vollautomatischen Windows-Preflight tatsächlich mit **100/100 Audio-SHA256 PASS**, gültiger Rust-v5-Kohorte, 100 Embeddings, ONNX, Scanner, Worker/DLLs und sicherem Ausgabeordner abgeschlossen. Das private Manifest und provenance.json liegen bereits im Ausgabeordner benchmark-native-similarity-100-20261029. **Nicht erneut prepare ausführen!** Es gibt noch **keinen nativen Scan oder Vergleich**. Als Nächstes benötigt der Nutzer einen vollautomatischen, abgesicherten **Scan → Compare**-Ablauf. Die verbindliche aktuelle Übergabe steht unter [handover-native-similarity-100-20261029.md](handover-native-similarity-100-20261029.md) und der [Copy-Paste-Prompt](handover-prompt-native-similarity-100-20261029.md). Die darunter stehenden früheren Prepare-/Download-Schritte sind nur zur Einrichtung eines *neuen* Untersuchungsstands geeignet.
+
 **Research-only.** This work is on feat/native-similarity-cohort-validation,
 based on main after PR #20/#22. **DO NOT merge to PR #16**, rewrite the
 original user-rated CSV, retrain a personal model, delete saved sidecars,
