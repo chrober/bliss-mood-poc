@@ -206,7 +206,7 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
             }
     return {
         "methods":metrics,"paired_differences":compared,
-        "global_pairwise_fusions":gf.provenance() if global_pair_fusions else None,
+        **({"global_pairwise_fusions":gf.provenance()} if global_pair_fusions else {}),
         "common_candidate_count_per_query":len(ids)-1,
         "policy":{
             "all_methods_same_song_keys_queries_candidates":True,
@@ -266,7 +266,8 @@ def evaluate(db: Path, embeddings: Path, ids: list[str],
             if (abs(score-previous)>1e-9 or abs(delta)>BASELINE_ABS_TOLERANCE):
                 raise ValueError("DEAM same-protocol Mood cosine baseline outside tolerance")
     return {
-        "schema":"deam-240-screened-embedding-vs-heads-paired-v1",
+        "schema":("deam-240-global-pair-fusion-exploratory-v2"
+                  if global_pair_fusions else "deam-240-screened-embedding-vs-heads-paired-v1"),
         "status":"DEAM_CATALOG_FILTERED_EXPLORATORY_NOT_PROVEN_TRAIN_INDEPENDENT",
         "dataset":"DEAM",
         "songs":240,
