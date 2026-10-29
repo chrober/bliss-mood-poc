@@ -55,21 +55,20 @@
         return (Resolve-Path -LiteralPath $candidate).ProviderPath
     }
 
-    # The source preflight is stdlib-only and works with the local
-    # Python 3.15 (also >=3.10). Python 3.13 is ONLY needed later
-    # if source provenance, coverage and independent holdout pass.
+    # Only the operator's installed Python 3.15 is used for BOTH phases.
+    # A private 3.15 virtual environment isolates the pinned numerical packages.
     foreach ($tool in @('git','python')) {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
             throw "Missing required executable: $tool"
         }
     }
-    $preflightPython = (Get-Command python -ErrorAction Stop).Source
-    $preflightVersion = @(& $preflightPython -c 'import sys; print(int(sys.version_info >= (3,10)))')
-    if ($LASTEXITCODE -ne 0 -or ($preflightVersion -join '').Trim() -ne '1') {
-        throw 'The source-only Python preflight requires Python 3.10 or newer.'
+    $researchPython = (Get-Command python -ErrorAction Stop).Source
+    $pythonVersion = @(& $researchPython -c 'import sys; print(str(sys.version_info.major) + "." + str(sys.version_info.minor))')
+    if ($LASTEXITCODE -ne 0 -or ($pythonVersion -join '').Trim() -cne '3.15') {
+        throw 'This research launcher expects the installed Python 3.15. No other Python is installed or selected.'
     }
-    Write-Host ('No-write source preflight interpreter: ' +
-        ((& $preflightPython --version) -join '').Trim())
+    Write-Host ('Research Python interpreter: ' +
+        ((& $researchPython --version) -join '').Trim())
 
     $repoPath = Find-Repo
     if (-not $repoPath) {
@@ -129,7 +128,7 @@
 
     # The FIRST source pass is a NO-WRITE diagnostic. It provides specific,
     # nonidentifying coverage counts and a fail-closed blocker reason.
-    $preflightLines = @(& $preflightPython @($groupScript,
+    $preflightLines = @(& $researchPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
         '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
         '--seed',"$Seed",'--limit',"$SampleLimit",
@@ -151,53 +150,19 @@
     }
 
 
-    # Pinned NumPy/SciPy/scikit-learn versions are verified in CI on
-    # Python 3.13. Do not try incompatible wheels on Python 3.15.
-    # A parallel 3.13 install changes no default Python installation.
-    # Never install any Python runtime without an explicit user action.
-    $python313Present = $false
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        try {
-            $python313Probe = @(& py -3.13 -c 'import sys; print(int(sys.version_info[:2] == (3,13)))' 2>&1)
-            if ($LASTEXITCODE -eq 0 -and
-                ($python313Probe -join '').Trim() -eq '1') {
-                $python313Present = $true
-            }
-        } catch {
-            $python313Present = $false
-        }
-    }
-    if (-not $python313Present) {
-        Write-Host 'Read-only source preflight PASSED; no private research groups were written.'
-        Write-Host 'The numerical stage uses a pinned Python 3.13 environment.'
-        if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-            throw 'Python launcher is unavailable; install Python 3.13 separately before running the numerical stage.'
-        }
-        # Runtime installation is a separate user-approved side effect.
-        # No silent downloading and no changes to the existing Python 3.15.
-        $consent = Read-Host 'Install Python 3.13 side-by-side with: py install 3.13 ? [j/N]'
-        if ($consent -cnotin @('j','J','ja','JA','y','Y','yes','YES')) {
-            throw 'Numerical stage skipped by operator: Python 3.13 not installed.'
-        }
-        Invoke-Checked 'py' @('install','3.13')
-        $installed = @(& py -3.13 -c 'import sys; print(int(sys.version_info[:2] == (3,13)))')
-        if ($LASTEXITCODE -ne 0 -or ($installed -join '').Trim() -ne '1') {
-            throw 'Python 3.13 installation did not produce a usable runtime.'
-        }
-        Write-Host 'Separate Python 3.13 runtime is now available for pinned analysis.'
-    }
-
+    # Do not modify the global Python installation.
+    # A dedicated Python 3.15 venv uses a separately versioned pin file.
     $venv = Join-Path $runRoot 'venv'
-    Invoke-Checked 'py' @('-3.13','-m','venv',$venv)
+    Invoke-Checked $researchPython @('-m','venv',$venv)
     $venvPython = Join-Path $venv 'Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
         throw 'Isolated Python environment could not be created.'
     }
-    $req = Join-Path $checkout 'research\requirements-wp3-r2.txt'
+    $req = Join-Path $checkout 'research\requirements-wp3-py315.txt'
     Invoke-Checked $venvPython @('-m','pip','install','--no-input','--only-binary=:all:',
         '--disable-pip-version-check','-r',$req)
     Invoke-Checked $venvPython @('-c',
-        'import numpy, scipy, sklearn; print("WP3 dependencies:",numpy.__version__,scipy.__version__,sklearn.__version__)')
+        'import sys, numpy, scipy, sklearn; assert sys.version_info[:2] == (3,15); print("WP3 Python",sys.version.split()[0],"dependencies:",numpy.__version__,scipy.__version__,sklearn.__version__)')
 
     Invoke-Checked $venvPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
