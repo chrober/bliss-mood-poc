@@ -22,6 +22,7 @@ import benchmark_deam as deam
 import evaluate_similarity as ev
 from evaluate_mtt_embedding_ab import filename_for_key, validate_embedding
 from mtt_paired_evidence import quantile
+import global_pairwise_fusion as gf
 
 SAMPLE_SHA = "db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0"
 ANNOTATION_SHA = "809b0feb4ba6196c1eda9b2b7b33b892b11fa71457cfceb0d47e832ed1a5f15f"
@@ -125,7 +126,8 @@ def read_representations(db: Path, embedding_dir: Path,
 
 
 def paired_va(vectors: dict, ids: list[str], labels: dict,
-              *, seed: int, replicates: int = 800) -> dict:
+              *, seed: int, replicates: int = 800,
+               global_pair_fusions: bool = False) -> dict:
     """Compare all 5 representations on 100% shared candidates/queries.
 
     If any candidate has an undefined similarity or reference ranks are
@@ -141,9 +143,10 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
         groups[deam.annotation_cohort(song)].append(ix)
     if not groups or not set(groups).issubset(set(GROUPS)):
         raise ValueError("DEAM paired resampling requires known annotation protocols")
-    results = {name:{axis:[] for axis in AXES} for name in METHODS}
+    selected_methods = tuple(METHODS) + (tuple(gf.FUSIONS) if global_pair_fusions else ())
+    results = {name:{axis:[] for axis in AXES} for name in selected_methods}
     diagnostics={name:{"queries_complete":0,"queries_abstained":0,
-                       "candidate_scores_undefined":0} for name in METHODS}
+                       "candidate_scores_undefined":0} for name in selected_methods}
     for anchor in ids:
         rest = [x for x in ids if x != anchor]
         human = {}
@@ -154,10 +157,14 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
                 da=abs(labels[anchor][1]-labels[b][1])
                 return -((dv,da,math.hypot(dv,da))[ix])
             human[axis]=[difference(x) for x in rest]
-        for name,(rep,fn) in METHODS.items():
+        for name in selected_methods:
             sims=[]
             for other in rest:
-                score=fn(vectors[anchor][rep],vectors[other][rep])
+                if name in gf.FUSIONS:
+                    score=gf.pair_score(vectors[anchor],vectors[other],name)
+                else:
+                    rep,fn=METHODS[name]
+                    score=fn(vectors[anchor][rep],vectors[other][rep])
                 if score is None or not math.isfinite(score):
                     diagnostics[name]["candidate_scores_undefined"] += 1
                     continue
@@ -199,6 +206,7 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
             }
     return {
         "methods":metrics,"paired_differences":compared,
+        "global_pairwise_fusions":gf.provenance() if global_pair_fusions else None,
         "common_candidate_count_per_query":len(ids)-1,
         "policy":{
             "all_methods_same_song_keys_queries_candidates":True,
@@ -213,7 +221,8 @@ def paired_va(vectors: dict, ids: list[str], labels: dict,
 
 
 def evaluate(db: Path, embeddings: Path, ids: list[str],
-             annotations: dict, prior: dict | None = None) -> dict:
+             annotations: dict, prior: dict | None = None,
+             global_pair_fusions: bool = False) -> dict:
     validate_selected(ids,annotations,SAMPLE_SHA)
     if prior is not None and (
         prior["dataset"]["sample_id_sha256"]!=SAMPLE_SHA
@@ -222,7 +231,8 @@ def evaluate(db: Path, embeddings: Path, ids: list[str],
     ):
         raise ValueError("Prior DEAM screened 240-run is not the registered baseline")
     vectors,encoder_sha,fp=read_representations(db,embeddings,ids)
-    result=paired_va(vectors,ids,annotations,seed=20261021)
+    result=paired_va(vectors,ids,annotations,seed=20261021,
+                     global_pair_fusions=global_pair_fusions)
     baseline_drift = {}
     for axis in AXES:
         value=result["methods"]["mood_cosine"]["axes"][axis]
@@ -242,6 +252,7 @@ def evaluate(db: Path, embeddings: Path, ids: list[str],
             "evaluation":paired_va(
                 {k:vectors[k] for k in included},included,annotations,seed=20261021,
                 replicates=400,
+                global_pair_fusions=global_pair_fusions,
             ),
         }
         prior_group=(prior["subcohorts"][group]["per_head"]["moodtheme"]["cosine"]["axes"]
@@ -293,6 +304,8 @@ def main():
     p.add_argument("--previous-filtered-report",type=Path,
                    help="Optional retained earlier aggregate; frozen code constants suffice")
     p.add_argument("--out",type=Path,required=True)
+    p.add_argument("--global-pair-fusions",action="store_true",
+                   help="Opt-in predeclared global, label-free pairwise fusion ablations")
     args=p.parse_args()
     if args.out.exists():
         p.error("Never overwrite a paired DEAM A/B report")
@@ -321,7 +334,8 @@ def main():
         raise ValueError("DEAM catalog screening cohort changed")
     ids=deam.select_ids(labels,screened,240,20261021,stratify_cohorts=True)
     validate_selected(ids,labels,SAMPLE_SHA)
-    output=evaluate(args.db,args.embedding_dir,ids,labels,previous)
+    output=evaluate(args.db,args.embedding_dir,ids,labels,previous,
+                    global_pair_fusions=args.global_pair_fusions)
     output["source_sha256"]={
         "audio_zip":AUDIO_SHA,"annotations_zip":ANNOTATION_SHA,
         "metadata_zip":METADATA_SHA,"mtg_catalog":MTG_SHA,
