@@ -109,18 +109,8 @@
         throw 'The detached research checkout could not be verified.'
     }
 
-    $venv = Join-Path $runRoot 'venv'
-    Invoke-Checked 'py' @('-3.13','-m','venv',$venv)
-    $venvPython = Join-Path $venv 'Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
-        throw 'Isolated Python environment could not be created.'
-    }
-    $req = Join-Path $checkout 'research\requirements-wp3-r2.txt'
-    Invoke-Checked $venvPython @('-m','pip','install','--no-input','--only-binary=:all:',
-        '--disable-pip-version-check','-r',$req)
-    Invoke-Checked $venvPython @('-c',
-        'import numpy, scipy, sklearn; print("WP3 dependencies:",numpy.__version__,scipy.__version__,sklearn.__version__)')
-
+    # Source preflight is stdlib-only: do this BEFORE installing any packages
+    # or writing source-derived private output data.
     $groupScript = Join-Path $checkout 'scripts\derive_lyrion_research_groups.py'
     $studyScript = Join-Path $checkout 'scripts\run_local_bliss_essentia_teacher_study.py'
     foreach ($script in @($groupScript,$studyScript)) {
@@ -133,7 +123,7 @@
 
     # The FIRST source pass is a NO-WRITE diagnostic. It provides specific,
     # nonidentifying coverage counts and a fail-closed blocker reason.
-    $preflightLines = @(& $venvPython @($groupScript,
+    $preflightLines = @(& py -3.13 @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
         '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
         '--seed',"$Seed",'--limit',"$SampleLimit",
@@ -153,6 +143,19 @@
         Write-Host ('Blocked research reason: ' + $preflight.blocking_reason_code)
         throw 'A reliable artist/album/recording-disjoint holdout is unavailable. No private groups or analysis results were created.'
     }
+
+
+    $venv = Join-Path $runRoot 'venv'
+    Invoke-Checked 'py' @('-3.13','-m','venv',$venv)
+    $venvPython = Join-Path $venv 'Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+        throw 'Isolated Python environment could not be created.'
+    }
+    $req = Join-Path $checkout 'research\requirements-wp3-r2.txt'
+    Invoke-Checked $venvPython @('-m','pip','install','--no-input','--only-binary=:all:',
+        '--disable-pip-version-check','-r',$req)
+    Invoke-Checked $venvPython @('-c',
+        'import numpy, scipy, sklearn; print("WP3 dependencies:",numpy.__version__,scipy.__version__,sklearn.__version__)')
 
     Invoke-Checked $venvPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
