@@ -82,6 +82,53 @@ declare capability genre without the UI needing to display its ONNX filename.
 Capability alone does not make score semantics or taxonomies interchangeable;
 mapping and calibration may be needed when another model is substituted.
 
+## Preserved historical prototype: PR #13 read-only Bliss Guidance SPI v2
+
+**Research reference, not an integrated production feature (29 October 2026).**
+[PR #13](https://github.com/chrober/bliss-mood-poc/pull/13) was an
+experimental, standalone **Bliss-first guidance/scoring provider**.
+Its source is retained on the branch
+[`feat/bliss-mood-genre-guidance-spi`](https://github.com/chrober/bliss-mood-poc/tree/feat/bliss-mood-genre-guidance-spi);
+the principal implementation is
+[`src/bin/bliss-feature-guidance.rs`](https://github.com/chrober/bliss-mood-poc/blob/feat/bliss-mood-genre-guidance-spi/src/bin/bliss-feature-guidance.rs).
+**Preserve this branch** as a technical reference even if the
+historical draft PR is closed without merge.
+
+The prototype implements a separate JSONL **Bliss Guidance SPI v2**
+process with `describe`, `prepare`, `score` and `close`.
+It reads only a trusted **schema-v3 feature SQLite sidecar** and
+uses exact `database_file` song identities for source anchors and
+already-admitted Bliss candidates. Genre (87D) and Mood/Theme (56D)
+are separate bounded-influence guidance channels; mismatched
+model fingerprints, missing/nonvalidated vectors or incompatible
+classes yield neutral/no guidance by default. It does **not**
+modify Bliss or Lyrion databases, decode audio, run ONNX or
+admit new candidates. Its provisional normalized RMS-based
+score was a **contract proof of concept**, not an empirically
+selected musical similarity metric.
+
+**Why retain it?** The branch supplies reusable examples of the
+host/provider protocol, source-key matching, read-only safety,
+fallback and per-channel influence. It can inform a *future*
+Lyrion/BlissMixerLab integration, but does not itself demonstrate
+an end-to-end host plugin: verified LMS/Bliss identity mapping
+and separate Lab wiring were not completed in PR #13. Any revival
+must be reconciled with the current native Essentia scanner,
+feature provenance, experimental-validation gates and current
+Similarity Metric Evaluation; **do not merge or deploy the old
+RMS scorer unchanged** or mistake it for a completed integration.
+
+This is an **integration prototype**, not a replacement for either
+research objective: (A) a reliable **general musical similarity
+metric without user training**, or (B) **optional personal
+metric learning** from user preferences with a configurable
+0–100% personal influence once validated. Similarly, it does
+not decide between Bliss-first, feature-first or Hybrid
+candidate strategies. Possible relationships between Essentia
+Genre/Mood features and Bliss acoustic descriptors deserve
+separate empirical testing before building rules that claim
+to identify genres or moods from Bliss features.
+
 ## Drift protection as an orthogonal policy
 
 Drift control should be available across strategies. It compares future
