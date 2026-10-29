@@ -169,9 +169,22 @@
     }
     if (-not $python313Present) {
         Write-Host 'Read-only source preflight PASSED; no private research groups were written.'
-        Write-Host 'The statistical stage needs a compatible, pinned Python 3.13 environment.'
-        Write-Host 'Install Python 3.13 alongside your Python 3.15 with: py install 3.13'
-        throw 'Statistical stage not started: Python 3.13 is not installed.'
+        Write-Host 'The numerical stage uses a pinned Python 3.13 environment.'
+        if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+            throw 'Python launcher is unavailable; install Python 3.13 separately before running the numerical stage.'
+        }
+        # Runtime installation is a separate user-approved side effect.
+        # No silent downloading and no changes to the existing Python 3.15.
+        $consent = Read-Host 'Install Python 3.13 side-by-side with: py install 3.13 ? [j/N]'
+        if ($consent -cnotin @('j','J','ja','JA','y','Y','yes','YES')) {
+            throw 'Numerical stage skipped by operator: Python 3.13 not installed.'
+        }
+        Invoke-Checked 'py' @('install','3.13')
+        $installed = @(& py -3.13 -c 'import sys; print(int(sys.version_info[:2] == (3,13)))')
+        if ($LASTEXITCODE -ne 0 -or ($installed -join '').Trim() -ne '1') {
+            throw 'Python 3.13 installation did not produce a usable runtime.'
+        }
+        Write-Host 'Separate Python 3.13 runtime is now available for pinned analysis.'
     }
 
     $venv = Join-Path $runRoot 'venv'
