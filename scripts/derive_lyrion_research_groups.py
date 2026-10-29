@@ -104,6 +104,20 @@ def generate_private_groups(
                     ).fetchone()
                     if schema is None or schema[0] != SCHEMA_IDENTITY:
                         raise ValueError("Unsupported artist-repeat snapshot provenance")
+                    # The Lab source itself writes scan time and the hashed
+                    # media-root identity. Enforce their presence and shape,
+                    # but do not claim this proves they match a live LMS.
+                    scan = snapshot.execute(
+                        "SELECT value FROM metadata WHERE key='lms_scan_time'"
+                    ).fetchone()
+                    roots = snapshot.execute(
+                        "SELECT value FROM metadata WHERE key='media_roots_identity'"
+                    ).fetchone()
+                    if (scan is None or not str(scan[0]).isdigit()
+                            or int(scan[0]) <= 0 or roots is None
+                            or not isinstance(roots[0], str)
+                            or re.fullmatch(r"[0-9a-fA-F]{64}",roots[0]) is None):
+                        raise ValueError("Snapshot scan/root metadata is absent or malformed")
                     cohorts = {head:ev._catalog(sidecar,head,experimental=True)
                                for head in ("genre","moodtheme")}
                     if len({x["preprocessing_version"] for x in cohorts.values()}) != 1:
@@ -225,6 +239,8 @@ def generate_private_groups(
                         "recording_mbid_missing_all_share_one_conservative_group":True,
                         "snapshot_lms_id_urlmd5_checked":True,
                         "snapshot_schema_identity_checked":True,
+                        "snapshot_scan_and_media_roots_metadata_shape_checked":True,
+                        "snapshot_live_scan_and_media_roots_freshness_certified":False,
                         "data_sources_opened_query_only":True,
                         "source_audio_identity_independently_certified":False,
                         "teacher_training_overlap_ruled_out":False,
