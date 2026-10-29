@@ -1,0 +1,139 @@
+# Handover: Lyrion General + Personal + Bliss↔Essentia research (29 October 2026)
+
+**Current canonical plan:**
+[Unified three-workstream similarity strategy](similarity-three-workstreams-strategy-20261029.md).
+This replaces prior *narrowly general-only* next-task interpretations,
+without discarding the valid PR #16 general/personal decision or completed
+technical experiments. **Read the strategy before implementing code.**
+
+## Verified branches and non-interference
+
+- `main`: no research changes authorized.
+- Draft PR #16 `feat/similarity-metric-evaluation`:
+  canonical prior scientific A/B/C benchmarking and original
+  [General/Personal blend specification](similarity-general-personal-blending-architecture.md).
+  Remains **unchanged**, originally read at
+  `2204ec91d8d8a773872f266397b0656178b481ee`.
+- `feat/native-similarity-cohort-validation`: earlier real native
+  same-100 engineering continuity test **completed** with report
+  `PASS_EXPLORATORY_TOLERANCES`. Its successful scan and
+  comparison must not be rerun.
+- `feat/general-pairwise-similarity-research`: **independent research
+  branch**, forked from PR #16, owns all new strategy documents,
+  opt-in global fusion prototypes and exploratory MTT CI.
+  It is not to be mistaken for a PR #16 commit.
+
+## The three permanent research work packages
+
+1. **WP1 General Similarity Metric:** always-available, label-free
+   global songpair similarity. Compare Bliss 23D, Essentia Genre
+   87D/Mood 56D/Embedding 1280D, and justified multi-signal
+   methods on genuinely task-aligned independent evidence.
+   Existing MTT (293 decided out of 346 triplets), FMA screened
+   80-song VAL, filtered DEAM 240 and 12/11 rated-song pilot are
+   exploratory development evidence, **not new independent holdouts**.
+   Four current affine global fusion prototypes are not a metric winner.
+2. **WP2 Personal Metric Learning and 0–100% blend:** **active in
+   parallel** at protocol and reusability level now. Reuse actual
+   functioning `chrober/bliss-learner` (23D regularized/probit/STE
+   Mahalanobis with L-BFGS and lambda CV) and
+   `chrober/lms-blissmixer-lab` (triplets, survey, model lifecycle)
+   as references rather than reimplementing fundamentals. Existing
+   Lab `learned_blend` is **not** the new General/Personal
+   setting. The existing learner's random triplet holdout is
+   **not artist-/album-disjoint**. Freeze independent per-user
+   data/identity/score-calibration/quality/fallback contract;
+   test `alpha_effective=0` for absent/incompatible personal
+   model. No use of user's 12 diagnostic pair ratings to
+   fit a personal model; any future votes strictly voluntary.
+3. **WP3 Bliss ↔ Essentia Feature Relationships and Bliss-only
+   improvement:** **start now** with exact-key, read-only Bliss
+   23D/Essentia 87D/56D/1280D paired-feature availability and
+   synthetic fixture, then descriptive/partial correlation,
+   grouped clustering/PCA, regularized CCA and PLS, ridge
+   predictors, student/teacher distillation and careful
+   learned Bliss-only metric transforms. Compare transformed
+   Bliss **without needing Essentia at serving time** against
+   original Bliss, and separately evaluate direct Bliss+
+   Essentia fusion. Demonstrate **independent musical similarity
+   improvement**, not merely teacher-output predictability;
+   artist/album/source leakage and ONNX pseudo-ground-truth
+   errors are critical.
+
+**Work ordering:** WP1 baseline/coverage + WP3 paired-data contract
+**in parallel now**, WP2 scorer/interface/triplet/reuse contract
+**in parallel now**. Later model fitting and real-quality validation
+are conditional on licensed, grouped independent data, not on a
+perfect general metric or fresh mandatory personal ratings.
+
+## Technical safety gates
+
+- Native same-100 test confirmed 100 songs, 4,950 pairs and
+  near-identical five pair-rank rhos; **it did not validate
+  perceptual or transition quality**, and does not establish
+  Bliss 23D coverage of the 100-song cohort.
+- This branch's standalone new MTT global fusion workflow
+  [run 40881326086](https://github.com/chrober/bliss-mood-poc/actions/runs/40881326086)
+  **FAILED** during 1,019-clip sparse cache build due to
+  publisher HTTP range timeout (curl 28 / HTTP 000), after
+  synthetic and metadata gates. No real new MTT fusion
+  statistics exist; do not fabricate or select a winner.
+  No blind repeated archive requests in lieu of this work package.
+- Do not change existing private `bliss.db`, original
+  feature SQLite, source audio, personal triplets,
+  original ratings or Lyrion queues. No schema rewrites, no
+  native rescans and no additional worker auto-tuning.
+- MTT is already fully explored; FMA official TEST remains
+  untouched; DEAM head-vs-embedding replay remains unavailable
+  until publisher/archive access is independently proven.
+- Extract Bliss `TracksV2.File` exact 23D columns from source,
+  validate finite feature values and upstream ordering. Join
+  Essentia on the **exact** original `track_file`, not rowids
+  or names. Source/model fingerprint and artist/album group
+  evidence required before any actual paired real-music claim.
+- Independent performance evidence must be group-aware and
+  multi-library where feasible; never optimize solely to one
+  Windows/Ryzen or one private music collection.
+- Windows local work, if required, must be delivered as a
+  complete directly runnable automated PowerShell `& { ... }`
+  block with isolated worktree update, verified necessary
+  binaries/CI run and hashes, dependencies and fail-closed
+  pre-existing-output policy; never ask the user to manually
+  assemble several Git or download fragments.
+
+## Single next assignment
+
+**Next technical implementation should be WP3-R0 + WP2-P0 contracts,
+in parallel with any resumed WP1 A/B results.** First implement
+synthetic, read-only exact-key Bliss↔Essentia 23D/87D/56D/
+1280D *metadata join and aggregate QC* plus synthetic
+personal/blend compatibility and fallback tests using the known
+learner/host formats. No real private read until a separate
+safe, consented, deterministic local procedure exists. No new
+compulsory ratings. No unauthorized edits to the other repos.
+
+## Copy/paste handover prompt
+
+> Continue the project Lyrion: Mood Analysis on
+> `feat/general-pairwise-similarity-research`, respecting the
+> [unified three-workstream strategy](similarity-three-workstreams-strategy-20261029.md).
+> The binding research goals are **WP1 General Similarity Metric**,
+> **WP2 optional Personal Metric Learning with calibrated 0–100%
+> General/Personal blend and fully functional no-personal-model
+> fallback**, and **WP3 Bliss 23D ↔ Essentia Genre/Mood/Embedding
+> feature relationships with genuine improvements to Bliss-only
+> similarity**, not just additional Essentia signal blending.
+> Start WP3 exact-key read-only feature-join/QC contract and
+> WP2 existing bliss-learner/BlissMixerLab data and scorer
+> interface **now and in parallel** with WP1. Evaluate correlation,
+> partial correlations, clustering, regularized CCA, PLS and
+> teacher/student models with artist/album grouped validation
+> and independent perceptual quality gates. Never interpret
+> Essentia head outputs as ground truth. The 12 user listening
+> ratings and real native same-100 scan are complete; no further
+> mandatory listening, no rescans or worker tuning. MTT full
+> exploratory questions are already explored and latest new
+> replay failed on a publisher range timeout; no real fusion
+> numbers exist yet. Leave PR #16, main and other repositories
+> untouched. Use English docs and full single-block automated
+> PowerShell for any necessary user-local Windows work.
