@@ -1,5 +1,7 @@
 # Copy-paste prompt: return to Similarity Metric Evaluation (PR #16)
 
+> **SUPERSEDED für neue Similarity-Sessions (29.10.2026):** Statt diesen älteren Prompt als aktuellen Arbeitsauftrag zu verwenden, den [Handover-Prompt nach 100/100 bestandenem lokalem Preflight](handover-prompt-native-similarity-100-20261029.md) kopieren. Die statische Multi-Worker-Integration ist abgeschlossen; nächster Auftrag = vollautomatischer nativer 100-Song-Scan und Old/New-Similarity-Vergleich für die **allgemeine untrainierte Metrik**. Keine neuen Pflicht-Hörbewertungen oder Worker-Autotuning.
+
 Ich möchte die ursprüngliche **Similarity Metric Evaluation** in Repository **https://github.com/chrober/bliss-mood-poc**, Draft **PR #16** (`feat/similarity-metric-evaluation`) fortsetzen.
 
 **Wichtiger abgeschlossener Integrationsstand:** Die statische native Multi-Worker-Analyse wurde über **PR #20** nach `main` integriert. Der maßgebliche Quellcode-Integrationscommit ist **`783b05761b6b322a85753acded63ffe336874a6d`**. Er hat Git-Tree-SHA **`60695657fad43d00e6a080ba3a617d428e172f97`**, identisch zum geprüften PR-#20-Head **`da8fecee23930c2e52abcb473a62b8178b2d5474`**. Prüfe die jeweils aktuellen Live-Branches und CI-Ergebnisse, statt auf ältere historische SHAs zu vertrauen.
