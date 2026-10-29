@@ -12,6 +12,8 @@ No original DB, music, embedding or hearing-rating files are ever modified.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 from contextlib import closing
 import hashlib
 import itertools
@@ -348,6 +350,87 @@ def model_scores(left: dict, right: dict) -> dict[str, float]:
     }
 
 
+
+def compare_frozen_human_pilot(ratings: Path, sealed_audit: Path,
+                              old_tracks: dict, new_tracks: dict) -> dict:
+    """Read human ratings and original model-selected scores; never modify either."""
+    raw = ratings.read_bytes()
+    try:
+        contents = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        contents = raw.decode("cp1252")
+    heading = contents.splitlines()[0]
+    delimiter = max((",", ";", "\t"), key=heading.count)
+    if not heading.count(delimiter):
+        raise ValueError("Unrecognized listening CSV delimiter")
+    with io.StringIO(contents, newline="") as stream:
+        reader = csv.DictReader(stream, delimiter=delimiter)
+        expected_fields = ("left", "right", *RATING_FIELDS, "confidence_1to3", "notes")
+        if tuple(reader.fieldnames or ()) != expected_fields:
+            raise ValueError("Original listening CSV header differs")
+        rows = list(reader)
+    sealed = json.loads(sealed_audit.read_text(encoding="utf-8-sig"))
+    if sealed.get("schema") != "private_blinded_local_ab_pilot_selection_v1":
+        raise ValueError("Unexpected original model-score audit")
+    pairs = sealed.get("pairs_private_do_not_open_before_review")
+    if len(rows) != 12 or not isinstance(pairs, list) or len(pairs) != 12:
+        raise ValueError("Expected exactly 12 human-rated/audited pilot pairs")
+    pairs_old, pairs_new = [], []
+    human = []
+    for idx, (row, item) in enumerate(zip(rows, pairs), 1):
+        a, b = row.get("left"), row.get("right")
+        if (item.get("pair_number") != idx or item.get("left") != a
+                or item.get("right") != b or a not in old_tracks
+                or b not in old_tracks or a == b):
+            raise ValueError("Sealed pilot pairing/order does not match exact 100-song cohort")
+        manual = []
+        for field in RATING_FIELDS:
+            value = row.get(field)
+            if value not in ("1", "2", "3", "4", "5"):
+                raise ValueError("Invalid or incomplete human rating")
+            manual.append(int(value))
+        if row.get("confidence_1to3") not in ("1", "2", "3"):
+            raise ValueError("Invalid human confidence")
+        human.append(manual)
+        original = model_scores(old_tracks[a], old_tracks[b])
+        prior = item.get("similarity_scores_not_probabilities")
+        if not isinstance(prior, dict) or set(prior) != set(METHODS):
+            raise ValueError("Sealed pilot missing original five model scores")
+        for name in METHODS:
+            previous = prior[name]
+            if (not isinstance(previous, (float, int)) or isinstance(previous, bool)
+                    or not math.isfinite(previous) or abs(original[name] - previous) > 1e-6):
+                raise ValueError("Old cohort does not reproduce the originally sealed pilot scores")
+        pairs_old.append(original)
+        pairs_new.append(model_scores(new_tracks[a], new_tracks[b]))
+    samples = {}
+    for name, selection in (("all_12", list(range(12))),
+                            ("music_11_excluding_spoken_pair_10",
+                             [i for i in range(12) if i != 9])):
+        by_method = {}
+        for method in METHODS:
+            by_method[method] = {}
+            for j, field in enumerate(RATING_FIELDS):
+                y = [human[i][j] for i in selection]
+                x_old = [pairs_old[i][method] for i in selection]
+                x_new = [pairs_new[i][method] for i in selection]
+                by_method[method][field] = {
+                    "previous_spearman": round(spearman(x_old, y), 6),
+                    "native_spearman": round(spearman(x_new, y), 6),
+                }
+        samples[name] = by_method
+    return {
+        "status": "EXPLORATORY_ONLY_NO_METRIC_WINNER",
+        "sample_sizes": {"all": 12, "music": 11},
+        "human_ratings_verified_from_local_csv": True,
+        "original_sealed_scores_reproduced": True,
+        "nonmusic_pair": 10,
+        "paired_model_vs_human": samples,
+        "caution": "Same nonrandom 12 labels used before; not independent validation or personal training",
+    }
+
+
+
 def compare(args) -> dict:
     plan_path = args.plan_dir / "provenance.json"
     manifest_path = args.plan_dir / "exact-100-tracks.txt"
@@ -460,6 +543,11 @@ def compare(args) -> dict:
                     "4950 pairs share just 100 songs and are not independent human labels. "
                     "Do not select general or personal fusion weights from the 12-pair pilot."),
     }
+    if (args.ratings is None) != (args.pilot_audit is None):
+        raise ValueError("Both the original pilot ratings and sealed audit are required together")
+    if args.ratings is not None:
+        report["original_12_pair_human_sensitivity"] = compare_frozen_human_pilot(
+            args.ratings, args.pilot_audit, baseline, new_data)
     verify_disjoint_output(args.out_dir, [args.plan_dir, args.baseline_db,
                                            args.baseline_embeddings,
                                            args.native_db, args.native_embeddings,
@@ -492,6 +580,8 @@ def main() -> int:
     comp.add_argument("--native-embeddings", required=True, type=Path)
     comp.add_argument("--models-dir", required=True, type=Path)
     comp.add_argument("--native-frontend", required=True)
+    comp.add_argument("--ratings", type=Path, help="Optional completed original 12-pair CSV; read-only")
+    comp.add_argument("--pilot-audit", type=Path, help="Optional original sealed audit; read-only")
     comp.add_argument("--score-tolerance", type=float, default=0.001)
     comp.add_argument("--embedding-cosine-min", type=float, default=0.999)
     comp.add_argument("--out-dir", required=True, type=Path)
