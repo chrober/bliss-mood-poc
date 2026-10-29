@@ -18,6 +18,7 @@ import benchmark_magnatagatune as mtt
 import evaluate_similarity as ev
 from mtt_paired_evidence import paired_sensitivity
 from fixed_rank_fusion import FIXED_FUSIONS, predict as fixed_rank_prediction
+import global_pairwise_fusion as gf
 
 METHODS = {
     "embedding_cosine": ("embedding", ev.cosine),
@@ -84,7 +85,7 @@ def odd_one_out(triple: tuple, vectors: dict, metric) -> tuple[str | None, str |
 
 
 def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
-             *, fixed_rank_fusions: bool = False) -> dict:
+             *, fixed_rank_fusions: bool = False, global_pair_fusions: bool = False) -> dict:
     if mtt.digest(comparisons) != mtt.REGISTERED_MTT_COMPARISONS_SHA256:
         raise ValueError("MTT human comparisons provenance differs from pinned research metadata")
     if mtt.digest(clips) != mtt.REGISTERED_MTT_CLIPS_SHA256:
@@ -148,7 +149,9 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
             vector_by_id[id] = {"embedding": vec, "genre": heads["genre"],
                                 "moodtheme": heads["moodtheme"]}
 
-    methods = list(METHODS) + (list(FIXED_FUSIONS) if fixed_rank_fusions else [])
+    methods = (list(METHODS)
+               + (list(FIXED_FUSIONS) if fixed_rank_fusions else [])
+               + (list(gf.FUSIONS) if global_pair_fusions else []))
     counts = {m: {"correct": 0, "predicted": 0, "undefined": 0, "metric_ties": 0}
               for m in methods}
     paired_rows = []
@@ -162,7 +165,12 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
         human_outlier = max(votes, key=votes.get)
         outcomes = {}
         for name in methods:
-            if name in FIXED_FUSIONS:
+            if name in gf.FUSIONS:
+                prediction, abstention = odd_one_out(
+                    triple, {id: vector_by_id[id] for id in triple},
+                    lambda a, b, method=name: gf.pair_score(a, b, method)
+                )
+            elif name in FIXED_FUSIONS:
                 prediction, abstention = fixed_rank_prediction(
                     triple, vector_by_id, FIXED_FUSIONS[name]
                 )
@@ -195,7 +203,9 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
                 count["correct"] / count["predicted"] if count["predicted"] else None,
         }
     paired = paired_sensitivity(paired_rows, methods)
-    paired["schema"] = ("mtt-fixed-rank-fusion-exploratory-sensitivity-v1"
+    paired["schema"] = ("mtt-global-pairwise-fusion-exploratory-sensitivity-v1"
+                        if global_pair_fusions else
+                        "mtt-fixed-rank-fusion-exploratory-sensitivity-v1"
                         if fixed_rank_fusions else
                         "mtt-audio-heads-paired-exploratory-sensitivity-v1")
     paired["limits"] = [
@@ -203,10 +213,13 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
         for x in paired["limits"]
     ]
     return {
-        "schema_version": 2 if fixed_rank_fusions else 1,
-        "representation_comparison": ("fixed_equal_rank_fusions_with_audio_genre_mood_baselines"
+        "schema_version": 3 if global_pair_fusions else (2 if fixed_rank_fusions else 1),
+        "representation_comparison": ("fixed_global_pair_fusions_with_unchanged_baselines"
+                                       if global_pair_fusions else
+                                       "fixed_equal_rank_fusions_with_audio_genre_mood_baselines"
                                       if fixed_rank_fusions else
                                       "audio_embedding_vs_genre_mood_heads"),
+        "global_pairwise_fusions": gf.provenance() if global_pair_fusions else None,
         "fixed_rank_fusions": ({"triplet_local": True, "no_label_fit": True,
                                 "per_head_metric": "cosine",
                                 "score_calibration": "within_triplet_three_pair_midranks_v1",
@@ -231,6 +244,7 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
             "Only nearest pair in three-song human odd-one-out; not direct evidence about good playlist transitions.",
             "No fusion weights selected from these exploratory results.",
             "Triplet-local rank fusion is not a globally calibrated similarity score or a production playlist policy.",
+            "Global pair scores use fixed affine range mapping, not head-distribution calibration. All results are exploratory and post-hoc.",
         ],
     }
 
@@ -242,11 +256,14 @@ def main() -> None:
     p.add_argument("--comparisons", type=Path, required=True)
     p.add_argument("--clips", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--global-pair-fusions", action="store_true",
+                   help="Four predeclared global, fixed-weight, label-free pairwise fusion ablations")
     p.add_argument("--fixed-rank-fusions", action="store_true",
                    help="Exploratory four predeclared equal-weight local Borda fusions; NO tuning")
     args = p.parse_args()
     result = evaluate(args.db, args.embeddings_dir, args.comparisons, args.clips,
-                      fixed_rank_fusions=args.fixed_rank_fusions)
+                      fixed_rank_fusions=args.fixed_rank_fusions,
+                      global_pair_fusions=args.global_pair_fusions)
     with args.out.open("x", encoding="utf-8") as file:
         json.dump(result, file, ensure_ascii=False, allow_nan=False, indent=2)
     print(json.dumps({"status": result["status"], "scores": result["methods"]}, indent=2))
