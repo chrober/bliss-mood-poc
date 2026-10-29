@@ -1,5 +1,8 @@
 # Reproducible 100-song Rust-v5 -> native Essentia similarity bridge (2026-10-29)
 
+> **AKTUELLE ABSCHLUSSMESSUNG 29.10.2026 – supersedes earlier “no scan yet” messages:** Der Nutzer hat die real erzeugten anonymen Vergleichsaggregate bereitgestellt; `PASS_EXPLORATORY_TOLERANCES` mit exakt 100 Songidentitäten, 4.950 Paaren und fünf alten/native Rangkorrelationen von gerundet 1,00000000. Alle 12/11 menschlichen Pilotkorrelationen bleiben gleich. Einzelheiten in [anonymisierten realen Ergebnissen](native-similarity-100-real-results-20261029.md). **Scan und Compare sind abgeschlossen**. Die weiter unten dokumentierten Prepare-/Scan-Aufrufe sind **historische Runbooks**, nicht erneut auszuführen. Ab jetzt Priorität allgemeine musikalische Ähnlichkeitsmetrik, nicht Worker-Tuning oder Wiederholung des eingefrorenen Tests.
+
+
 > **Neuer empfohlener Folgeschritt, 29.10.2026:** Der erfolgreiche `prepare`-Preflight darf nicht wiederholt werden. Statt der unten historisch beschriebenen getrennten Einrichtungsschritte ist der vorhandene private Plan über den neuen [vollautomatischen Windows-Scan-/Vergleichs-Launcher](native-similarity-100-scan-compare-automation-20261029.md) weiterzuverwenden. Synthetische Bridge-CI (Windows/Linux) [40876343552](https://github.com/chrober/bliss-mood-poc/actions/runs/40876343552) **PASS**. **Realer Scan/vergleichende Messung noch ausstehend**; ein erfolgreicher synthetischer Test darf nicht als 100-Song-Scan ausgegeben werden.
 
 
