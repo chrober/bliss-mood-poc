@@ -219,7 +219,7 @@ def evaluate(db: Path, embeddings: Path, comparisons: Path, clips: Path,
                                        "fixed_equal_rank_fusions_with_audio_genre_mood_baselines"
                                       if fixed_rank_fusions else
                                       "audio_embedding_vs_genre_mood_heads"),
-        "global_pairwise_fusions": gf.provenance() if global_pair_fusions else None,
+        **({"global_pairwise_fusions": gf.provenance()} if global_pair_fusions else {}),
         "fixed_rank_fusions": ({"triplet_local": True, "no_label_fit": True,
                                 "per_head_metric": "cosine",
                                 "score_calibration": "within_triplet_three_pair_midranks_v1",
