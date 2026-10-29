@@ -1,5 +1,8 @@
 # WP3-R0 Bliss / Essentia read-only joins and WP2-P0 personal scoring contracts
 
+> **Successor protocol now implemented:** [WP3-R1 grouped Bliss↔Essentia descriptive relationships and WP2-P1 grouped Bliss-Learner evaluation](bliss-essentia-grouped-relationships-personal-evaluation-20261029.md). This supersedes the earlier *next step is to build WP3-R1/WP2-P1* wording below, which is retained as historical context. New correlation and learning results remain **synthetic only**, with artist/album/recording/triplet-connected holdout, no private music inspected, no optional learner trained, no independent musical-quality claim.
+
+
 **Status (29 October 2026): research implementations and synthetic tests, NOT a deployed Lyrion feature or a real user-data evaluation.**
 
 Canonical strategy: [three parallel workstreams](similarity-three-workstreams-strategy-20261029.md). Both implementations are isolated on the general-pairwise-similarity-research branch. Draft PR #16, upstream Bliss Mixer, bliss-learner, BlissMixerLab, existing audio, measurements and the successfully completed native 100-song comparison remain untouched.
