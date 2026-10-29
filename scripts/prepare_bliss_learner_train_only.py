@@ -59,6 +59,7 @@ def prepare(
         raise ValueError("Training input overlaps heldout songs")
     # Only source from exact 23D columns. Do not import holdout features.
     source_stamp = (bliss_db.stat().st_size, bliss_db.stat().st_mtime_ns)
+    source_sha256 = _sha256(bliss_db)
     rows = []
     with closing(open_bliss(bliss_db)) as source:
         for key in sorted(train_songs):
@@ -66,7 +67,8 @@ def prepare(
             if status != "valid":
                 raise ValueError("A training track lacks unique finite Bliss 23D data")
             rows.append((key, *feature))
-    if (bliss_db.stat().st_size, bliss_db.stat().st_mtime_ns) != source_stamp:
+    if ((bliss_db.stat().st_size, bliss_db.stat().st_mtime_ns) != source_stamp
+            or _sha256(bliss_db) != source_sha256):
         raise ValueError("Source Bliss database changed during read")
     if output_dir.exists():
         raise FileExistsError("Refusing to overwrite an existing private research output")
@@ -96,7 +98,8 @@ def prepare(
         "bliss_feature_columns_order": list(BLISS_COLUMNS),
         "input_audio_or_onnx_invoked": False,
         "raw_source_db_not_written": True,
-        "source_db_stat_size_and_mtime_only": list(source_stamp),
+        "source_db_stat_size_and_mtime": list(source_stamp),
+        "source_bliss_db_sha256_private": source_sha256,
         "train_triplets_sha256": _sha256(triplet_path),
         "train_only_db_sha256": _sha256(db_path),
         # Private manifest: hashes are not anonymous with low-entropy song
