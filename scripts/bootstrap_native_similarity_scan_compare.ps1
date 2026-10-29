@@ -49,7 +49,7 @@ function Check-Hash([string]$Path, [string]$Expected, [string]$Role) {
         throw "SHA256 mismatch: $Role (stopping without scanning)"
     }
 }
-function Git([string[]]$Arguments) {
+function Invoke-GitChecked([string[]]$Arguments) {
     $output = & git @Arguments
     if ($LASTEXITCODE -ne 0) { throw "Git failed (exit=$LASTEXITCODE)" }
     return $output
@@ -120,32 +120,32 @@ foreach ($command in @('git', 'gh', 'python')) {
 Require-Dir $Repo 'original Git repository'
 Write-Host '=== ISOLATED GIT WORKTREE ===' -ForegroundColor Cyan
 if (-not $Synced) {
-    Git @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
-    $sha = ([string](Git @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
+    Invoke-GitChecked @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
+    $sha = ([string](Invoke-GitChecked @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
     if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'Invalid remote bridge commit SHA' }
     if (-not (Test-Path -LiteralPath $Worktree)) {
-        Git @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $sha) | Out-Null
+        Invoke-GitChecked @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $sha) | Out-Null
     }
 }
 Require-Dir $Worktree 'isolated bridge Git worktree'
-$root = ([string](Git @('-C', $Worktree, 'rev-parse', '--show-toplevel'))).Trim()
+$root = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', '--show-toplevel'))).Trim()
 if ([IO.Path]::GetFullPath($root).TrimEnd('\') -ine
     [IO.Path]::GetFullPath($Worktree).TrimEnd('\')) {
     throw 'Bridge worktree does not match expected isolated path'
 }
-$dirty = @(Git @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal') |
+$dirty = @(Invoke-GitChecked @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal') |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 if ($dirty.Count -gt 0) { throw 'Isolated worktree has changes; refusing checkout' }
 if (-not $Synced) {
-    $head = ([string](Git @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
+    $head = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
     if ($head -cne $sha) {
-        Git @('-C', $Worktree, 'checkout', '--detach', $sha) | Out-Null
+        Invoke-GitChecked @('-C', $Worktree, 'checkout', '--detach', $sha) | Out-Null
         # Re-enter the UPDATED script rather than executing stale in-memory code.
         & (Join-Path $Worktree 'scripts\bootstrap_native_similarity_scan_compare.ps1') -Mode $Mode -Repo $Repo -Worktree $Worktree -PlanDir $PlanDir -ReportDir $ReportDir -BinDir $BinDir -Worker $Worker -ModelsDir $ModelsDir -AudioRoot $AudioRoot -Synced
         return
     }
 }
-$head = ([string](Git @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
+$head = ([string](Invoke-GitChecked @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
 Write-Host "Bridge source commit: $head" -ForegroundColor Green
 
 Write-Host '=== PINNED SCANNER AND PRIVATE NATIVE WORKER ===' -ForegroundColor Cyan
