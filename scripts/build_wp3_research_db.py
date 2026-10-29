@@ -152,9 +152,9 @@ def build(bliss_path: Path, feature_path: Path, output: Path | None, *,
           limit: int = 300, seed: int = 20261029) -> dict:
     if not bliss_path.is_file() or not feature_path.is_file():
         raise ValueError("The two existing feature source databases are required")
-    paths = [bliss_path, feature_path] + ([snapshot, library] if snapshot is not None else [])
-    if snapshot is None and library is not None:
+    if (snapshot is None) != (library is None):
         raise ValueError("Lyrion snapshot and library sources must be supplied together")
+    paths = [bliss_path, feature_path] + ([snapshot, library] if snapshot is not None else [])
     if any(not p.is_file() for p in paths):
         raise ValueError("Required read-only metadata source does not exist")
     if len({str(p.resolve()).casefold() for p in paths}) != len(paths):
