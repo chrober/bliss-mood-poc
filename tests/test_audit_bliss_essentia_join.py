@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -127,6 +128,47 @@ class ReadOnlyJoinTests(unittest.TestCase):
         report = join.report(self.bliss, extra)
         self.assertEqual(report["counts"]["essentia_head_provenance_rejected_in_sample"], 1)
         self.assertEqual(report["counts"]["bliss_23d_valid_and_paired"], 2)
+
+    def test_optional_pinned_1280d_sidecars_verified_and_counted(self):
+        from evaluate_mtt_embedding_ab import filename_for_key
+        sidecars = self.root/"research-embeddings"
+        sidecars.mkdir()
+        enc_sha = "b"*64
+        frontend = "experimental-essentia-cpp-dsp-v1-unvalidated"
+        info = {
+            "schema_version": 1,
+            "kind": "discogs_effnet_song_embedding",
+            "validation_status": "experimental_unvalidated",
+            "dimension": 1280,
+            "patches_analyzed": 13,
+            "audio_sha256": AUDIO,
+            "encoder_sha256": enc_sha,
+            "preprocessing_version": frontend,
+            "pooling_version": "patch_f64_arithmetic_mean_v1",
+            "normalization_version": "song_f64_l2_then_cast_f32_v1",
+            "encoder_model": ENCODER,
+            "vector_f32": [1.0] + [0.0]*1279,
+        }
+        contract = [1, ENCODER, enc_sha, frontend,
+                    info["pooling_version"], info["normalization_version"], 1280]
+        info["representation_fingerprint"] = hashlib.sha256(
+            json.dumps(contract, ensure_ascii=False, separators=(",", ":")).encode()
+        ).hexdigest()
+        # A is valid, B has tampered source hash, C is missing.
+        for key in KEYS[:2]:
+            details = dict(info, track_file=key)
+            if key == KEYS[1]:
+                details["audio_sha256"] = "f"*64
+            (sidecars / filename_for_key(key)).write_text(json.dumps(details))
+        data = join.report(self.bliss, self.features, embedding_dir=sidecars)
+        self.assertEqual(data["counts"]["bliss_23d_valid_and_paired"], 3)
+        self.assertEqual(data["counts"]["embedding_valid_and_paired"], 1)
+        self.assertEqual(data["counts"]["embedding_invalid_or_incompatible"], 1)
+        self.assertEqual(data["counts"]["embedding_missing"], 1)
+        self.assertNotIn(KEYS[0], json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "embedding directory"):
+            join.report(self.bliss, self.features,
+                        embedding_dir=self.root/"missing_embeddings")
 
     def test_rejects_missing_columns_schema_and_missing_db(self):
         self.bliss.unlink()
