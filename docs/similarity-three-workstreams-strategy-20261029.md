@@ -128,7 +128,7 @@ labels as explored development evidence, not fresh test.
 
 **Concrete slices:**
 
-1. **Data/benchmark matrix:** inventory which corpus has Blues/Bliss
+1. **Data/benchmark matrix:** inventory which corpus has Bliss
    23D as well as Essentia 87/56/1280D for the *same recordings*.
    Do not impute Bliss availability in public MTT/FMA/DEAM or infer
    23D from Essentia. Include Bliss-only static, variance-weighted
