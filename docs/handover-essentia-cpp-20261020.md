@@ -1,5 +1,7 @@
 # Handover — Essentia C++ frontend / Rust orchestration (2026-10-20)
 
+> **Status 29.10.2026: HISTORISCHE ÜBERGABE — NICHT der aktuelle Arbeitsauftrag.** Die stabile originale Essentia-C++-Analyse und statische Workerwahl wurden über PR #20/#22 in main integriert; dynamische Workerentwicklung aus PR #19 bleibt auf später verschoben. In der separaten Similarity-Forschung hat der Nutzer den echten **100/100-Rust-v5-Song-Preflight bestanden**, aber noch keinen nativen Re-Scan durchgeführt. **Jetzt maßgeblich:** [neuer Similarity-Handover nach bestandenem Preflight](handover-native-similarity-100-20261029.md) und [neuer Handover-Prompt](handover-prompt-native-similarity-100-20261029.md). Fokus auf automatischem Scan/Compare für die **allgemeine untrainierte Songmetrik**; keine weitere Workeroptimierung, keine neuen Pflicht-Hörtests und keine Änderungen an PR #16. Die folgenden historischen Messergebnisse bleiben als Quellen erhalten.
+
 ## 21 October 2026: real Windows kit license audit, 17-package evidence backlog
 
 **Latest release/readiness checkpoint:** The user's already-downloaded
