@@ -1,0 +1,26 @@
+name: Three-workstream similarity strategy documentation gate
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'docs/**'
+      - 'scripts/check_docs_english.py'
+      - 'tests/test_check_docs_english.py'
+      - '.github/workflows/research-strategy-docs-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: English docs and synthetic language-regression gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: English-only repository documentation
+        run: python3 scripts/check_docs_english.py
+      - name: Synthetic language-detection and repository regression
+        run: python3 -m unittest discover -s tests -p 'test_check_docs_english.py' -v
