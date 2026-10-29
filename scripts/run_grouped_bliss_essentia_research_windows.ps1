@@ -68,7 +68,7 @@
     # interface instead of embedding a quoted Python string literal.
     $pythonVersion = @(& $researchPython --version)
     if ($LASTEXITCODE -ne 0 -or
-        ($pythonVersion -join '').Trim() -notmatch '^Python 3\\.15(?:\\.|$)') {
+        ($pythonVersion -join '').Trim() -notmatch '^Python 3\.15(?:\.|$)') {
         throw 'This research launcher expects the installed Python 3.15. No other Python is installed or selected.'
     }
     Write-Host ('Research Python interpreter: ' + ($pythonVersion -join '').Trim())
