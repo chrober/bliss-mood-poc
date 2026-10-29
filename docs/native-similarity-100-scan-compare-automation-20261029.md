@@ -1,5 +1,8 @@
 # Native same-100 scan → compare automation (2026-10-29)
 
+> **29.10.2026 – AUSFÜHRUNG ABGESCHLOSSEN:** Der reale native 100-Song-Scan und Compare wurden vom Nutzer mit anonymisiertem Ergebnisbericht `PASS_EXPLORATORY_TOLERANCES` dokumentiert. Siehe [Real Native Results](native-similarity-100-real-results-20261029.md). **Die nachfolgenden One-Command-Launcher-Anleitungen sind nur historische Reproduktionsdokumentation. Bitte nicht erneut gegen die bestehenden privaten Ausgabepfade starten.** Der nächste Forschungsabschnitt ist die allgemeine untrainierte Metrik.
+
+
 **Scope:** continuation of the **already successful** 100/100 Windows preflight.
 No new `prepare`, no new cohort, no modifications to PR #16, original
 SQLite, private ratings, original embeddings or source music. General
