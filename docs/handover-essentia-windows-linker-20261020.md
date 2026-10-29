@@ -1,5 +1,7 @@
 # Windows original Essentia C++ linker — first task after 2026-10-20 handover
 
+> **Status 29.10.2026: HISTORISCHE ÜBERGABE — NICHT der aktuelle Arbeitsauftrag.** Die stabile originale Essentia-C++-Analyse und statische Workerwahl wurden über PR #20/#22 in main integriert; dynamische Workerentwicklung aus PR #19 bleibt auf später verschoben. In der separaten Similarity-Forschung hat der Nutzer den echten **100/100-Rust-v5-Song-Preflight bestanden**, aber noch keinen nativen Re-Scan durchgeführt. **Jetzt maßgeblich:** [neuer Similarity-Handover nach bestandenem Preflight](handover-native-similarity-100-20261029.md) und [neuer Handover-Prompt](handover-prompt-native-similarity-100-20261029.md). Fokus auf automatischem Scan/Compare für die **allgemeine untrainierte Songmetrik**; keine weitere Workeroptimierung, keine neuen Pflicht-Hörtests und keine Änderungen an PR #16. Die folgenden historischen Messergebnisse bleiben als Quellen erhalten.
+
 **Problem:** The original `MTG/essentia` C++ library **compiles as a DLL** under Windows MinGW64, but the downstream `bliss-essentia-worker.exe` cannot link to several essential C++ symbols. The latest confirmed failure is [run #39389850876](https://github.com/chrober/bliss-mood-poc/actions/runs/39389850876). This run is red; native Windows audio/parity/packaging steps were skipped.
 
 Use the [overall handover](handover-essentia-cpp-20261020.md) first. **Do not merge, modify `main`, or replace the original Essentia DSP with another port.**
