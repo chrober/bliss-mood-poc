@@ -57,6 +57,9 @@ SAFE_ERRORS = frozenset({
     "Existing feature SQLite input is missing",
     "Feature sidecar schema is not v3",
     "Unexpected head, preprocessing or model identity",
+    "No eligible dominant Genre/Mood model cohort",
+    "Dominant Genre/Mood cohort is not the original corrected Rust-v5 preprocessing",
+    "Frozen Rust-v5 cohort does not have exactly 100 paired tracks",
     "Invalid track key",
     "Missing/invalid source-audio SHA256",
     "Invalid audio patch count",
@@ -156,16 +159,102 @@ def read_cohort(db: Path, heads: set[str], expected_frontend: str) -> tuple[dict
     with closing(open_readonly(db)) as c:
         if c.execute("PRAGMA user_version").fetchone()[0] != 3:
             raise ValueError("Feature sidecar schema is not v3")
-        data = c.execute("""
-            SELECT t.track_file, t.model_id, t.audio_sha256,
-                   t.patches_analyzed, t.scores_f32_le, t.model_key,
-                   m.preprocessing_version, m.embedding_model,
-                   m.classification_model, m.models_sha256_json,
-                   m.classes_json, m.aggregation
-            FROM feature_tracks AS t
-            JOIN feature_models AS m ON t.model_key=m.model_key
-            ORDER BY t.track_file, t.model_id
-        """).fetchall()
+        if expected_frontend == OLD_FRONTEND:
+            # Reproduce PR #16's ORIGINAL dominant-cohort selection (rather
+            # than assuming the entire benchmark DB has only 200 rows).
+            # Other worker runs, model keys, or unpaired tracks MUST NOT be
+            # silently folded into the 100-song hearing pilot.
+            chosen = {}
+            for head, capability in (("genre", "genre"),
+                                     ("moodtheme", "mood_theme")):
+                candidates = c.execute("""
+                    SELECT t.model_key, COUNT(*)
+                    FROM feature_tracks AS t
+                    JOIN feature_models AS m ON m.model_key=t.model_key
+                    WHERE t.model_id=? AND t.capability=?
+                    GROUP BY t.model_key
+                    ORDER BY COUNT(*) DESC, t.model_key
+                """, (head, capability)).fetchall()
+                selected = None
+                for key, _count in candidates:
+                    meta = c.execute("""
+                        SELECT m.aggregation, m.classes_json,
+                               m.validated_against_essentia,
+                               m.preprocessing_version
+                        FROM feature_models AS m WHERE m.model_key=?
+                    """, (key,)).fetchone()
+                    if meta is None:
+                        continue
+                    agg, classes_json, validated, preprocessing = meta
+                    try:
+                        labels = json.loads(classes_json)
+                    except (ValueError, TypeError):
+                        continue
+                    if (agg != "arithmetic_mean_of_per_patch_sigmoid_scores"
+                            or validated not in (0, 1)
+                            or not preprocessing
+                            or not isinstance(labels, list)
+                            or len(labels) != DIMENSIONS[head]
+                            or any(not isinstance(x, str) or not x for x in labels)
+                            or len(set(labels)) != DIMENSIONS[head]):
+                        continue
+                    selected = (key, preprocessing)
+                    break
+                if selected is None:
+                    raise ValueError("No eligible dominant Genre/Mood model cohort")
+                if selected[1] != OLD_FRONTEND:
+                    raise ValueError(
+                        "Dominant Genre/Mood cohort is not the original corrected Rust-v5 preprocessing")
+                chosen[head] = selected[0]
+            # PR #16's load_sample selects from this exact inner join,
+            # ORDER BY binary key. Its actual pilot additionally required
+            # precisely 100 valid pairs and zero rejected vectors.
+            paired_keys = c.execute("""
+                SELECT g.track_file
+                FROM feature_tracks AS g
+                JOIN feature_tracks AS u
+                  ON u.track_file=g.track_file AND u.model_id='moodtheme'
+                WHERE g.model_id='genre' AND g.model_key=?
+                  AND u.model_key=?
+                ORDER BY g.track_file COLLATE BINARY
+            """, (chosen["genre"], chosen["moodtheme"])).fetchall()
+            if (len(paired_keys) != N
+                    or len({key for (key,) in paired_keys}) != N):
+                raise ValueError("Frozen Rust-v5 cohort does not have exactly 100 paired tracks")
+            data = c.execute("""
+                SELECT t.track_file, t.model_id, t.audio_sha256,
+                       t.patches_analyzed, t.scores_f32_le, t.model_key,
+                       m.preprocessing_version, m.embedding_model,
+                       m.classification_model, m.models_sha256_json,
+                       m.classes_json, m.aggregation
+                FROM feature_tracks AS t
+                JOIN feature_models AS m ON t.model_key=m.model_key
+                WHERE (t.model_id='genre' AND t.model_key=?
+                       OR t.model_id='moodtheme' AND t.model_key=?)
+                  AND t.track_file IN (
+                      SELECT g.track_file
+                      FROM feature_tracks AS g
+                      JOIN feature_tracks AS u
+                        ON u.track_file=g.track_file AND u.model_id='moodtheme'
+                      WHERE g.model_id='genre' AND g.model_key=?
+                        AND u.model_key=?
+                  )
+                ORDER BY t.track_file COLLATE BINARY, t.model_id
+            """, (chosen["genre"], chosen["moodtheme"],
+                  chosen["genre"], chosen["moodtheme"])).fetchall()
+        else:
+            # The NEW native sidecar is isolated and must contain exactly
+            # the expected heads and no unrelated/legacy records.
+            data = c.execute("""
+                SELECT t.track_file, t.model_id, t.audio_sha256,
+                       t.patches_analyzed, t.scores_f32_le, t.model_key,
+                       m.preprocessing_version, m.embedding_model,
+                       m.classification_model, m.models_sha256_json,
+                       m.classes_json, m.aggregation
+                FROM feature_tracks AS t
+                JOIN feature_models AS m ON t.model_key=m.model_key
+                ORDER BY t.track_file COLLATE BINARY, t.model_id
+            """).fetchall()
     tracks: dict[str, dict] = {}
     definitions: dict[str, tuple] = {}
     for key, head, audio, patches, blob, model_key, frontend, encoder, classifier, raw_sha, labels_json, aggregation in data:
