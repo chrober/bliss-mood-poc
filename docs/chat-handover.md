@@ -1,5 +1,7 @@
 # Chat handover — adaptive offline feature scans (2026-10-19)
 
+> **NEUE VERBINDLICHE SIMILARITY-ÜBERGABE — 29.10.2026:** Der separate native Bridge-Worktree hat mit dem vorhandenen Entwicklungskit den **echten 100/100-Preflight erfolgreich abgeschlossen**. Noch kein nativer Scan/Compare. **Aktueller Einstieg:** [handover-native-similarity-100-20261029.md](handover-native-similarity-100-20261029.md) und [Prompt](handover-prompt-native-similarity-100-20261029.md). Jetzt ausschließlich automatische native **Same-100-Analyse → Rust-v5/C++-Vergleich → allgemeine untrainierte Similarity-Metrik**; PR #16 und Hörurteile unverändert, keine weiteren Pflichtbewertungen, kein Worker-Autotuning. Die ältere adaptive/PR-#18-Anweisung weiter unten ist historisch und **kein** aktueller Arbeitsauftrag.
+
 > **Static scanner integration supersedes historical adaptive plans (28 Oct 2026):** New code path [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) carries verified native Essentia C++ and manifest/1280D embedding analysis without runtime worker resizing. `--workers 1` remains default, `--workers auto` is one-time conservative CPU sizing. Former dynamic/adaptive implementation and four real-music benchmark campaigns remain *research* in [PR #19](https://github.com/chrober/bliss-mood-poc/pull/19). Consult [final architecture](multi-worker-song-analysis-final.md) and [Similarity handback](handback-multi-worker-to-similarity-20261028.md) for the actual production target. Legacy instructions below may be invalid for the static CLI.
 
 
