@@ -55,15 +55,21 @@
         return (Resolve-Path -LiteralPath $candidate).ProviderPath
     }
 
-    foreach ($tool in @('git','py')) {
+    # The source preflight is stdlib-only and works with the local
+    # Python 3.15 (also >=3.10). Python 3.13 is ONLY needed later
+    # if source provenance, coverage and independent holdout pass.
+    foreach ($tool in @('git','python')) {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-            throw "Missing required executable: $tool (Git and Python 3.13 launcher required)"
+            throw "Missing required executable: $tool"
         }
     }
-    $pyVersion = (& py -3.13 -c 'import sys; print(str(sys.version_info.major) + "." + str(sys.version_info.minor))')
-    if ($LASTEXITCODE -ne 0 -or ($pyVersion -join '').Trim() -ne '3.13') {
-        throw 'Python 3.13 is required to match the research CI.'
+    $preflightPython = (Get-Command python -ErrorAction Stop).Source
+    $preflightVersion = @(& $preflightPython -c 'import sys; print(int(sys.version_info >= (3,10)))')
+    if ($LASTEXITCODE -ne 0 -or ($preflightVersion -join '').Trim() -ne '1') {
+        throw 'The source-only Python preflight requires Python 3.10 or newer.'
     }
+    Write-Host ('No-write source preflight interpreter: ' +
+        ((& $preflightPython --version) -join '').Trim())
 
     $repoPath = Find-Repo
     if (-not $repoPath) {
@@ -123,7 +129,7 @@
 
     # The FIRST source pass is a NO-WRITE diagnostic. It provides specific,
     # nonidentifying coverage counts and a fail-closed blocker reason.
-    $preflightLines = @(& py -3.13 @($groupScript,
+    $preflightLines = @(& $preflightPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
         '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
         '--seed',"$Seed",'--limit',"$SampleLimit",
@@ -144,6 +150,29 @@
         throw 'A reliable artist/album/recording-disjoint holdout is unavailable. No private groups or analysis results were created.'
     }
 
+
+    # Pinned NumPy/SciPy/scikit-learn versions are verified in CI on
+    # Python 3.13. Do not try incompatible wheels on Python 3.15.
+    # A parallel 3.13 install changes no default Python installation.
+    # Never install any Python runtime without an explicit user action.
+    $python313Present = $false
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            $python313Probe = @(& py -3.13 -c 'import sys; print(int(sys.version_info[:2] == (3,13)))' 2>&1)
+            if ($LASTEXITCODE -eq 0 -and
+                ($python313Probe -join '').Trim() -eq '1') {
+                $python313Present = $true
+            }
+        } catch {
+            $python313Present = $false
+        }
+    }
+    if (-not $python313Present) {
+        Write-Host 'Read-only source preflight PASSED; no private research groups were written.'
+        Write-Host 'The statistical stage needs a compatible, pinned Python 3.13 environment.'
+        Write-Host 'Install Python 3.13 alongside your Python 3.15 with: py install 3.13'
+        throw 'Statistical stage not started: Python 3.13 is not installed.'
+    }
 
     $venv = Join-Path $runRoot 'venv'
     Invoke-Checked 'py' @('-3.13','-m','venv',$venv)
