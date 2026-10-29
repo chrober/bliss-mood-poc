@@ -9,11 +9,13 @@ on:
       - 'scripts/research_grouped_split.py'
       - 'scripts/research_feature_relationships.py'
       - 'scripts/research_personal_triplet_protocol.py'
+      - 'scripts/prepare_bliss_learner_train_only.py'
       - 'tests/test_audit_bliss_essentia_join.py'
       - 'tests/test_general_personal_blend_contract.py'
       - 'tests/test_research_grouped_split.py'
       - 'tests/test_research_feature_relationships.py'
       - 'tests/test_research_personal_triplet_protocol.py'
+      - 'tests/test_prepare_bliss_learner_train_only.py'
       - '.github/workflows/research-bliss-personal-contracts.yml'
   workflow_dispatch:
 
@@ -34,7 +36,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Compile research contracts
-        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py scripts/research_grouped_split.py scripts/research_feature_relationships.py scripts/research_personal_triplet_protocol.py
+        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py scripts/research_grouped_split.py scripts/research_feature_relationships.py scripts/research_personal_triplet_protocol.py scripts/prepare_bliss_learner_train_only.py
       - name: WP3 read-only exact-join and private aggregate regression
         run: python -m unittest discover -s tests -p 'test_audit_bliss_essentia_join.py' -v
       - name: WP2 General/Personal model fallback and legacy learner regression
@@ -45,5 +47,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_research_feature_relationships.py' -v
       - name: WP2 grouped held-out legacy Bliss triplet evaluator
         run: python -m unittest discover -s tests -p 'test_research_personal_triplet_protocol.py' -v
+      - name: WP2 isolate original Rust learner to private train-only input DB and triplets
+        run: python -m unittest discover -s tests -p 'test_prepare_bliss_learner_train_only.py' -v
       - name: Existing experimental features are not silently changed
         run: python -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py' -v
