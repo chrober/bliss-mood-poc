@@ -45,9 +45,10 @@ def build_fixture(root: Path):
             CREATE TABLE feature_models(
               model_key TEXT PRIMARY KEY, preprocessing_version TEXT,
               embedding_model TEXT, classification_model TEXT,
-              models_sha256_json TEXT, classes_json TEXT, aggregation TEXT);
+              models_sha256_json TEXT, classes_json TEXT, aggregation TEXT,
+              validated_against_essentia INTEGER);
             CREATE TABLE feature_tracks(
-              track_file TEXT, model_id TEXT, audio_sha256 TEXT,
+              track_file TEXT, model_id TEXT, capability TEXT, audio_sha256 TEXT,
               patches_analyzed INTEGER, scores_f32_le BLOB, model_key TEXT);
         """)
         return conn
@@ -65,13 +66,14 @@ def build_fixture(root: Path):
                 }
                 if native:
                     head_hashes[WORKER] = worker_hash
-                conn.execute("INSERT INTO feature_models VALUES(?,?,?,?,?,?,?)", (
+                conn.execute("INSERT INTO feature_models VALUES(?,?,?,?,?,?,?,?)", (
                     f"{head}-{'native' if native else 'old'}",
                     FRONTEND if native else bridge.OLD_FRONTEND,
                     bridge.ENCODER, classifier,
                     json.dumps(head_hashes), json.dumps(labels),
                     ("arithmetic_mean_of_per_patch_softmax_scores" if head == "voice"
                      else "arithmetic_mean_of_per_patch_sigmoid_scores"),
+                    0,
                 ))
         for n in range(100):
             key = f"Artist-{n:03d}/Album {n//3:03d}/Titel {n:03d}.flac"
@@ -86,8 +88,10 @@ def build_fixture(root: Path):
                 for native, conn in ((False, a), (True, b)):
                     if not native and head == "voice":
                         continue
-                    conn.execute("INSERT INTO feature_tracks VALUES(?,?,?,?,?,?)", (
-                        key, head, sha, 12, blob,
+                    conn.execute("INSERT INTO feature_tracks VALUES(?,?,?,?,?,?,?)", (
+                        key, head,
+                        {"genre": "genre", "moodtheme": "mood_theme", "voice": "voice_presence"}[head],
+                        sha, 12, blob,
                         f"{head}-{'native' if native else 'old'}",
                     ))
             vec = [0.0] * 1280
@@ -226,6 +230,58 @@ class NativeBridgeTests(unittest.TestCase):
         self.assertNotIn("Artist-", aggregate)
         self.assertNotIn("Hörtest", aggregate)
         self.assertNotIn("Titel", aggregate)
+
+    def test_mixed_legacy_cohorts_are_ignored_but_frozen_100_unchanged(self):
+        """Additional unrelated rows do not change the original 100-song cohort."""
+        before = bridge.read_cohort(
+            self.old, {"genre", "moodtheme"}, bridge.OLD_FRONTEND)
+        with closing(sqlite3.connect(self.old)) as conn:
+            labels = [f"voice class {i}" for i in range(2)]
+            conn.execute("INSERT INTO feature_models VALUES(?,?,?,?,?,?,?,?)", (
+                "legacy-voice", "experimental-legacy-dsp-v3",
+                bridge.ENCODER, bridge.EXPECTED_MODELS["voice"][0],
+                json.dumps({bridge.ENCODER:"0"*64,
+                            bridge.EXPECTED_MODELS["voice"][0]:"1"*64}),
+                json.dumps(labels), "arithmetic_mean_of_per_patch_softmax_scores", 0,
+            ))
+            for n in range(8):
+                conn.execute("INSERT INTO feature_tracks VALUES(?,?,?,?,?,?,?)", (
+                    f"Unrelated/voice-{n}.mp3", "voice", "voice_presence",
+                    "f"*64, 1, struct.pack("<2f", .3, .7), "legacy-voice",
+                ))
+            # A different historical Genre+Mood set must not enter the 100-song pilot.
+            for head, cap in (("genre", "genre"), ("moodtheme", "mood_theme")):
+                old_key = f"{head}-old"
+                meta = conn.execute("SELECT embedding_model, classification_model, "
+                    "models_sha256_json, classes_json, aggregation "
+                    "FROM feature_models WHERE model_key=?", (old_key,)).fetchone()
+                self.assertIsNotNone(meta)
+                conn.execute("INSERT INTO feature_models VALUES(?,?,?,?,?,?,?,?)", (
+                    f"{head}-other", "experimental-earlier-rust-dsp", *meta, 0,
+                ))
+                for n in range(9):
+                    blob = struct.pack("<" + "f"*bridge.DIMENSIONS[head],
+                                       *([.2, .7]*bridge.DIMENSIONS[head])[:bridge.DIMENSIONS[head]])
+                    conn.execute("INSERT INTO feature_tracks VALUES(?,?,?,?,?,?,?)", (
+                        f"Unrelated/other-{n}.mp3", head, cap, "e"*64, 1,
+                        blob, f"{head}-other",
+                    ))
+            conn.commit()
+        after = bridge.read_cohort(
+            self.old, {"genre", "moodtheme"}, bridge.OLD_FRONTEND)
+        self.assertEqual(before, after)
+        result = bridge.prepare(self.prep_args())
+        self.assertEqual(result["tracks"], 100)
+        self.assertEqual(len((self.plan/"exact-100-tracks.txt").read_text().splitlines()), 100)
+
+    def test_dominant_wrong_frontend_fails_closed(self):
+        with closing(sqlite3.connect(self.old)) as conn:
+            conn.execute("UPDATE feature_models SET preprocessing_version=? "
+                         "WHERE model_key=?", ("experimental-wrong-dsp", "genre-old"))
+            conn.commit()
+        with self.assertRaisesRegex(ValueError, "Dominant Genre/Mood cohort"):
+            bridge.prepare(self.prep_args())
+        self.assertFalse(self.plan.exists())
 
     def test_modified_original_audio_fails_before_any_output(self):
         file = self.audio / "Artist-003" / "Album 001" / "Titel 003.flac"
