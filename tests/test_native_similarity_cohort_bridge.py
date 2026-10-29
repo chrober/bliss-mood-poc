@@ -13,6 +13,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import native_similarity_cohort_bridge as bridge
+import verify_native_similarity_frozen_inputs as frozen
 
 FRONTEND = "experimental-essentia-cpp-dsp-v3-test-only"
 WORKER = "essentia_cpp_worker_binary_sha256"
@@ -126,6 +127,36 @@ def build_fixture(root: Path):
 
 
 class NativeBridgeTests(unittest.TestCase):
+    def test_verify_existing_frozen_plan_is_readonly_and_matches_100_sources(self):
+        bridge.prepare(self.prep_args())
+        old_before = self.old.read_bytes()
+        provenance_before = (self.plan/"provenance.json").read_bytes()
+        manifest_before = (self.plan/"exact-100-tracks.txt").read_bytes()
+        result = frozen.verify(self.plan, self.old, self.old_emb, self.models, self.audio)
+        self.assertEqual(result["status"], "FROZEN_INPUTS_REVERIFIED_READ_ONLY")
+        self.assertEqual(result["audio_sha256_matches"], 100)
+        self.assertEqual(result["embedding_exports"], 100)
+        self.assertEqual(self.old.read_bytes(), old_before)
+        self.assertEqual((self.plan/"provenance.json").read_bytes(), provenance_before)
+        self.assertEqual((self.plan/"exact-100-tracks.txt").read_bytes(), manifest_before)
+
+    def test_verify_existing_frozen_plan_rejects_audio_drift_without_new_plan(self):
+        bridge.prepare(self.prep_args())
+        target = self.audio / "Artist-003" / "Album 001" / "Titel 003.flac"
+        target.write_bytes(b"changed after original verified preflight")
+        with self.assertRaisesRegex(ValueError, "Original music file no longer matches"):
+            frozen.verify(self.plan, self.old, self.old_emb, self.models, self.audio)
+        self.assertFalse(self.result.exists())
+        self.assertFalse((self.plan/"native-features.sqlite").exists())
+
+    def test_verify_existing_frozen_plan_rejects_changed_manifest_or_sqlite(self):
+        bridge.prepare(self.prep_args())
+        path = self.plan / "exact-100-tracks.txt"
+        path.write_bytes(path.read_bytes() + b"#unexpected extra song\\n")
+        with self.assertRaisesRegex(ValueError, "Frozen manifest checksum"):
+            frozen.verify(self.plan, self.old, self.old_emb, self.models, self.audio)
+        self.assertFalse((self.plan/"native-features.sqlite").exists())
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
