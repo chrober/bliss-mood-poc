@@ -97,7 +97,7 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
         with closing(sqlite3.connect(self.library)) as conn:
             conn.execute("UPDATE tracks SET urlmd5=? WHERE id=1",("changed-urlmd5",))
             conn.commit()
-        with self.assertRaisesRegex(ValueError,"unverifiable library"):
+        with self.assertRaisesRegex(ValueError,"lack verifiable library"):
             self.derive()
 
     def test_unknown_recordings_in_same_conservative_group(self):
@@ -120,7 +120,7 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
             conn.execute("DELETE FROM track_artist_identity WHERE database_file=?",
                          (next(iter(self.source.all_groups)),))
             conn.commit()
-        with self.assertRaisesRegex(ValueError,"unverifiable library"):
+        with self.assertRaisesRegex(ValueError,"lack verifiable library"):
             self.derive()
         self.assertFalse(self.out.exists())
 
