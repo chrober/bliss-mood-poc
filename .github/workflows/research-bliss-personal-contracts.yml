@@ -16,12 +16,12 @@ permissions:
 
 jobs:
   contracts:
-    name: WP2/WP3 no-audio synthetic safety gates (\${{ matrix.os }})
+    name: WP2/WP3 no-audio synthetic safety gates (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest]
-    runs-on: \${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
