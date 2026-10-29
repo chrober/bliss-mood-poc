@@ -26,6 +26,12 @@
         throw 'Python 3.15 is required. No other Python will be installed or selected.'
     }
     Write-Host ('Research interpreter: ' + ($pythonVersion -join '').Trim())
+    if ($env:LYRION_WP3_RUNTIME_SMOKE_ONLY -eq '1') {
+        Invoke-Checked $python @('-c',
+            'import sys; assert sys.version_info[:2] == (3,15)')
+        Write-Host 'WP3 consolidated DB PowerShell 5.1/7 runtime smoke: PASS'
+        return
+    }
 
     # Paths are taken from the ACTUAL local research records, not a guessed
     # location or recursive scan. Allow an explicit operator override.
