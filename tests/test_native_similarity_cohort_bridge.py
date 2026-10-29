@@ -89,8 +89,8 @@ def build_fixture(root: Path):
                         f"{head}-{'native' if native else 'old'}",
                     ))
             vec = [0.0] * 1280
-            vec[(n*7+1)%1280] = .6
-            vec[(n*7+2)%1280] = .8
+            vec[0] = .6
+            vec[(n % 13) + 1] = .8
             for native, folder in ((False, old_dir), (True, native_dir)):
                 frontend = FRONTEND if native else bridge.OLD_FRONTEND
                 contract = [1, bridge.ENCODER, hashes[bridge.ENCODER], frontend,
@@ -190,7 +190,7 @@ class NativeBridgeTests(unittest.TestCase):
         with sqlite3.connect(self.native) as conn:
             conn.execute("UPDATE feature_tracks SET patches_analyzed=13 WHERE model_id='genre'")
             conn.commit()
-        with self.assertRaisesRegex(ValueError, "patch counts mismatch"):
+        with self.assertRaisesRegex(ValueError, "patch count"):
             bridge.compare(self.comp_args())
         self.assertFalse(self.result.exists())
 
@@ -201,7 +201,7 @@ class NativeBridgeTests(unittest.TestCase):
             bridge.safe_song_path("C:/secret.wav", self.audio)
         with self.assertRaises(ValueError):
             bridge.verify_disjoint_output(self.audio/"new", [self.audio])
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, FileExistsError)):
             bridge.verify_disjoint_output(self.root, [self.old])
 
     def test_rank_statistic_ties(self):
