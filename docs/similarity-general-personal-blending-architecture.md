@@ -1,5 +1,8 @@
 # Decision record: General-first similarity with optional per-user metric learning
 
+> **Research strategy addendum 29 October 2026 (separate branch only):** The General/Personal product contract below remains **binding and unchanged**, but **personal metric learning is an explicit parallel research workstream**, not a distant optional suggestion with no milestones. Together with WP1 General, there is now a third independent WP3 focused on **Bliss 23D ↔ Essentia Genre 87D / Mood 56D / audio embedding 1280D relationships and on improving the Bliss-only similarity geometry**, not merely using Essentia as an extra reranking signal. See the [authoritative three-workstream strategy](similarity-three-workstreams-strategy-20261029.md) and its exact join, leakage, teacher-vs-truth, model-reuse, frozen-blend, milestones and independent-quality gates. The existing Lab `learned_blend` is **not** a General/Personal slider. The current learning code uses random triplet splits without certified artist/album separation; reusing it requires grouped evaluation. The 12 user ratings are closed and cannot be relabeled as new personal training data. Neither PR #16 nor the two related repositories were modified by this addendum.
+
+
 **Decision date:** October 22, 2026. **Status:** Architectural requirement accepted;
 research and implementation pending. **Scope:** `bliss-mood-poc`, Draft PR #16,
 research documentation only; **not** a claim of deployment or an approved
