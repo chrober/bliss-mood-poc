@@ -1,5 +1,8 @@
 # Roadmap: From song features to validated similarity and Lyrion playlist integration
 
+> **Current strategic roadmap, 29 October 2026 (isolated branch):** This original phase-0-to-6 roadmap now has **three explicit parallel research work packages**, detailed in the [unified strategy](similarity-three-workstreams-strategy-20261029.md): **WP1 General Similarity Metric** (always viable without training), **WP2 Personal Metric Learning and calibrated 0–100% General/Personal blend** (immediate interface/reuse protocol, then independently assessed optional learning), and **WP3 Bliss ↔ Essentia Feature Relationships and Bliss-only transformations** (immediate paired-feature inventory followed by correlations, CCA/PLS, predictive models and genuine musical-quality testing). General-first means **mandatory fallback**, not deferring WP2/WP3 indefinitely. All earlier instructions to obtain additional *mandatory* listening labels or rerun phase-0/native same-100 scans are **historical**, as the twelve pair ratings and native engineering comparison are complete. The existing MTT/FMA/DEAM evidence remains development-only; no general/personal product winner is certified. This update is solely on the new research branch and does not change Draft PR #16.
+
+
 **Updated:** October 28, 2026 · **Status:** Research and integration roadmap, not a production release plan ·
 **Repository:** `chrober/bliss-mood-poc` · **Branch:** `feat/similarity-metric-evaluation` ·
 **Pull request:** [#16 (Draft)](https://github.com/chrober/bliss-mood-poc/pull/16)
