@@ -1,5 +1,8 @@
 # General, untrained GLOBAL pairwise similarity: four exploratory fixed fusions (2026-10-29)
 
+> **Strategische Einordnung (29.10.2026):** Die vier hier getesteten globalen Genre/Mood/Audio-Fusionen sind lediglich **WP1** des verbindlichen, gleichberechtigten Dreiklangs aus **General Similarity Metric**, **Personal Metric Learning + 0–100%-Blending** und **Bliss ↔ Essentia Feature Relationships einschließlich Verbesserungen der Bliss-only-Metrik**. Die [konsolidierte Forschungsstrategie](similarity-three-workstreams-strategy-20261029.md) ist für diesen Forschungsbranch maßgeblich. WP2 und WP3 beginnen konzeptionell und mit sicheren synthetischen Untersuchungen **parallel**, nicht erst nach einem endgültigen WP1-Gewinner. Kein verpflichtender zusätzlicher Hörtest; PR #16 unverändert. Der reale MTT-Großworkflow [Run 40881326086](https://github.com/chrober/bliss-mood-poc/actions/runs/40881326086) ist wegen HTTP-Range-Timeout (curl code 28, HTTP 000) in der benötigten Clip-Cache-Erstellung fehlgeschlagen; **keine** neuen realen Fusionsergebnisse dürfen behauptet werden.
+
+
 **Separate research branch:** `feat/general-pairwise-similarity-research`,
 forked at the exact existing Draft PR #16 head
 `2204ec91d8d8a773872f266397b0656178b481ee` solely to reuse its
