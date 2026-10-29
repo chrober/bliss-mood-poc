@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from contextlib import closing
 import json
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -24,6 +25,7 @@ from research_grouped_split import grouped_partition
 
 SCHEMA_IDENTITY = "lyrion-track-identities-v1"
 UNKNOWN_RECORDING = "unknown-recording-identity-all-shared"
+_MBID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 MIN_READY = 24
 MAX_READY = 300
 
@@ -171,12 +173,13 @@ def generate_private_groups(
                             counts["missing_artist_credit"] += 1
                             continue
                         artists[key] = credited
-                        if not _nonempty(lrecord):
+                        mbid = lrecord.strip().lower() if _nonempty(lrecord) else ""
+                        if not _MBID.fullmatch(mbid):
                             counts["recording_mbid_unavailable"] += 1
                         result[key] = {
                             "album_group":"lms-album-id:"+str(album_id),
-                            "recording_group":("musicbrainz-recording:"+lrecord.strip().lower()
-                                               if _nonempty(lrecord) else UNKNOWN_RECORDING),
+                            "recording_group":("musicbrainz-recording:"+mbid
+                                               if _MBID.fullmatch(mbid) else UNKNOWN_RECORDING),
                         }
                     counts["paired_tracks_with_verified_lms_artist_album"]=len(result)
                     if len(result)<MIN_READY:
