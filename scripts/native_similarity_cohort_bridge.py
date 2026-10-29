@@ -94,7 +94,7 @@ SAFE_ERRORS = frozenset({
 })
 
 
-class BridgeStageError(Exception):
+class BridgeStageError(ValueError):
     def __init__(self, stage: str, source: Exception):
         self.stage = stage
         message = str(source)
