@@ -79,6 +79,7 @@ class SelectedClipResearchCacheTests(unittest.TestCase):
         class SyntheticHTTP206:
             def __init__(self, sizes):
                 self.source = LocalMultipartRanges(paths, sizes)
+                self.part_sizes = sizes
                 self.requests = 0
                 self.total_bytes = 0
 
