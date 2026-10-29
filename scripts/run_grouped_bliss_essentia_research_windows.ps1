@@ -63,12 +63,24 @@
         }
     }
     $researchPython = (Get-Command python -ErrorAction Stop).Source
-    $pythonVersion = @(& $researchPython -c 'import sys; print(str(sys.version_info.major) + "." + str(sys.version_info.minor))')
-    if ($LASTEXITCODE -ne 0 -or ($pythonVersion -join '').Trim() -cne '3.15') {
+    # On Windows PowerShell 5.1, native argument handling can STRIP double
+    # quotes inside python -c arguments. Use the executable's --version
+    # interface instead of embedding a quoted Python string literal.
+    $pythonVersion = @(& $researchPython --version)
+    if ($LASTEXITCODE -ne 0 -or
+        ($pythonVersion -join '').Trim() -notmatch '^Python 3\\.15(?:\\.|$)') {
         throw 'This research launcher expects the installed Python 3.15. No other Python is installed or selected.'
     }
-    Write-Host ('Research Python interpreter: ' +
-        ((& $researchPython --version) -join '').Trim())
+    Write-Host ('Research Python interpreter: ' + ($pythonVersion -join '').Trim())
+
+    # Quote-free Python -c code; this exact command is exercised in CI
+    # from PowerShell, not merely syntax-parsed.
+    $dependencyProbe = 'import sys, numpy, scipy, sklearn; assert sys.version_info[:2] == (3,15); print(sys.version_info[:3], numpy.__version__, scipy.__version__, sklearn.__version__)'
+    if ($env:LYRION_WP3_RUNTIME_SMOKE_ONLY -eq '1') {
+        Invoke-Checked $researchPython @('-c', $dependencyProbe)
+        Write-Host 'Python 3.15 Windows PowerShell native command smoke: PASS'
+        return
+    }
 
     $repoPath = Find-Repo
     if (-not $repoPath) {
@@ -161,8 +173,7 @@
     $req = Join-Path $checkout 'research\requirements-wp3-py315.txt'
     Invoke-Checked $venvPython @('-m','pip','install','--no-input','--only-binary=:all:',
         '--disable-pip-version-check','-r',$req)
-    Invoke-Checked $venvPython @('-c',
-        'import sys, numpy, scipy, sklearn; assert sys.version_info[:2] == (3,15); print("WP3 Python",sys.version.split()[0],"dependencies:",numpy.__version__,scipy.__version__,sklearn.__version__)')
+    Invoke-Checked $venvPython @('-c', $dependencyProbe)
 
     Invoke-Checked $venvPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
