@@ -77,6 +77,7 @@ def _opaque_group_components(keys: list[str], artists: dict[str, tuple[str, ...]
 def generate_private_groups(
     bliss_db: Path, feature_db: Path, snapshot_db: Path, lyrion_db: Path,
     *, seed: int = 20261029, limit: int = 100,
+    preflight: bool = False,
 ) -> tuple[dict, dict]:
     """Return PRIVATE key->groups plus public-safe aggregate; do not print map."""
     if type(limit) is not int or not MIN_READY <= limit <= MAX_READY:
@@ -182,30 +183,45 @@ def generate_private_groups(
                                                if _MBID.fullmatch(mbid) else UNKNOWN_RECORDING),
                         }
                     counts["paired_tracks_with_verified_lms_artist_album"]=len(result)
+                    # Audit mode emits reason codes/counts without writing a
+                    # source-derived private groups file. Default strict mode
+                    # retains its original fail-closed behavior.
+                    failure = None
                     if len(result)<MIN_READY:
-                        raise ValueError("Too few paired songs with verified Lyrion identities")
-                    # Fail rather than silently discard selected songs that were
-                    # otherwise valid in both source feature databases.
-                    if (counts["missing_or_unverified_lms_identity"]
+                        failure = "TOO_FEW_VERIFIED_PAIRED_SONGS"
+                    elif (counts["missing_or_unverified_lms_identity"]
                             or counts["missing_artist_credit"]
                             or counts["missing_album_identity"]):
-                        raise ValueError("Some paired songs lack verifiable library/album/artist identities")
-                    connected = _opaque_group_components(sorted(result),artists)
-                    for key in result:
-                        result[key]["artist_group"]=connected[key]
-                    rows=[{"track_id":key,**meta} for key,meta in result.items()]
-                    part=grouped_partition(rows,seed=seed,test_fraction=0.25)
-                    if min(len(part.train),len(part.holdout))<12:
-                        raise ValueError("Insufficient artist/album/recording-disjoint split")
+                        failure = "INCOMPLETE_LYRION_TRACK_ARTIST_ALBUM_IDENTITY"
+                    part = None
+                    if result:
+                        connected = _opaque_group_components(sorted(result),artists)
+                        for key in result:
+                            result[key]["artist_group"]=connected[key]
+                        rows=[{"track_id":key,**meta} for key,meta in result.items()]
+                        try:
+                            part=grouped_partition(rows,seed=seed,test_fraction=0.25)
+                        except ValueError:
+                            if failure is None:
+                                failure = "NO_GROUP_DISJOINT_HOLDOUT"
+                        if part is not None and min(len(part.train),len(part.holdout))<12:
+                            if failure is None:
+                                failure = "GROUP_DISJOINT_HOLDOUT_TOO_SMALL"
+                    if failure is not None and not preflight:
+                        raise ValueError("Incomplete Lyrion grouping or independent holdout")
                     aggregate={
                         "schema":"lyrion_snapshot_exact_group_provenance_v1",
-                        "status":"SOURCE_DERIVED_GROUPS_PRIVATE_NO_AUDIO_SCANS",
+                        "status":("SOURCE_GROUPING_READY_PRIVATE_NO_AUDIO_SCANS"
+                                  if failure is None else "SOURCE_GROUPING_BLOCKED_NO_OUTPUT"),
+                        "ready_for_grouped_study":failure is None,
+                        "blocking_reason_code":failure,
                         "sample_seed":seed,
                         "sample_limit":limit,
                         "counts":counts,
-                        "artist_album_recording_connected_components":part.connected_groups,
-                        "train_songs":len(part.train),
-                        "holdout_songs":len(part.holdout),
+                        "artist_album_recording_connected_components":(
+                            part.connected_groups if part is not None else 0),
+                        "train_songs":len(part.train) if part is not None else 0,
+                        "holdout_songs":len(part.holdout) if part is not None else 0,
                         "recording_mbid_missing_all_share_one_conservative_group":True,
                         "snapshot_lms_id_urlmd5_checked":True,
                         "snapshot_schema_identity_checked":True,
@@ -214,7 +230,7 @@ def generate_private_groups(
                         "teacher_training_overlap_ruled_out":False,
                         "private_grouped_song_keys_in_aggregate":False,
                     }
-                    return result,aggregate
+                    return (result if failure is None else {}),aggregate
 
 
 def main() -> int:
@@ -223,21 +239,29 @@ def main() -> int:
     p.add_argument("--feature-db",type=Path,required=True)
     p.add_argument("--repeat-identity-db",type=Path,required=True)
     p.add_argument("--lyrion-library-db",type=Path,required=True)
-    p.add_argument("--out-groups-private",type=Path,required=True,
-                   help="NEW local private JSON only; do not publish or upload")
+    p.add_argument("--preflight",action="store_true",
+                   help="Only print anonymized readiness counts and blockers, never write files")
+    p.add_argument("--out-groups-private",type=Path,
+                   help="NEW private JSON required without --preflight")
     p.add_argument("--limit",type=int,default=100)
     p.add_argument("--seed",type=int,default=20261029)
     a=p.parse_args()
     try:
-        if a.out_groups_private.exists() or a.out_groups_private.is_symlink():
-            raise FileExistsError("Private group metadata already exists")
+        if not a.preflight:
+            if a.out_groups_private is None:
+                raise ValueError("New private group output path required")
+            if a.out_groups_private.exists() or a.out_groups_private.is_symlink():
+                raise FileExistsError("Private group metadata already exists")
         groups,aggregate=generate_private_groups(
             a.bliss_db,a.feature_db,a.repeat_identity_db,a.lyrion_library_db,
-            seed=a.seed,limit=a.limit,
+            seed=a.seed,limit=a.limit,preflight=a.preflight,
         )
-        payload=json.dumps(groups,ensure_ascii=False,indent=2)+"\n"
-        with a.out_groups_private.open("x",encoding="utf-8") as handle:
-            handle.write(payload)
+        if not a.preflight:
+            if not aggregate["ready_for_grouped_study"]:
+                raise ValueError("Refuse incomplete group metadata")
+            payload=json.dumps(groups,ensure_ascii=False,indent=2)+"\n"
+            with a.out_groups_private.open("x",encoding="utf-8") as handle:
+                handle.write(payload)
         # stdout is ALWAYS only non-identifying aggregate counts.
         print(json.dumps(aggregate,indent=2))
     except (ValueError,TypeError,KeyError,OSError,sqlite3.Error):
