@@ -414,9 +414,19 @@ def compare_frozen_human_pilot(ratings: Path, sealed_audit: Path,
                 y = [human[i][j] for i in selection]
                 x_old = [pairs_old[i][method] for i in selection]
                 x_new = [pairs_new[i][method] for i in selection]
+                # A deliberately synthetic/all-tied pilot can have no rank
+                # information; report null instead of falsely assigning 0.
+                try:
+                    old_rho = round(spearman(x_old, y), 6)
+                except ValueError:
+                    old_rho = None
+                try:
+                    native_rho = round(spearman(x_new, y), 6)
+                except ValueError:
+                    native_rho = None
                 by_method[method][field] = {
-                    "previous_spearman": round(spearman(x_old, y), 6),
-                    "native_spearman": round(spearman(x_new, y), 6),
+                    "previous_spearman": old_rho,
+                    "native_spearman": native_rho,
                 }
         samples[name] = by_method
     return {
