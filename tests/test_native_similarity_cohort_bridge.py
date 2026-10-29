@@ -1,6 +1,7 @@
 """Synthetic 100-track native similarity bridge tests; no user songs, network or ONNX."""
 from __future__ import annotations
 import hashlib
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -187,7 +188,7 @@ class NativeBridgeTests(unittest.TestCase):
 
     def test_fingerprint_and_patch_change_fail_closed(self):
         bridge.prepare(self.prep_args())
-        with sqlite3.connect(self.native) as conn:
+        with closing(sqlite3.connect(self.native)) as conn:
             conn.execute("UPDATE feature_tracks SET patches_analyzed=13 WHERE model_id='genre'")
             conn.commit()
         with self.assertRaisesRegex(ValueError, "patch count"):
