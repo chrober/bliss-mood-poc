@@ -1,5 +1,7 @@
 # Final native multi-worker song analysis (static worker capacity)
 
+> **Similarity-Folgeschritt 29.10.2026:** Die Windows-Scanner-/Worker-Installation und **100/100 identische Quellaudio-Hashes** sind im echten lokalen Preflight erfolgreich verifiziert worden. Der nächste Schritt ist **Scan → Compare**, NICHT weitere Scanner-Optimierung. Verbindliche [neue Similarity-Übergabe](handover-native-similarity-100-20261029.md) und [Prompt](handover-prompt-native-similarity-100-20261029.md). Native Windows-Redistribution bleibt weiterhin BLOCKED.
+
 **Source integration completed:** [PR #20](https://github.com/chrober/bliss-mood-poc/pull/20) was squash-merged to `main` at [`783b05761b6b322a85753acded63ffe336874a6d`](https://github.com/chrober/bliss-mood-poc/commit/783b05761b6b322a85753acded63ffe336874a6d), replacing the stable native/manifest portions of stacked PR [#17](https://github.com/chrober/bliss-mood-poc/pull/17) and [#18](https://github.com/chrober/bliss-mood-poc/pull/18). These historical PRs and experimental [PR #19](https://github.com/chrober/bliss-mood-poc/pull/19) were deliberately closed **without separate merges**, preserving all branch history. The qualified PR20 head and the actual source-tree contents of main are byte-for-byte identical at Git tree level (tree `60695657fad43d00e6a080ba3a617d428e172f97`). See [Similarity handback](handback-multi-worker-to-similarity-20261028.md) for the exact Windows CI build, numerical evidence, and remaining native Windows experimental gate.
 
 ## Supported CLI contract
