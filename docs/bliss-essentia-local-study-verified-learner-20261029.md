@@ -1,5 +1,8 @@
 # WP3-R3 real-data adapter and WP2-P3 pinned learner execution (2026-10-29)
 
+> **New concrete source bridge / 29 October 2026:** Real artist and album group provenance no longer needs to be manually fabricated if [existing BlissMixerLab artist-repeat-identity snapshot and Lyrion SQLite library metadata](bliss-essentia-lyrion-existing-metadata-source-20261029.md) are accessible on the same research host. [derive_lyrion_research_groups.py](../scripts/derive_lyrion_research_groups.py) creates the strictly private group JSON from 4 validated read-only sources, and the [one-block Windows launcher](../scripts/run_grouped_bliss_essentia_research_windows.ps1) runs it together with the local teacher study on a controlled seed/limit. Research CI passes Linux/Windows; the adapter has **not** been tested with actual private library databases. The user must not be asked to manually enter or upload artist group labels, and must not be asked to rescan music or repeat the completed 12 ratings.
+
+
 **Status: code and synthetic verification, not a private-library execution.**
 Work is isolated on `feat/general-pairwise-similarity-research`; Draft PR #16,
 `main`, `bliss-learner` and `lms-blissmixer-lab` remain unchanged.
