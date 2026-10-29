@@ -95,7 +95,7 @@ interpreted as a corrupt 100-song cohort.
 
 The reader now mirrors PR #16's original eligible dominant
 Genre+Mood selection and exact joined 100 keys, then validates
-the independently preserved **100 encrypted-name JSON
+the independently preserved **100 hash-named JSON
 embeddings**, source audio fingerprints, ONNX weights, class
 order and both classification heads. Alternative DSP
 preprocessing on a dominant cohort, different fingerprint
