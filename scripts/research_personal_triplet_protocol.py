@@ -55,7 +55,8 @@ def _features(value: object) -> tuple[float, ...]:
 
 def distance(a: Sequence[float], b: Sequence[float],
              matrix: tuple[tuple[float, ...], ...] | None = None) -> float:
-    delta = [x-y for x,y in zip(a,b)]
+    left, right = _features(a), _features(b)
+    delta = [x-y for x,y in zip(left,right)]
     if matrix is None:
         return math.sqrt(math.fsum(x*x for x in delta))
     squared = math.fsum(
