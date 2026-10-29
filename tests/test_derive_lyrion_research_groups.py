@@ -115,6 +115,18 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
                          bridge.UNKNOWN_RECORDING)
         self.assertEqual(aggregate["counts"]["recording_mbid_unavailable"],2)
 
+    def test_invalid_recording_id_is_not_treated_as_verified_musicbrainz(self):
+        with closing(sqlite3.connect(self.library)) as conn:
+            conn.execute("UPDATE tracks SET musicbrainz_id=? WHERE id=1",("fake-id",))
+            conn.commit()
+        with closing(sqlite3.connect(self.snapshot)) as conn:
+            conn.execute("UPDATE track_identity SET recording_mbid=? WHERE lms_track_id=1",("fake-id",))
+            conn.commit()
+        groups,aggregate=self.derive()
+        key=next(iter(self.source.all_groups))
+        self.assertEqual(groups[key]["recording_group"],bridge.UNKNOWN_RECORDING)
+        self.assertEqual(aggregate["counts"]["recording_mbid_unavailable"],1)
+
     def test_missing_artist_credit_fails_without_generating_output(self):
         with closing(sqlite3.connect(self.snapshot)) as conn:
             conn.execute("DELETE FROM track_artist_identity WHERE database_file=?",
