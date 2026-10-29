@@ -1,5 +1,8 @@
 # Current research handover: similarity representations and Lyrion integration
 
+> **Authoritative next-session strategy — 29.10.2026, isolated research branch:** Read [Unified General + Personal + Bliss↔Essentia Strategy](similarity-three-workstreams-strategy-20261029.md) **before** historic scanner/PR#16 phase instructions. All THREE work packages are active: WP1 General Similarity Metric; WP2 Personal Metric Learning with independently calibrated 0–100% General/Personal blend, genuine usable-model fallback and reuse of `chrober/bliss-learner` / `chrober/lms-blissmixer-lab`; WP3 Bliss 23D ↔ Essentia 87D/56D/1280D correlations, CCA/PLS/prediction and **learning better Bliss-only similarity**, not just additional Essentia ranking. Start WP2 contract/reuse and WP3 read-only paired-feature inventory in parallel with WP1. User's 12 ratings and real native 100-song comparison are COMPLETE; do not solicit more mandatory listening, rerun preflight/scan, or autotune workers. No edits to Draft PR #16, original data or other repos. At this handover MTT global fusion [CI 40881326086](https://github.com/chrober/bliss-mood-poc/actions/runs/40881326086) failed on publisher HTTP-range timeout; it yielded no new real fusion scores. Windows local work must use one complete automatic `& { ... }` script; do not invent file paths or rerun partial private outputs. Older directions below are historical unless consistent with this update.
+
+
 **Updated:** October 28, 2026. **Read first:**
 [Central phase-0-to-6 research and integration roadmap](similarity-lyrion-roadmap.md).
 The roadmap contains four Mermaid diagrams, status, research constraints,
