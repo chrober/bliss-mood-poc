@@ -97,7 +97,7 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
         with closing(sqlite3.connect(self.library)) as conn:
             conn.execute("UPDATE tracks SET urlmd5=? WHERE id=1",("changed-urlmd5",))
             conn.commit()
-        with self.assertRaisesRegex(ValueError,"lack verifiable library"):
+        with self.assertRaisesRegex(ValueError,"Incomplete Lyrion grouping"):
             self.derive()
 
     def test_unknown_recordings_in_same_conservative_group(self):
@@ -132,8 +132,62 @@ class ResearchLyrionGroupsTests(unittest.TestCase):
             conn.execute("DELETE FROM track_artist_identity WHERE database_file=?",
                          (next(iter(self.source.all_groups)),))
             conn.commit()
-        with self.assertRaisesRegex(ValueError,"lack verifiable library"):
+        with self.assertRaisesRegex(ValueError,"Incomplete Lyrion grouping"):
             self.derive()
+        self.assertFalse(self.out.exists())
+
+    def test_preflight_reports_ready_without_writing_private_groups(self):
+        groups,report=bridge.generate_private_groups(
+            self.source.bliss,self.source.essentia,self.snapshot,self.library,
+            seed=20261029,limit=64,preflight=True)
+        self.assertTrue(report["ready_for_grouped_study"])
+        self.assertIsNone(report["blocking_reason_code"])
+        self.assertEqual(len(groups),64)
+        self.assertFalse(self.out.exists())
+        self.assertNotIn("Private Audio",json.dumps(report))
+
+    def test_preflight_reports_stale_lms_identity_reason_without_source_paths(self):
+        with closing(sqlite3.connect(self.library)) as conn:
+            conn.execute("UPDATE tracks SET urlmd5='changed' WHERE id=1")
+            conn.commit()
+        groups,report=bridge.generate_private_groups(
+            self.source.bliss,self.source.essentia,self.snapshot,self.library,
+            seed=20261029,limit=64,preflight=True)
+        self.assertEqual(groups,{})
+        self.assertFalse(report["ready_for_grouped_study"])
+        self.assertEqual(report["blocking_reason_code"],
+                         "INCOMPLETE_LYRION_TRACK_ARTIST_ALBUM_IDENTITY")
+        self.assertEqual(report["counts"]["missing_or_unverified_lms_identity"],1)
+        self.assertNotIn(str(self.root),json.dumps(report))
+        self.assertNotIn("Private Audio",json.dumps(report))
+        self.assertFalse(self.out.exists())
+
+    def test_all_recording_ids_unknown_fails_closed_and_diagnoses(self):
+        with closing(sqlite3.connect(self.library)) as conn:
+            conn.execute("UPDATE tracks SET musicbrainz_id=NULL")
+            conn.commit()
+        with closing(sqlite3.connect(self.snapshot)) as conn:
+            conn.execute("UPDATE track_identity SET recording_mbid=NULL")
+            conn.commit()
+        groups,report=bridge.generate_private_groups(
+            self.source.bliss,self.source.essentia,self.snapshot,self.library,
+            seed=20261029,limit=64,preflight=True)
+        self.assertEqual(groups,{})
+        self.assertFalse(report["ready_for_grouped_study"])
+        self.assertEqual(report["blocking_reason_code"],"NO_GROUP_DISJOINT_HOLDOUT")
+        self.assertEqual(report["counts"]["recording_mbid_unavailable"],64)
+        with self.assertRaisesRegex(ValueError,"Incomplete Lyrion grouping"):
+            self.derive()
+
+    def test_preflight_cli_never_creates_private_groups_file(self):
+        with patch.object(sys,"argv",[
+            "derive","--bliss-db",str(self.source.bliss),
+            "--feature-db",str(self.source.essentia),
+            "--repeat-identity-db",str(self.snapshot),
+            "--lyrion-library-db",str(self.library),
+            "--preflight","--limit","64"
+        ]):
+            self.assertEqual(bridge.main(),0)
         self.assertFalse(self.out.exists())
 
     def test_private_file_creation_is_new_only(self):
