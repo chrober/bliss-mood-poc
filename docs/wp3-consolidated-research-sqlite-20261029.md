@@ -103,8 +103,12 @@ Learning are not replaced by this data-preparation step.
 
 ## Verification and constraints
 
-Cross-platform CI runs synthetic SQLite integration tests and Windows
-PowerShell 5.1/7 executable launcher smoke tests. They verify no-write
+Cross-platform CI runs synthetic SQLite integration tests. Windows CI
+also creates fresh exact-path synthetic Bliss and native-feature fixtures,
+executes the FULL launcher on Windows PowerShell 5.1 and PowerShell 7,
+verifies each run created a separate private research DB, and tests
+no-data interpreter runtime smoke. [Successful CI run](https://github.com/chrober/bliss-mood-poc/actions/runs/40951688893)
+covered both operating systems and both Windows shells. These tests verify no-write
 preflight, exclusive creation, source bytes unchanged, exact feature
 dimensions, blocked metadata without invented groups, and eligible
 grouped teacher calculations. CI synthetic pass **does not mean** the
