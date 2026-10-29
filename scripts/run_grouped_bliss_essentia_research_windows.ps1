@@ -131,6 +131,29 @@
     $groupFile = Join-Path $runRoot 'private-lyrion-groups.json'
     $reportFile = Join-Path $runRoot 'aggregate-teacher-research.json'
 
+    # The FIRST source pass is a NO-WRITE diagnostic. It provides specific,
+    # nonidentifying coverage counts and a fail-closed blocker reason.
+    $preflightLines = @(& $venvPython @($groupScript,
+        '--bliss-db',$blissDb,'--feature-db',$featuresDb,
+        '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
+        '--seed',"$Seed",'--limit',"$SampleLimit",
+        '--preflight'))
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The local read-only source preflight could not validate all four schemas.'
+    }
+    $preflight = ($preflightLines -join [Environment]::NewLine) | ConvertFrom-Json
+    Write-Host ('Source coverage: ' +
+        $preflight.counts.paired_tracks_with_verified_lms_artist_album +
+        ' paired songs with verified metadata.')
+    Write-Host ('Distinct connected artist/album/recording groups: ' +
+        $preflight.artist_album_recording_connected_components)
+    Write-Host ('Unknown or invalid recording MBIDs: ' +
+        $preflight.counts.recording_mbid_unavailable)
+    if ($preflight.ready_for_grouped_study -ne $true) {
+        Write-Host ('Blocked research reason: ' + $preflight.blocking_reason_code)
+        throw 'A reliable artist/album/recording-disjoint holdout is unavailable. No private groups or analysis results were created.'
+    }
+
     Invoke-Checked $venvPython @($groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
         '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
