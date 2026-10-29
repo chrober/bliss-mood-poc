@@ -1,5 +1,8 @@
 # Copy-Paste-Handover-Prompt — native 100-Song-Analyse und GENERAL Similarity (29.10.2026)
 
+> **WICHTIGE AKTUALISIERUNG 29.10.2026:** Dieser Prompt beschreibt den inzwischen **erledigten** nativen 100-Song-Scan und ist **historisch**. Die realen Ergebnisse stehen unter [Real Native Results](native-similarity-100-real-results-20261029.md): `PASS_EXPLORATORY_TOLERANCES`, 100/100, 4.950 Paare, fünf Rang-Rhos gerundet 1,0, alle 12/11-Hörkorrelationen unverändert. **NICHT** erneut Preflight, Scan oder Compare auslösen. Für neue Sessions ist jetzt das allgemeine Similarity-Forschungsziel verbindlich: untrainierte Multi-Signal-Metrik, externe MTT/FMA/DEAM-Evidenz, keine weiteren Pflichtbewertungen, keine Worker-Optimierung, PR #16 unverändert. Die PowerShell-Konventionen aus diesem historischen Prompt gelten weiter.
+
+
 Der folgende Text ist für eine neue ChatGPT-Session im Projekt Lyrion: Mood Analysis bestimmt. **Er enthält den aktuellen erfolgreichen Preflight, nicht bloß die alte Arbeiter-Parallelisierung.**
 
 ---
