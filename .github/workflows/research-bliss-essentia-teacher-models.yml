@@ -16,6 +16,7 @@ on:
       - 'tests/test_run_local_bliss_essentia_teacher_study.py'
       - 'tests/test_derive_lyrion_research_groups.py'
       - 'tests/test_build_wp3_research_db.py'
+      - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
       - 'research/requirements-wp3-py315.txt'
       - '.github/workflows/research-bliss-essentia-teacher-models.yml'
@@ -88,6 +89,37 @@ jobs:
         run: |
           & .\scripts\build_wp3_research_db_windows.ps1
           if (-not $?) { throw 'New WP3 launcher PowerShell 7 smoke failed.' }
+      - name: Prepare exact-path 64-song synthetic sources for full Windows launcher test
+        if: runner.os == 'Windows'
+        run: python tests/create_wp3_launcher_ci_fixture.py
+      - name: Execute full no-scan single-DB builder under Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          LYRION_WP3_RUNTIME_SMOKE_ONLY: '0'
+          LYRION_FEATURE_DB: ''
+          LYRION_REPEAT_SNAPSHOT_DB: ''
+          LYRION_LIBRARY_DB: ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\build_wp3_research_db_windows.ps1
+          if (-not $?) { throw 'Windows PowerShell 5.1 full private DB construction failed.' }
+          $dbs = @(Get-ChildItem -Path . -Recurse -File -Filter 'wp3-research.sqlite')
+          if ($dbs.Count -ne 1) { throw 'Expected exactly one new ignored research DB.' }
+      - name: Execute full no-scan single-DB builder under PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LYRION_WP3_RUNTIME_SMOKE_ONLY: '0'
+          LYRION_FEATURE_DB: ''
+          LYRION_REPEAT_SNAPSHOT_DB: ''
+          LYRION_LIBRARY_DB: ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\build_wp3_research_db_windows.ps1
+          if (-not $?) { throw 'PowerShell 7 full private DB construction failed.' }
+          $dbs = @(Get-ChildItem -Path . -Recurse -File -Filter 'wp3-research.sqlite')
+          if ($dbs.Count -ne 2) { throw 'Expected two distinct private research runs, no overwrite.' }
       - name: PowerShell Windows full launcher syntax check
         shell: pwsh
         run: |
