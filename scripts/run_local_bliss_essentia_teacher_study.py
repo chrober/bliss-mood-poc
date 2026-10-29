@@ -14,6 +14,8 @@ from contextlib import closing
 import hashlib
 import json
 import os
+import math
+import struct
 from pathlib import Path
 import sqlite3
 import sys
@@ -121,14 +123,8 @@ def _pair_rows(
             }
 
 
-def run_study(
-    bliss_db: Path, feature_db: Path, private_groups_json: Path, *,
-    seed: int = 20261029, limit: int = 400,
-) -> dict:
-    groups=_read_private_groups(private_groups_json)
-    rows,coverage=_pair_rows(bliss_db,feature_db,groups,seed=seed,limit=limit)
-    # These three routines group-split identically with same rows and seed.
-    # For geometry-specific bounded heldout sampling see proxy_geometry_report.
+def _study_rows(rows: list[dict], coverage: dict, *, seed: int) -> dict:
+    # All fitted transformations use the same group-disjoint train/holdout.
     corrs=relationship_report(rows,seed=seed)
     teacher=model_report(rows,seed=seed)
     geometry=proxy_geometry_report(rows,seed=seed)
@@ -150,11 +146,86 @@ def run_study(
     }
 
 
+
+def run_study(
+    bliss_db: Path, feature_db: Path, private_groups_json: Path, *,
+    seed: int = 20261029, limit: int = 400,
+) -> dict:
+    groups=_read_private_groups(private_groups_json)
+    rows,coverage=_pair_rows(bliss_db,feature_db,groups,seed=seed,limit=limit)
+    return _study_rows(rows,coverage,seed=seed)
+
+
+def run_research_database(research_db: Path, *, seed: int = 20261029) -> dict:
+    """Read only the new, self-contained PRIVATE research snapshot.
+
+    Never invent group IDs; missing/blocked group provenance denies all
+    supervised correlations, teacher reconstruction and geometry learning.
+    """
+    if not research_db.is_file():
+        raise ValueError("Research database not found")
+    rows = []
+    with closing(sqlite3.connect(research_db.resolve().as_uri() + "?mode=ro",
+                                 uri=True)) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version != 1:
+            raise ValueError("Unknown WP3 research snapshot version")
+        props = dict(conn.execute("SELECT key,value FROM metadata"))
+        if (props.get("schema") != "lyrion-wp3-research-snapshot-v1"
+                or props.get("group_readiness") != "READY"):
+            raise ValueError("Group-disjoint research blocked until verified Lyrion metadata is available")
+        cohort = json.loads(props["selection_json"])
+        if int(cohort["sample_seed"]) != seed:
+            raise ValueError("Research cohort seed differs from trained split seed")
+        cursor = conn.execute("""
+            SELECT track_key, bliss_f64_le, genre_f32_le, moodtheme_f32_le,
+                   artist_group, album_group, recording_group
+              FROM paired_tracks ORDER BY track_key COLLATE BINARY
+        """)
+        for key, bliss_blob, genre_blob, mood_blob, artist, album, recording in cursor:
+            if (not isinstance(key,str) or not key or "\0" in key
+                    or not isinstance(bliss_blob,bytes) or len(bliss_blob)!=23*8
+                    or any(not isinstance(group,str) or not group.strip()
+                           for group in (artist,album,recording))):
+                raise ValueError("Malformed research feature or group identity")
+            bliss = struct.unpack("<23d",bliss_blob)
+            genre = ev.decode_blob(genre_blob,87)
+            mood = ev.decode_blob(mood_blob,56)
+            if (not all(math.isfinite(x) for x in bliss)
+                    or genre is None or mood is None):
+                raise ValueError("Malformed private research vectors")
+            rows.append({
+                "track_id": key, "bliss": bliss,
+                "genre": genre, "moodtheme": mood,
+                "artist_group": artist, "album_group": album,
+                "recording_group": recording,
+            })
+    if not MIN_JOINT <= len(rows) <= MAX_JOINT:
+        raise ValueError("Research cohort outside supported bounds")
+    coverage = {
+        "schema": "bliss_essentia_single_sqlite_grouped_snapshot_aggregate_v1",
+        "sample_seed": seed,
+        "selected_genre_head_experimentally_validated": bool(
+            cohort["chosen_head_model_ids"]["genre"]["validated_against_essentia"]),
+        "selected_mood_head_experimentally_validated": bool(
+            cohort["chosen_head_model_ids"]["moodtheme"]["validated_against_essentia"]),
+        "counts": {"paired_grouped_songs_accepted":len(rows)},
+        "cross_db_audio_byte_identity_certified":False,
+        "essentia_teacher_pretrained_data_overlap_ruled_out":False,
+        "artist_album_recording_groups_explicitly_required":True,
+        "private_song_or_model_hashes_returned":False,
+    }
+    return _study_rows(rows,coverage,seed=seed)
+
+
 def main() -> int:
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--bliss-db",required=True,type=Path)
-    p.add_argument("--feature-db",required=True,type=Path)
-    p.add_argument("--group-metadata-json",required=True,type=Path)
+    p.add_argument("--research-db",type=Path,
+                   help="New private single SQLite WP3 snapshot; no original DB paths required")
+    p.add_argument("--bliss-db",type=Path)
+    p.add_argument("--feature-db",type=Path)
+    p.add_argument("--group-metadata-json",type=Path)
     p.add_argument("--limit",type=int,default=400)
     p.add_argument("--seed",type=int,default=20261029)
     p.add_argument("--out",required=True,type=Path,
@@ -164,8 +235,17 @@ def main() -> int:
         if args.out.exists():
             raise FileExistsError("Aggregate output exists")
         # Do not attempt to normalize/trust a music path inferred from user info.
-        result=run_study(args.bliss_db,args.feature_db,args.group_metadata_json,
-                         seed=args.seed,limit=args.limit)
+        if args.research_db is not None:
+            if any(x is not None for x in (
+                    args.bliss_db,args.feature_db,args.group_metadata_json)):
+                raise ValueError("Use either research DB or original three inputs")
+            result=run_research_database(args.research_db,seed=args.seed)
+        else:
+            if any(x is None for x in (
+                    args.bliss_db,args.feature_db,args.group_metadata_json)):
+                raise ValueError("Original research inputs are incomplete")
+            result=run_study(args.bliss_db,args.feature_db,args.group_metadata_json,
+                             seed=args.seed,limit=args.limit)
         # Never echo private source filenames, hashes or keys on an exception.
         payload=json.dumps(result,allow_nan=False,indent=2)+"\n"
         with args.out.open("x",encoding="utf-8") as handle:
