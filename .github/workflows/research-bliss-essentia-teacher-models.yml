@@ -1,0 +1,36 @@
+name: WP3-R2 grouped Bliss-Essentia teacher models (synthetic only)
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/research_bliss_essentia_teacher_models.py'
+      - 'tests/test_research_bliss_essentia_teacher_models.py'
+      - 'research/requirements-wp3-r2.txt'
+      - '.github/workflows/research-bliss-essentia-teacher-models.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: No-audio sklearn Ridge/PLS/PCA-CCA (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install fixed mature statistical packages
+        run: python -m pip install --disable-pip-version-check -r research/requirements-wp3-r2.txt
+      - name: Compile train-only and grouped research sources
+        run: python -m compileall -q scripts/research_bliss_essentia_teacher_models.py scripts/research_grouped_split.py scripts/research_feature_relationships.py
+      - name: Fit only synthetic split-train teacher predictions and holdout CCA
+        run: python -m unittest discover -s tests -p 'test_research_bliss_essentia_teacher_models.py' -v
+      - name: Run grouped regression gates
+        run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
