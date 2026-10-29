@@ -1,5 +1,8 @@
 # Handover: Lyrion General + Personal + Bliss↔Essentia research (29 October 2026)
 
+> **LATEST CODE HANDOFF / 29 OCT 2026:** WP3-R0 and WP2-P0 are implemented on the isolated research branch. See [the exact-key feature-join and Personal contract handoff](bliss-essentia-join-personal-contracts-20261029.md). New code: [Bliss 23D/Essentia 87D/56D read-only audit](../scripts/audit_bliss_essentia_join.py) (optional pinned 1280D existing sidecar coverage) and [General/Personal full-query scorer gate](../scripts/general_personal_blend_contract.py), with privacy/symmetry/fail-closed synthetic tests under the dedicated Windows/Linux CI. **No real private Bliss DB has been read and no Personal model trained.** New priority: WP3-R1 paired source/artist/album grouping and correlations; WP2-P1 grouped learner protocol/calibration and low-complexity baseline, while maintaining WP1. Never repeat earlier completed native work or demand new listening. All earlier instructions to *start* WP3-R0 or WP2-P0 are historical now.
+
+
 **Current canonical plan:**
 [Unified three-workstream similarity strategy](similarity-three-workstreams-strategy-20261029.md).
 This replaces prior *narrowly general-only* next-task interpretations,
