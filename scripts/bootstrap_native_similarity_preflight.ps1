@@ -114,22 +114,22 @@ foreach ($command in @('git', 'gh', 'python')) {
 }
 & python --version
 if ($LASTEXITCODE -ne 0) { throw 'Python could not start.' }
-Call-Git @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
-$targetSha = ([string](Call-Git @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
+Call-Git -Arguments @('-C', $Repo, 'fetch', '--no-tags', 'origin', $Branch) | Out-Null
+$targetSha = ([string](Call-Git -Arguments @('-C', $Repo, 'rev-parse', "refs/remotes/origin/$Branch"))).Trim()
 if ($targetSha -notmatch '^[a-f0-9]{40}$') { throw 'Invalid fetched bridge SHA.' }
 if (-not (Test-Path -LiteralPath $Worktree)) {
-    Call-Git @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $targetSha) | Out-Null
+    Call-Git -Arguments @('-C', $Repo, 'worktree', 'add', '--detach', $Worktree, $targetSha) | Out-Null
 }
 else {
-    $inside = ([string](Call-Git @('-C', $Worktree, 'rev-parse', '--is-inside-work-tree'))).Trim()
+    $inside = ([string](Call-Git -Arguments @('-C', $Worktree, 'rev-parse', '--is-inside-work-tree'))).Trim()
     if ($inside -cne 'true') { throw 'Existing tool worktree is not a Git checkout.' }
-    $dirty = @(Call-Git @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal'))
+    $dirty = @(Call-Git -Arguments @('-C', $Worktree, 'status', '--porcelain', '--untracked-files=normal'))
     if ($dirty.Count -gt 0 -and -not ($dirty.Count -eq 1 -and [string]::IsNullOrWhiteSpace($dirty[0]))) {
         throw 'Tool worktree contains local changes; will not overwrite.'
     }
-    $head = ([string](Call-Git @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
+    $head = ([string](Call-Git -Arguments @('-C', $Worktree, 'rev-parse', 'HEAD'))).Trim()
     if ($head -cne $targetSha) {
-        Call-Git @('-C', $Worktree, 'checkout', '--detach', $targetSha) | Out-Null
+        Call-Git -Arguments @('-C', $Worktree, 'checkout', '--detach', $targetSha) | Out-Null
     }
 }
 $Bridge = Join-Path $Worktree 'scripts\native_similarity_cohort_bridge.py'
