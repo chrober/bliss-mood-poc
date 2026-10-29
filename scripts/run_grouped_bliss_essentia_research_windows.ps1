@@ -140,11 +140,15 @@
 
     # The FIRST source pass is a NO-WRITE diagnostic. It provides specific,
     # nonidentifying coverage counts and a fail-closed blocker reason.
-    $preflightLines = @(& $researchPython @($groupScript,
+    $preflightArguments = @(
+        $groupScript,
         '--bliss-db',$blissDb,'--feature-db',$featuresDb,
         '--repeat-identity-db',$snapshotDb,'--lyrion-library-db',$lyrionDb,
         '--seed',"$Seed",'--limit',"$SampleLimit",
-        '--preflight'))
+        '--preflight'
+    )
+    # Explicit PS splatting (@variable), not an inline array expression.
+    $preflightLines = @(& $researchPython @preflightArguments)
     if ($LASTEXITCODE -ne 0) {
         throw 'The local read-only source preflight could not validate all four schemas.'
     }
