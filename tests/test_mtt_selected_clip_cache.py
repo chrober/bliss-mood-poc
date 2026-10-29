@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -70,6 +71,39 @@ class SelectedClipResearchCacheTests(unittest.TestCase):
                              zipfile.ZIP_STORED)
         with self.assertRaises(FileExistsError):
             build(self.cache, self.required, self.parts, self.sizes)
+
+    def test_remote_sparse_builder_uses_existing_crc_and_bounds_without_network(self):
+        from mtt_local_archive import LocalMultipartRanges
+
+        paths = self.parts
+        class SyntheticHTTP206:
+            def __init__(self, sizes):
+                self.source = LocalMultipartRanges(paths, sizes)
+                self.requests = 0
+                self.total_bytes = 0
+
+            def read(self, start, length):
+                self.requests += 1
+                self.total_bytes += length
+                return self.source.read(start, length)
+
+        with patch("benchmark_magnatagatune.RangeFetcher", SyntheticHTTP206):
+            result = build(self.cache, self.required, None, self.sizes,
+                           remote_range_source=True)
+        self.assertEqual(result["source_mode"], "sparse_crc_checked_http_ranges")
+        self.assertGreaterEqual(result["range_requests"], 1019)
+        self.assertEqual(result["cached_clip_count"], 1019)
+        self.assertEqual(verify(self.cache, self.required)["cached_clip_count"], 1019)
+        with self.assertRaises(FileExistsError):
+            build(self.cache, self.required, None, self.sizes,
+                  remote_range_source=True)
+
+    def test_remote_and_local_archive_sources_are_mutually_exclusive(self):
+        with self.assertRaises(ValueError):
+            build(self.cache, self.required, self.parts, self.sizes,
+                  remote_range_source=True)
+        with self.assertRaises(ValueError):
+            build(self.cache, self.required, None, self.sizes)
 
     def test_incomplete_cache_is_rejected(self):
         with zipfile.ZipFile(self.cache, "w") as z:
