@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/native_similarity_cohort_bridge.py'
       - 'tests/test_native_similarity_cohort_bridge.py'
+      - 'scripts/run_native_similarity_cohort.ps1'
       - '.github/workflows/native-similarity-cohort-bridge.yml'
   pull_request:
     paths:
@@ -31,3 +32,17 @@ jobs:
           python-version: '3.13'
       - name: Synthetic preflight and 100-song parity/rank regression (no private assets)
         run: python -m unittest discover -s tests -p 'test_native_similarity_cohort_bridge.py' -v
+      - name: Parse private Windows PowerShell runner without executing scans
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/run_native_similarity_cohort.ps1').Path,
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            throw ($errors | ForEach-Object { $_.Message } | Out-String)
+          }
