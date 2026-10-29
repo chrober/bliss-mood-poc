@@ -145,6 +145,7 @@ class NativeBridgeTests(unittest.TestCase):
                          baseline_embeddings=self.old_emb,
                          native_db=self.native, native_embeddings=self.new_emb,
                          models_dir=self.models, native_frontend=FRONTEND,
+                         ratings=None, pilot_audit=None,
                          score_tolerance=0.001, embedding_cosine_min=0.999,
                          out_dir=self.result)
 
