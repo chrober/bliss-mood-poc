@@ -1,4 +1,5 @@
 name: Research - MTT general pairwise fusion (same 1019 public clips)
+# Re-run only after offline 1019-member sparse-source fixture passed at 6105f05b.
 
 on:
   push:
