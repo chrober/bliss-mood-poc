@@ -1,5 +1,8 @@
 # Existing Lyrion metadata for Bliss / Essentia research (2026-10-29)
 
+> **Read-only source preflight refinement (29 October 2026):** The group adapter now accepts `--preflight` **without** `--out-groups-private`. It tests the deterministic original Bliss23/Essentia87+56/BlissMixerLab snapshot/Lyrion SQLite overlap and emits only aggregate counts, grouping availability and one machine-readable `blocking_reason_code`; it writes **no** output file and runs with the Python standard library, before any numerical packages are installed. Blockers include `TOO_FEW_VERIFIED_PAIRED_SONGS`, `INCOMPLETE_LYRION_TRACK_ARTIST_ALBUM_IDENTITY`, `NO_GROUP_DISJOINT_HOLDOUT` and `GROUP_DISJOINT_HOLDOUT_TOO_SMALL`. Unsupported source schemas cause a generic, fail-closed error. The snapshot must carry a positive source `lms_scan_time` and a well-formed 64-character `media_roots_identity`; the **current** LMS scan and musicroot identity are still **not independently compared**. The [complete Windows runbook](../scripts/run_grouped_bliss_essentia_research_windows.ps1) now executes this **no-write preflight first, before installing NumPy/SciPy/scikit-learn or producing any private groups**. On a blocker it prints nonidentifying counts and aborts; it never fabricates group identities or launches the teacher study. Synthetic tests cover valid readiness, stale URLMD5, malformed cache metadata, zero independent groups and no-file preflight behavior. No real private library data have been read in CI or by this documentation update.
+
+
 Research-only source audit. No real private song features or personal ratings
 were read, and no real-music correlations or improved similarity metrics are
 claimed. Changes remain on the isolated general-pairwise-similarity-research
