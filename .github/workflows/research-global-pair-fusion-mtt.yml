@@ -1,0 +1,396 @@
+name: Research - MTT general pairwise fusion (same 1019 public clips)
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - '.github/workflows/research-global-pair-fusion-mtt.yml'
+  workflow_dispatch:
+    inputs:
+      cache_audio:
+        description: 'Research-only 1019-clip audio cache (~117 MB), not whole archive'
+        type: boolean
+        default: true
+      workers:
+        description: 'Number of isolated Rust-v5 clip workers (one ONNX thread each)'
+        type: choice
+        options: ['1', '2', '4']
+        default: '4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-global-pair-fusion-mtt-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic preflight before network or Rust
+        run: |
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_archive.py'
+          python3 -m unittest discover -s tests -p 'test_benchmark_magnatagatune.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_parallel_workers.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_paired_evidence.py'
+          python3 -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py'
+          python3 -m unittest discover -s tests -p 'test_fixed_rank_fusion.py'
+          python3 -m unittest discover -s tests -p 'test_global_pairwise*.py'
+          python3 -m unittest discover -s tests -p 'test_mtt_selected_clip_cache.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_holdout.py'
+          python3 -m unittest discover -s tests -p 'test_audit_magnatagatune_votes.py'
+
+      - name: Fetch official research metadata and only 8 MiB of ZIP directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-private results
+          echo "runner_vcpu=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "metadata_zip_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for name in comparisons_final.csv clip_info_final.csv; do
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 240 --silent --show-error \
+              "$base/$name" -o "benchmark-private/$name"
+          done
+          test "$(stat -c%s benchmark-private/comparisons_final.csv)" -gt 10000
+          test "$(stat -c%s benchmark-private/clip_info_final.csv)" -gt 200000
+          for n in 1 2 3; do
+            file=$(printf 'mp3.zip.%03d' "$n")
+            http=$(curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 150 --max-filesize 100000 \
+              --silent --show-error --header 'Accept-Encoding: identity' \
+              --range 0-0 --dump-header "benchmark-private/probe_$n.headers" \
+              --output "benchmark-private/probe_$n.bin" \
+              --write-out '%{http_code}' "$base/$file")
+            test "$http" = 206 || { echo "::error::No 206 Partial Content; abort before GB download"; exit 1; }
+          done
+          http=$(curl --fail --location --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 --max-filesize 9500000 \
+            --silent --show-error --header 'Accept-Encoding: identity' \
+            --range -8388608 --dump-header benchmark-private/tail.headers \
+            --output benchmark-private/zip-tail.bin \
+            --write-out '%{http_code}' "$base/mp3.zip.003")
+          test "$http" = 206 || { echo "::error::No ZIP suffix range support"; exit 1; }
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def parse(name):
+              raw = Path(name).read_text(encoding="iso-8859-1")
+              m = re.findall(
+                  r"(?im)^content-range:\s*bytes\s+(\d+)-(\d+)/(\d+)\s*$",
+                  raw
+              )
+              if not m:
+                  raise SystemExit("Missing HTTP Content-Range: "+name)
+              return tuple(map(int, m[-1]))
+          sizes = []
+          for n in range(1,4):
+              start, end, length = parse(f"benchmark-private/probe_{n}.headers")
+              if (start, end) != (0, 0):
+                  raise SystemExit("Invalid probe range response")
+              sizes.append(length)
+          start, end, length = parse("benchmark-private/tail.headers")
+          if (length != sizes[2] or end != length-1
+                  or start != length-8388608
+                  or Path("benchmark-private/zip-tail.bin").stat().st_size != 8388608):
+              raise SystemExit("Wrong or incomplete ZIP suffix")
+          Path("benchmark-private/parts.txt").write_text(
+              " ".join(map(str, sizes)) + "\n", encoding="ascii"
+          )
+          print("Confirmed multipart ZIP sizes in bytes:", sizes)
+          PY
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          python3 scripts/audit_magnatagatune_archive.py \
+            --last-part-tail benchmark-private/zip-tail.bin \
+            --part-sizes "$p1" "$p2" "$p3" \
+            --comparisons benchmark-private/comparisons_final.csv \
+            --clips benchmark-private/clip_info_final.csv \
+            --report results/mtt-directory-preflight.json
+          # Freeze publisher metadata and verify the exact 346/1019 research scope.
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from benchmark_magnatagatune import (
+              digest, triplets_by_vote, REGISTERED_MTT_COMPARISONS_SHA256,
+              REGISTERED_MTT_CLIPS_SHA256
+          )
+          a=Path("benchmark-private/comparisons_final.csv")
+          b=Path("benchmark-private/clip_info_final.csv")
+          assert digest(a)==REGISTERED_MTT_COMPARISONS_SHA256
+          assert digest(b)==REGISTERED_MTT_CLIPS_SHA256
+          triplets,catalog=triplets_by_vote(a,b)
+          assert len(triplets)==346
+          assert len({clip for triple in triplets for clip in triple})==1019
+          print("Registered MTT data PASS: 346 unordered human questions, 1019 clips.")
+          print("This experiment includes formerly reserved holdout; no independent MTT holdout remains.")
+          PY
+          echo "metadata_zip_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      # Feature branch research cache: caches are NOT confidential and can
+      # be exposed to PR workflows targeting the cache-bearing branch.
+      - name: Restore only 1019 relevant MTT clips, never source archives
+        id: clip_cache
+        if: ${{ github.repository == 'chrober/bliss-mood-poc' && github.ref == 'refs/heads/feat/general-pairwise-similarity-research' && (github.event_name == 'push' || inputs.cache_audio == true) }}
+        uses: actions/cache/restore@v4
+        with:
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
+
+      - name: Build verified bounded 1019-clip cache from sparse HTTP 206 only on cache MISS
+        if: steps.clip_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Sparse cache MISS: request ONLY the 1019 registered MP3 ranges; never full source ZIP parts" >> "$GITHUB_STEP_SUMMARY"
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          /usr/bin/time -f 'mtt_sparse_cache_build_elapsed_s=%e peak_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode build \
+              --remote-range-source \
+              --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv
+          echo "Only the independently CRC-checked curated 1019-clips ZIP is present. No music is uploaded as a CI artifact or saved to a NEW cache." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify all cached MP3 CRCs before expensive Rust-v5 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          /usr/bin/time -f 'curated_cache_verify_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/mtt_selected_clip_cache.py \
+              --mode verify --cache benchmark-private/mtt-required-1019-clips.zip \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv
+          size=$(stat -c%s benchmark-private/mtt-required-1019-clips.zip)
+          test "$size" -lt 314572800
+          echo "clip_cache_hit=${{ steps.clip_cache.outputs.cache-hit == 'true' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "curated_cache_bytes=$size" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout pinned corrected Rust-v5 analyzer (without merging PR 17)
+        uses: actions/checkout@v4
+        with:
+          repository: chrober/bliss-mood-poc
+          ref: 2c3d44401436b3b41b6e067199016a1ed2335fbf
+          path: validated-rust-v5
+          persist-credentials: false
+      - name: Apply opt-in research overlay only to immutable PR-17 source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_rust_v5_embedding_export.py --checkout validated-rust-v5
+          git -C validated-rust-v5 diff --check
+
+      - name: Ensure ffmpeg and ffprobe available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            validated-rust-v5 -> target
+          key: research-1280d-v1
+
+      - name: Build versioned research Rust-v5 executable (not pinned PR-17 binary cache)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "research_cargo_build_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          cargo test --locked --manifest-path validated-rust-v5/Cargo.toml song_embedding::tests
+          /usr/bin/time -f 'research_cargo_build_elapsed_s=%e max_rss_kib=%M' \
+            cargo build --release --locked --manifest-path validated-rust-v5/Cargo.toml
+          validated-rust-v5/target/release/bliss-mood analyze-features --help | grep -q -- '--embedding-out'
+          echo "research_cargo_build_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download pinned upstream Essentia encoder and both heads
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "model_download_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p models
+          base=https://essentia.upf.edu/models
+          fetch() {
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 --silent --show-error \
+              "$base/$1/$2" -o "models/$2"
+            test -s "models/$2"
+          }
+          fetch feature-extractors/discogs-effnet discogs-effnet-bsdynamic-1.onnx
+          for head in mtg_jamendo_genre mtg_jamendo_moodtheme; do
+            fetch classification-heads/$head "$head-discogs-effnet-1.onnx"
+            fetch classification-heads/$head "$head-discogs-effnet-1.json"
+          done
+          sha256sum models/*
+          echo "model_download_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Numerical parity gate - synthetic audio, identical heads and independent raw pooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-smoke
+          python3 - <<'PY'
+          import math, struct, wave
+          with wave.open("research-smoke/smoke.wav", "wb") as out:
+              out.setnchannels(1)
+              out.setsampwidth(2)
+              out.setframerate(16000)
+              for i in range(6 * 16000):
+                  t = i / 16000
+                  sample = .25 * math.sin(2 * math.pi * 440 * t) + .12 * math.sin(2 * math.pi * 900 * t)
+                  out.writeframesraw(struct.pack("<h", int(sample * 32767)))
+          PY
+          exe=validated-rust-v5/target/release/bliss-mood
+          common=(analyze-features research-smoke/smoke.wav --models-dir models --models moodtheme,genre --json)
+          "$exe" "${common[@]}" --threads 1 --db research-smoke/off.db --track-key smoke.wav > research-smoke/off.json
+          "$exe" "${common[@]}" --threads 1 --db research-smoke/on.db --track-key smoke.wav \
+            --embedding-out research-smoke/embedding.json > research-smoke/on.json
+          "$exe" "${common[@]}" --threads 2 \
+            --embedding-out research-smoke/embedding-threads2.json > research-smoke/threads2.json
+          "$exe" embedding-dump research-smoke/smoke.wav --models-dir models --threads 1 \
+            --max-patches 64 > research-smoke/patch-dump.json
+          # Exercise four separate process-wide ONNX environments concurrently,
+          # matching the MTT worker isolation while using the SAME test audio.
+          process_pids=()
+          for worker in 1 2 3 4; do
+            "$exe" "${common[@]}" --threads 1 \
+              --embedding-out "research-smoke/process-worker-$worker.json" \
+              > "research-smoke/process-worker-heads-$worker.json" &
+            process_pids+=("$!")
+          done
+          for pid in "${process_pids[@]}"; do
+            wait "$pid"
+          done
+          test "$(find research-smoke -maxdepth 1 -name 'process-worker-[1-4].json' -type f | wc -l)" -eq 4
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          target=json.loads(Path("research-smoke/on.json").read_text())["classifications"]
+          for worker in range(1,5):
+              heads=json.loads(Path(f"research-smoke/process-worker-heads-{worker}.json").read_text())["classifications"]
+              assert heads == target, "Worker-concurrent classification output differs"
+          PY
+          python3 scripts/check_song_embedding_smoke.py --directory research-smoke \
+            --require-process-workers \
+            --summary research-smoke/smoke-check-summary.json
+          cat research-smoke/smoke-check-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Analyze 1019 clips with selected isolated bliss-mood workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-private/parts.txt
+          echo "parallel_analysis_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          MTT_WORKERS="${{ inputs.workers || '4' }}"
+          echo "runner_vcpus=$(nproc) workers=$MTT_WORKERS onnx_threads_per_worker=1" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'parallel_audio_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/benchmark_magnatagatune.py \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --tail benchmark-private/zip-tail.bin \
+              --part-sizes "$p1" "$p2" "$p3" \
+              --selected-clip-cache benchmark-private/mtt-required-1019-clips.zip \
+              --binary validated-rust-v5/target/release/bliss-mood \
+              --models-dir models \
+              --db benchmark-private/mtt-all-exploratory-features.db \
+              --report results/mtt-all-exploratory-aggregate.json \
+              --embedding-dir benchmark-private/song-embeddings \
+              --selection-mode all-exploratory --workers "$MTT_WORKERS" \
+              --seed 20261021
+          echo "parallel_analysis_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare direct 1280D cosine to head baselines on identical 346 human triplets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "paired_ab_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'paired_ab_elapsed_s=%e max_rss_kib=%M' \
+            python3 scripts/evaluate_mtt_embedding_ab.py \
+              --db benchmark-private/mtt-all-exploratory-features.db \
+              --embeddings-dir benchmark-private/song-embeddings \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --out results/mtt-audio-vs-heads-ab-exploratory.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open("results/mtt-audio-vs-heads-ab-exploratory.json"))
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\\n## Paired exploratory 1280D vs Genre/Mood Cosine\\n\\n")
+              out.write("| Method | Correct/293 | Coverage | Accuracy (abstentions=wrong) |\\n| --- | --- | --- | --- |\\n")
+              for name, data in p["methods"].items():
+                  out.write(f"| {name} | {data['correct']}/293 | {data['prediction_coverage']:.3f} | {data['accuracy_with_abstentions_as_incorrect']:.4f} |\\n")
+              out.write("\\nMTT is explored; **not** independent holdout. Dependence intervals are sensitivity checks, not population CIs.\\n")
+          PY
+          echo "paired_ab_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Evaluate four fixed GLOBAL pairwise fusions (no labels fitted; no production selection)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_global_pairwise*.py'
+          echo "global_pairwise_fusion_start=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/time -f 'global_pairwise_fusion_eval_elapsed_s=%e peak_rss_kib=%M' \
+            python3 scripts/evaluate_mtt_embedding_ab.py \
+              --db benchmark-private/mtt-all-exploratory-features.db \
+              --embeddings-dir benchmark-private/song-embeddings \
+              --comparisons benchmark-private/comparisons_final.csv \
+              --clips benchmark-private/clip_info_final.csv \
+              --out results/mtt-global-pairwise-four-fixed-fusions-exploratory.json \
+              --global-pair-fusions
+          python3 - <<'PY'
+          import json, os
+          p=json.load(open("results/mtt-global-pairwise-four-fixed-fusions-exploratory.json"))
+          assert p["schema_version"]==3
+          assert p["human_scorable_triplets"]==293
+          assert p["unique_clips"]==1019
+          assert len(p["methods"])==9
+          assert len(p["global_pairwise_fusions"]["fusions"])==4
+          assert not p["global_pairwise_fusions"]["label_fitted_weights"]
+          for method, data in p["methods"].items():
+              assert data["predicted"] + data["undefined"] + data["metric_ties"] == 293
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\\n## Fixed global (non-transductive) pairwise fusion A/B/C ablations\\n\\n")
+              out.write("| Method | Correct/293 | Prediction coverage | Accuracy incl. abstentions |\\n| --- | ---: | ---: | ---: |\\n")
+              for name, data in p["methods"].items():
+                  out.write(f"| {name} | {data['correct']}/293 | {data['prediction_coverage']:.3f} | {data['accuracy_with_abstentions_as_incorrect']:.4f} |\\n")
+              out.write("\\n**Exploratory only:** all MTT human triplets were previously explored; no independent test, no fitted weights, no general metric winner. The affine range transform is NOT calibrated against head distributions.\\n")
+          PY
+          echo "global_pairwise_fusion_end=$(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summarize all 14 metric/head combinations with coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/summarize_mtt_benchmark.py \
+            --report results/mtt-all-exploratory-aggregate.json \
+            --out results/mtt-seven-metric-scorecard.md
+          cat results/mtt-seven-metric-scorecard.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish only aggregate research results (never audio/features/votes)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-mtt-global-pair-fusion-aggregate-only
+          path: |
+            results/mtt-directory-preflight.json
+            results/mtt-all-exploratory-aggregate.json
+            results/mtt-seven-metric-scorecard.md
+            results/mtt-audio-vs-heads-ab-exploratory.json
+            results/mtt-global-pairwise-four-fixed-fusions-exploratory.json
+            research-smoke/smoke-check-summary.json
+          if-no-files-found: error
+          retention-days: 14
