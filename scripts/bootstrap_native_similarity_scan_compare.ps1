@@ -235,4 +235,5 @@ if ($result.complete_song_pairs -ne 4950 -or $result.track_count -ne 100) {
     throw 'Unexpected comparison population; do not interpret report'
 }
 Write-Host "Comparison status: $($result.status)" -ForegroundColor Green
-Write-Host 'PRIVATE aggregate report created. No general similarity winner is asserted.' -ForegroundColor Green
+Write-Host "Anonymized aggregate report: $report" -ForegroundColor Green
+Write-Host 'PRIVATE aggregate report created. Diagnostic backend comparison only; no general similarity winner is asserted.' -ForegroundColor Green
