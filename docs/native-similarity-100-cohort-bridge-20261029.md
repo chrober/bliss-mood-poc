@@ -79,6 +79,70 @@ vectors. The private manifest contains real source-relative
 song identities, MUST be kept only on the local workstation.
 Synthetic Linux and Windows CI uses no user music.
 
+## Preferred fully automatic Windows preflight (2026-10-29 update)
+
+The first real local preflight failed with only "ValueError";
+there is not enough information to identify its root cause.
+The bridge now prints **named safe checkpoints**:
+baseline_feature_cohort, baseline_embedding_exports,
+onnx_model_weights_and_class_metadata,
+verified_scanner_and_native_worker and numbered
+audio_sha256_001_of_100 .. audio_sha256_100_of_100.
+It reports an allowlisted reason or an exception category
+without disclosing private track paths. No tracebacks with user
+song names, audio data or rating comments are printed.
+
+**Preferred:** scripts/bootstrap_native_similarity_preflight.ps1
+automatically fetches and fast-forwards the **separate clean
+worktree** to the latest remote bridge branch (never touches
+the existing PR #16 checkout), checks the pinned GitHub
+workflow provenance, downloads the verified scanner if missing,
+reuses the old download if already correct, verifies BUILD.txt
+and SHA256SUMS.txt, and uses the known local:
+D:\LMS\essentia-cli-test\essentia-worker\bliss-essentia-worker.exe
+with its SHA256-verified worker-dependencies.json full native
+DLL inventory. It also uses the verified local ONNX files, old
+100-song sidecar, old 100 embedding JSONs and documented
+\\192.168.1.100\music source root. It performs **prepare only**,
+NEVER runs a real scan or overwrites the original data. No
+automatic native-kit distribution; missing local worker is
+reported as a prerequisite, not secretly downloaded.
+
+One-time launcher to obtain the **new** automation file
+in the already created dedicated worktree:
+
+~~~powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $Repo = 'D:\LMS\bliss-mood-poc'
+    $Worktree = 'D:\LMS\bliss-mood-native-bridge'
+    $Branch = 'feat/native-similarity-cohort-validation'
+    & git -C $Repo fetch origin $Branch
+    if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
+    $Dirty = @(& git -C $Worktree status --porcelain --untracked-files=normal)
+    if ($LASTEXITCODE -ne 0 -or $Dirty.Count -ne 0) {
+        throw 'Dedicated worktree is not clean; no automatic checkout.'
+    }
+    & git -C $Worktree checkout --detach "origin/$Branch"
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot update isolated worktree' }
+    & (Join-Path $Worktree 'scripts\bootstrap_native_similarity_preflight.ps1')
+    if (-not $?) { throw 'Automated preflight did not pass' }
+}
+~~~
+
+After the one-time launcher, future preflight invocations
+can use only:
+
+~~~powershell
+& 'D:\LMS\bliss-mood-native-bridge\scripts\bootstrap_native_similarity_preflight.ps1'
+~~~
+
+All scripts are fail-closed. Never continue to Step scan
+if the verified local preflight is not green. An existing
+private output folder is protected from any overwrite;
+review it before deciding whether a fresh named output
+directory is required.
+
 ## Safe local workflow: three separate stages
 
 Keep the existing PR #16 checkout (for example
