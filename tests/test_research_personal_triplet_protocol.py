@@ -66,6 +66,10 @@ class PersonalProtocolTests(unittest.TestCase):
     def test_legacy_matrix_numerical_validation(self):
         mat = p.frozen_matrix(matrix())
         self.assertAlmostEqual(p.distance([0.0]*23,[3.0]+[0.0]*22,mat), 3.0)
+        with self.assertRaisesRegex(ValueError, "23D features"):
+            p.distance([1.0], [2.0], mat)
+        with self.assertRaisesRegex(ValueError, "nonfinite"):
+            p.distance([0.0]*23, [float("nan")]+[0.0]*22, mat)
         bad = matrix(-1.0)
         with self.assertRaisesRegex(ValueError, "positive semidefinite"):
             p.frozen_matrix(bad)
