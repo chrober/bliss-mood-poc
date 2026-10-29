@@ -1,0 +1,33 @@
+name: Native similarity cohort bridge (synthetic only)
+
+on:
+  push:
+    paths:
+      - 'scripts/native_similarity_cohort_bridge.py'
+      - 'tests/test_native_similarity_cohort_bridge.py'
+      - '.github/workflows/native-similarity-cohort-bridge.yml'
+  pull_request:
+    paths:
+      - 'scripts/native_similarity_cohort_bridge.py'
+      - 'tests/test_native_similarity_cohort_bridge.py'
+      - '.github/workflows/native-similarity-cohort-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-local-cohort:
+    name: Verify read-only 100-song bridge (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Synthetic preflight and 100-song parity/rank regression (no private assets)
+        run: python -m unittest discover -s tests -p 'test_native_similarity_cohort_bridge.py' -v
