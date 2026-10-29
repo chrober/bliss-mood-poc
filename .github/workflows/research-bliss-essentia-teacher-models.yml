@@ -41,6 +41,22 @@ jobs:
           python -m pip install --disable-pip-version-check --only-binary=:all: -r research/requirements-wp3-py315.txt
       - name: Verify numerical research interpreter and pinned imports
         run: python -c "import sys, numpy, scipy, sklearn; print(sys.version, numpy.__version__, scipy.__version__, sklearn.__version__)"
+      - name: Smoke actual launcher Python calls in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          LYRION_WP3_RUNTIME_SMOKE_ONLY: '1'
+        run: |
+          & .\scripts\run_grouped_bliss_essentia_research_windows.ps1
+          if (-not $?) { throw 'Actual Windows PowerShell 5.1 Python argument smoke failed.' }
+      - name: Smoke actual launcher Python calls in PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LYRION_WP3_RUNTIME_SMOKE_ONLY: '1'
+        run: |
+          & .\scripts\run_grouped_bliss_essentia_research_windows.ps1
+          if (-not $?) { throw 'Actual PowerShell 7 Python argument smoke failed.' }
       - name: Compile train-only and grouped research sources
         run: python -m compileall -q scripts/research_bliss_essentia_teacher_models.py scripts/research_bliss_only_teacher_geometry.py scripts/run_local_bliss_essentia_teacher_study.py scripts/derive_lyrion_research_groups.py scripts/research_grouped_split.py scripts/research_feature_relationships.py
       - name: Fit only synthetic split-train teacher predictions and holdout CCA
