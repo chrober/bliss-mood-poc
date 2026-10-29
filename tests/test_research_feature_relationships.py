@@ -75,7 +75,7 @@ class CorrelationTests(unittest.TestCase):
             r.relationship_report(rows)
 
     def test_small_partitions_or_corrupt_values_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "too few recordings"):
+        with self.assertRaisesRegex(ValueError, "Need 8..4000"):
             r.relationship_report(cohort(artists=2, per_artist=3))
         with self.assertRaisesRegex(ValueError, "too few recordings"):
             r.relationship_report(cohort(artists=4, per_artist=2), min_partition=5)
