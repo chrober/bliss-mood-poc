@@ -1,0 +1,6 @@
+# Fixed research-only scikit-learn environment: Python 3.13 (Linux/Windows)
+numpy==2.2.6
+scipy==1.16.2
+scikit-learn==1.7.2
+joblib==1.5.2
+threadpoolctl==3.6.0
