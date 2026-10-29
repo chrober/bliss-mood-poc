@@ -82,6 +82,16 @@ Die zwölf verblindet ausgewählten Songpaare sind alle **bewertet**: 24 verschi
 
 Die allgemeine untrainierte Metrik bleibt Pflicht und funktioniert ohne individuelle Urteile; persönliches Metric Learning/Blending bleibt eine spätere zusätzliche Option. Ohne trainiertes persönliches Modell gilt effektiv 100 % general.
 
+### Verbindlicher Lieferstandard für lokale PowerShell-Skripte
+
+Für **jeden** künftigen lokalen Test oder Produktionsablauf einen **einzigen vollständigen, direkt kopier- und ausführbaren PowerShell-Block im Format `& { ... }`** liefern (oder einen solchen kurzen Launcher für ein versioniertes `.ps1` im Repo). **Keine** losen Kommando-Fragmente, Platzhalter wie `REPLACE_WITH_...`, manuelle Git-Checkout-/Download-Anleitungen, unnötige Fragen nach bereits dokumentierten Pfaden oder das Zusammenstecken mehrerer Skriptstücke durch den Nutzer.
+
+Das Skript muss selbständig, soweit technisch möglich, die **passende Git-Referenz live prüfen**, den dedizierten, sauberen **Bridge-Worktree aktualisieren** (PR-#16-Checkout nicht wechseln), benötigte **CI-Artefakte anhand verifizierter konkreter Run-ID + Head-SHA** herunterladen bzw. sicher wiederverwenden, `BUILD.txt`/`SHA256SUMS.txt` und tatsächliche EXE-Hashes prüfen, vorhandene **native Worker-/DLL-Bundles und Modell-Hashes** kontrollieren, bekannte Windows/NAS-Pfade vorbelegen und erforderliche Programme prüfen. **Kein lokaler Rust-/Cargo-Build:** Scanner-Binaries ausschließlich aus passend geprüften GitHub-Actions-Builds.
+
+**Sicheres Verhalten:** Lesende und schreibende Phasen klar abgrenzen; das bereits erfolgreiche `prepare` samt existierendem privaten Manifest **nicht wiederholen und nicht überschreiben**. Eingabe-/Modell-/Worker-Daten niemals verändern; neue Ausgabeziele verwenden. Bei vorhandenen (möglicherweise partiellen) Scan-Ausgaben nicht blind wiederholen. Bei fehlenden echten Voraussetzungen mit präziser, nicht privatsphärenverletzender Diagnose abbrechen statt einen unbekannten Pfad vom Nutzer zu erwarten oder auf ungesicherte Dateien auszuweichen. Existierende Dateien und private Pfade dürfen nicht durch automatische Bereinigung gelöscht werden. Erst nach bestandenem Gate automatisch zum nächsten sicheren Schritt gehen; kein Scan-PASS ohne tatsächliche native Ergebnisse und keinen Compare-PASS ohne vollständigen Report behaupten.
+
+**Benutzeroberfläche:** Eine einzige lokale Ausführung, übersichtliche Statusmeldungen und eindeutiger Exit-/Fehlerstatus; am Ende Pfad und Aussagekraft des anonymisierten Ergebnisberichts nennen. Von der Chat-Session wird erwartet, Skript, synthetische Tests, CI und Dokumentation selbständig auf dem separaten Branch vorzubereiten; vom Nutzer nur die tatsächlich unvermeidliche Ausführung im lokalen Windows-Umfeld verlangen.
+
 ## 4. Harte Projekt- und Rechtsgrenzen
 
 - **PR #16, Original-Musik, vorhandene Rust-v5-DB, Lyrion-/Bliss-Datenbanken, alte Embeddings, Hörbewertungen, Methodik und 12-Paar-Scores NICHT ändern**, sofern der Nutzer nicht ausdrücklich separate Änderungen daran beauftragt.
