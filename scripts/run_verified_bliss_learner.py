@@ -10,11 +10,15 @@ or General/Personal calibration claim.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import sqlite3
+
+from audit_bliss_essentia_join import open_bliss, bliss_vector
 import subprocess
 import sys
 
@@ -35,9 +39,11 @@ def run_verified(
     db=bundle_dir/"train-only-bliss.db"
     votes=bundle_dir/"train-only-triplets.json"
     if (not private_manifest.is_file() or not db.is_file()
-            or not votes.is_file() or not learner_exe.is_file()):
+            or not votes.is_file() or not learner_exe.is_file()
+            or private_manifest.is_symlink() or db.is_symlink()
+            or votes.is_symlink()):
         raise ValueError("Missing full isolated training bundle or exact learner executable")
-    if out_dir.exists():
+    if out_dir.exists() or out_dir.is_symlink():
         raise FileExistsError("Refuse existing learner output directory")
     meta=json.loads(private_manifest.read_text(encoding="utf-8"))
     if (not isinstance(meta,dict)
@@ -64,6 +70,23 @@ def run_verified(
                    not all(isinstance(s,str) and bool(s) for s in x)
                    for x in records)):
         raise ValueError("Private train-only triplet content inconsistent")
+    # A forged manifest or misdirected bundle must not let the learner
+    # read a full Bliss library. Require the complete staged DB song set
+    # to equal the train-only triplet universe, with no extra rows.
+    training_songs={key for triple in records for key in triple}
+    if (len(training_songs)!=meta.get("training_track_count")
+            or hashlib.sha256(json.dumps(sorted(training_songs),
+                ensure_ascii=False).encode("utf-8")).hexdigest()
+                    !=meta.get("train_track_keys_sha256")):
+        raise ValueError("Training keys differ from pinned private manifest")
+    with closing(open_bliss(db)) as conn:
+        all_files=conn.execute("SELECT File FROM TracksV2").fetchall()
+        if len(all_files)!=len(training_songs) or {row[0] for row in all_files}!=training_songs:
+            raise ValueError("Staged Bliss DB includes missing or non-training songs")
+        for key in training_songs:
+            status,_=bliss_vector(conn,key)
+            if status!="valid":
+                raise ValueError("Staged learner DB has missing or invalid Bliss 23D")
     # The training staging verifier must be the only source; reject
     # unknown output file and never print paths, keys or subprocess streams.
     out_dir.mkdir(parents=False,exist_ok=False,mode=0o700)
@@ -132,7 +155,7 @@ def main() -> int:
                             a.expected_learner_sha256,a.output_dir,
                             timeout_seconds=a.timeout_seconds)
         print(json.dumps(output,indent=2))
-    except (ValueError,TypeError,KeyError,OSError,RuntimeError):
+    except (ValueError,TypeError,KeyError,OSError,sqlite3.Error,RuntimeError):
         p.exit(2,"Training blocked: verify isolated input hashes, executable "
                  "provenance and new output directory; no personal score was certified\n")
     return 0
