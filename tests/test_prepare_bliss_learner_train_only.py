@@ -74,7 +74,7 @@ class TrainOnlyStagingTests(unittest.TestCase):
 
     def test_missing_bliss_feature_causes_fail_before_output_creation(self):
         with sqlite3.connect(self.db) as conn:
-            conn.execute("UPDATE TracksV2 SET Tempo=NULL")
+            conn.execute("UPDATE TracksV2 SET Tempo=\'invalid_not_numeric\'")
             conn.commit()
         with self.assertRaisesRegex(ValueError,"lacks unique"):
             prepare(self.db,self.trips,self.metadata,self.root/"none")
