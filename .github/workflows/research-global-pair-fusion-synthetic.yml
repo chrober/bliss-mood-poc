@@ -1,0 +1,48 @@
+name: General Pairwise Similarity - synthetic research contracts
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/global_pairwise_fusion.py'
+      - 'scripts/evaluate_mtt_embedding_ab.py'
+      - 'scripts/evaluate_fma_embedding_ab.py'
+      - 'scripts/evaluate_deam_embedding_ab.py'
+      - 'tests/test_global_pairwise_fusion.py'
+      - 'tests/test_global_pairwise_evaluator_integration.py'
+      - '.github/workflows/research-global-pair-fusion-synthetic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: No-audio, no-training evaluation gates (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile experimental scorer and unchanged baseline adapters
+        run: python -m compileall -q scripts/global_pairwise_fusion.py scripts/evaluate_mtt_embedding_ab.py scripts/evaluate_fma_embedding_ab.py scripts/evaluate_deam_embedding_ab.py
+      - name: Run synthetic global-pair invariants
+        run: python -m unittest discover -s tests -p 'test_global_pairwise*.py' -v
+      - name: Preserve existing MTT/FMA/DEAM regression contracts
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p 'test_evaluate_mtt_embedding_ab.py' -v
+          python -m unittest discover -s tests -p 'test_evaluate_fma_embedding_ab.py' -v
+          python -m unittest discover -s tests -p 'test_evaluate_deam_embedding_ab.py' -v
+      - name: Assert no external audio or model artifacts generated
+        shell: bash
+        run: |
+          test ! -d models
+          test ! -d benchmark-private
+          test ! -d fma-private
+          test ! -d deam-private
