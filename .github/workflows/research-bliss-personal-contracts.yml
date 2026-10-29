@@ -6,8 +6,14 @@ on:
     paths:
       - 'scripts/audit_bliss_essentia_join.py'
       - 'scripts/general_personal_blend_contract.py'
+      - 'scripts/research_grouped_split.py'
+      - 'scripts/research_feature_relationships.py'
+      - 'scripts/research_personal_triplet_protocol.py'
       - 'tests/test_audit_bliss_essentia_join.py'
       - 'tests/test_general_personal_blend_contract.py'
+      - 'tests/test_research_grouped_split.py'
+      - 'tests/test_research_feature_relationships.py'
+      - 'tests/test_research_personal_triplet_protocol.py'
       - '.github/workflows/research-bliss-personal-contracts.yml'
   workflow_dispatch:
 
@@ -28,10 +34,16 @@ jobs:
         with:
           python-version: '3.13'
       - name: Compile research contracts
-        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py
+        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py scripts/research_grouped_split.py scripts/research_feature_relationships.py scripts/research_personal_triplet_protocol.py
       - name: WP3 read-only exact-join and private aggregate regression
         run: python -m unittest discover -s tests -p 'test_audit_bliss_essentia_join.py' -v
       - name: WP2 General/Personal model fallback and legacy learner regression
         run: python -m unittest discover -s tests -p 'test_general_personal_blend_contract.py' -v
+      - name: WP2/WP3 artist, album, recording and triplet leakage guards
+        run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
+      - name: WP3 grouped train-selected Pearson/Spearman held-out correlations
+        run: python -m unittest discover -s tests -p 'test_research_feature_relationships.py' -v
+      - name: WP2 grouped held-out legacy Bliss triplet evaluator
+        run: python -m unittest discover -s tests -p 'test_research_personal_triplet_protocol.py' -v
       - name: Existing experimental features are not silently changed
         run: python -m unittest discover -s tests -p 'test_audit_local_feature_readiness.py' -v
