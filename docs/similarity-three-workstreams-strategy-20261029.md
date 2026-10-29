@@ -1,5 +1,8 @@
 # Unified Lyrion similarity research strategy: General + Personal + Bliss ↔ Essentia
 
+> **WP2-P0 / WP3-R0 implementation update (29 October 2026):** The isolated research branch now includes a [read-only exact-key Bliss 23D ↔ Essentia 87D/56D coverage auditor with optional pinned 1280D sidecars](bliss-essentia-join-personal-contracts-20261029.md), as well as a [quality-gated 0–100% General/Personal pair-score contract and legacy 23×23 learner format inspector](bliss-essentia-join-personal-contracts-20261029.md). Synthetic tests and dedicated Linux/Windows CI validate identities, privacy, refusal to write source DBs, missing/malformed inputs, full-query fallback, and original learner schema. **No real joint feature correlations, Personal training, musical-quality lift or production integration are claimed.** WP3-R1 grouping/correlation and WP2-P1 grouped learner evaluation are the next research slices; original PR #16 and other repos stay untouched.
+
+
 **Decision / inventory: 29 October 2026.** Research-only, on the separate
 `feat/general-pairwise-similarity-research` branch. Does **not** edit Draft
 PR #16, `main`, BlissMixerLab, bliss-learner or production code.
