@@ -1,5 +1,8 @@
 # WP3-R2 and WP2-P2: grouped statistical models and isolated Bliss learning
 
+> **Successor status (29 October 2026):** The R2/P2 design below now has complete, tested R3/P3 adapters. See [local real-source Bliss↔Essentia grouped study and pinned train-only Rust learner invocation](bliss-essentia-local-study-verified-learner-20261029.md). Both full cross-platform synthetic workflow suites are successful; no real music or personal data, production learner training, musical uplift or certified General/Personal calibration has been obtained. Prior text suggesting R3/P3 code still needs creating is historical.
+
+
 **Status: 29 October 2026. Research-only source and synthetic cross-platform checks.**
 All changes on `feat/general-pairwise-similarity-research`. No original PR #16 changes,
 no native rescans, no worker tuning, no new compulsory listening and no private
