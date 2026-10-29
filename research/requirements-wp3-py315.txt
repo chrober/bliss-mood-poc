@@ -1,0 +1,8 @@
+# Fixed independent WP3 numerical research environment for CPython 3.15.
+# Public PyPI Windows x86-64 / Linux wheels verified 2026-10-29.
+# Distinct from legacy Python 3.13 reproducibility environment.
+numpy==2.5.4
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.5.2
+threadpoolctl==3.6.0
