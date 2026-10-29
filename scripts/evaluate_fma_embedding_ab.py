@@ -21,6 +21,7 @@ import benchmark_fma_genre as fma
 import evaluate_similarity as ev
 from evaluate_mtt_embedding_ab import validate_embedding, filename_for_key
 from mtt_paired_evidence import quantile
+import global_pairwise_fusion as gf
 
 FROZEN_FMA80_SAMPLE_SHA256 = "f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509"
 FROZEN_METADATA_SHA256 = "d9527a5297a65da31c5676484d5047c3e2b8a8060ce72a46e26158be736bf265"
@@ -118,7 +119,8 @@ def load_vectors(db: Path, embedding_dir: Path, chosen: list[str]) -> tuple[dict
 
 
 def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
-                    *, seed: int, replicates: int = 800) -> dict:
+                    *, seed: int, replicates: int = 800,
+                    global_pair_fusions: bool = False) -> dict:
     """All anchors share identical 79 candidates and exactly 9 positives at n=80.
 
     Undefined method scores abstain for the ENTIRE query and earn 0; no method
@@ -129,10 +131,11 @@ def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
         raise ValueError("Replicates must be 100..5000")
     if set(vectors) != set(chosen):
         raise ValueError("All selected FMA tracks must have complete paired vectors")
-    results = {name: {measure: [] for measure in MEASURES} for name in METHODS}
+    selected_methods = tuple(METHODS) + (tuple(gf.FUSIONS) if global_pair_fusions else ())
+    results = {name: {measure: [] for measure in MEASURES} for name in selected_methods}
     diagnostics = {name: {"full_queries": 0, "abstained_queries": 0,
                           "candidate_scores_undefined": 0, "tied_pairs": 0}
-                   for name in METHODS}
+                   for name in selected_methods}
     genre_indices = {}
     for index, anchor in enumerate(chosen):
         genre_indices.setdefault(songs[anchor]["genre"], []).append(index)
@@ -141,11 +144,15 @@ def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
         positives = sum(songs[c]["genre"] == songs[anchor]["genre"] for c in candidates)
         if len(candidates) != len(chosen)-1 or positives != len(chosen)//fma.CLASSES-1:
             raise ValueError("FMA paired retrieval common-candidate policy violated")
-        for name, (representation, fn) in METHODS.items():
+        for name in selected_methods:
             ranked = []
             for other in candidates:
-                score = fn(vectors[anchor][representation],
-                           vectors[other][representation])
+                if name in gf.FUSIONS:
+                    score = gf.pair_score(vectors[anchor], vectors[other], name)
+                else:
+                    representation, fn = METHODS[name]
+                    score = fn(vectors[anchor][representation],
+                               vectors[other][representation])
                 if score is None or not math.isfinite(score):
                     diagnostics[name]["candidate_scores_undefined"] += 1
                     continue
@@ -203,6 +210,7 @@ def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
             }
     return {
         "methods": report,
+        "global_pairwise_fusions": gf.provenance() if global_pair_fusions else None,
         "paired_differences": paired,
         "genre_stratified_query_resampling": {
             "replicates": replicates, "seed": seed,
@@ -220,10 +228,11 @@ def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
 
 def evaluate(db: Path, embedding_dir: Path, chosen: list[str], songs: dict,
              sample_sha256: str, *, seed: int = 20261021,
-             replicates: int = 800) -> dict:
+             replicates: int = 800, global_pair_fusions: bool = False) -> dict:
     validate_study_scope(chosen, songs, sample_sha256)
     vectors, encoder_sha, fingerprint = load_vectors(db, embedding_dir, chosen)
-    outcomes = evaluate_paired(vectors, chosen, songs, seed=seed, replicates=replicates)
+    outcomes = evaluate_paired(vectors, chosen, songs, seed=seed, replicates=replicates,
+                               global_pair_fusions=global_pair_fusions)
     return {
         "schema": "fma-catalog-screened-80-embedding-vs-heads-v1",
         "status": "FMA_VALIDATION_EXPLORATORY_NOT_INDEPENDENT_HOLDOUT",
@@ -257,6 +266,8 @@ def main() -> None:
     p.add_argument("--db", type=Path, required=True)
     p.add_argument("--embedding-dir", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--global-pair-fusions", action="store_true",
+                   help="Opt-in four predeclared no-training global pair-score ablations")
     p.add_argument("--original-genre-report", type=Path, required=True)
     p.add_argument("--selected-cache-manifest", type=Path,
                    help="Prove original FMA-Small archive SHA via checked selected-song manifest")
@@ -304,7 +315,8 @@ def main() -> None:
     if digest_ids(chosen) != original["dataset"]["sample_id_sha256"]:
         raise ValueError("FMA A/B not paired with the existing genre-only run")
     output = evaluate(args.db,args.embedding_dir,chosen,songs,
-                      FROZEN_FMA80_SAMPLE_SHA256)
+                      FROZEN_FMA80_SAMPLE_SHA256,
+                      global_pair_fusions=args.global_pair_fusions)
     for measure, reference in FROZEN_ORIGINAL_GENRE_COSINE.items():
         if (abs(output["methods"]["genre_cosine"][measure] -
                 original["metric_results"]["cosine"][measure]["macro_mean"]) > 1e-9
