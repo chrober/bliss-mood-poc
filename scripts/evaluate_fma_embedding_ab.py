@@ -210,7 +210,7 @@ def evaluate_paired(vectors: dict, chosen: list[str], songs: dict,
             }
     return {
         "methods": report,
-        "global_pairwise_fusions": gf.provenance() if global_pair_fusions else None,
+        **({"global_pairwise_fusions": gf.provenance()} if global_pair_fusions else {}),
         "paired_differences": paired,
         "genre_stratified_query_resampling": {
             "replicates": replicates, "seed": seed,
@@ -234,7 +234,8 @@ def evaluate(db: Path, embedding_dir: Path, chosen: list[str], songs: dict,
     outcomes = evaluate_paired(vectors, chosen, songs, seed=seed, replicates=replicates,
                                global_pair_fusions=global_pair_fusions)
     return {
-        "schema": "fma-catalog-screened-80-embedding-vs-heads-v1",
+        "schema": ("fma-catalog-screened-80-global-pair-fusion-exploratory-v2"
+                   if global_pair_fusions else "fma-catalog-screened-80-embedding-vs-heads-v1"),
         "status": "FMA_VALIDATION_EXPLORATORY_NOT_INDEPENDENT_HOLDOUT",
         "dataset": "FMA-Small",
         "official_split": "validation",
