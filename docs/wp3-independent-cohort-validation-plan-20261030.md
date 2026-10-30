@@ -149,11 +149,22 @@ not a substitution for either the General or Personal scorer.
 No automatic BlissMixerLab production changes, native worker tuning,
 new scans, main merge or PR #16 edits.
 
-## Execution status
+## Execution status — real source selection PASS, 30 October 2026
 
-This repo change implements **cohort selection / leakage screening**
-and synthetic integration gates. No real future cohort has yet been
-selected by the operator, no new teacher/student weights were trained,
-no perceptual comparisons were made, and no new song audio was decoded.
-The output is a private planning manifest, not a listening CSV or a
-server queue.
+The operator **has run** the source-disjoint real metadata-only R5
+selector on the verified private Lyrion/Bliss sources. Both the
+read-only preflight and the private manifest creation succeeded:
+240 unique new Bliss23-valid songs, exactly 15 per each of 16
+Tempo/centroid bins, excluded from the original 100 songs and
+currently known credited artist/album/recording identities, including
+mutual overlap within the new selection. No new Essentia analysis,
+human evaluation, production model or audio decoding was performed.
+The result is a **private metadata-only planning manifest**,
+not a completed similarity benchmark.
+
+The follow-on WP3-R6 original-Bliss versus frozen MoodTheme Ridge
+blind 24-pair pilot is [implemented separately](wp3-blind-student-validation-pilot-20261030.md)
+but has **not** been run on the user's private data. Its planned
+private student fit uses all prior 100 development songs only, and
+does not require Essentia inference on the new 240. Human
+annotations remain optional; no service or playlist is changed.
