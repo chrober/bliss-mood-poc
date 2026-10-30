@@ -63,8 +63,8 @@ class SourceSubsetCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             e6.coverage(self.mapping,make_csv(e4.LABEL_COLUMNS,rows[:-1]))
         with self.assertRaises(ValueError):
-            e6.coverage(self.mapping,self.pairs.replace(
-                b"survey_audio_id",b"private_audio_path",1))
+            e6.coverage(self.mapping.replace(
+                b"survey_audio_id",b"private_audio_path",1), self.pairs)
         changed=[dict(x) for x in rows]
         changed[0]["num_annotators"]="0"
         with self.assertRaises(ValueError):
