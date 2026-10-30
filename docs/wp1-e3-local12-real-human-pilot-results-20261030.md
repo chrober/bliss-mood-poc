@@ -1,5 +1,8 @@
 # WP1-E3: actual local 12/11-pair human pilot — operator-reported results (30 Oct 2026)
 
+> **30 OCT 2026 UPDATE — full-12 versus 11 music-only sensitivity now actually observed.** The user ran the aggregate-only WP1-E3 follow-up; all 20 complete rho12/rho11/LOO min–max cells, the sign sensitivity, and the strict range-separation logic are transcribed in [real WP1-E3 stability results](wp1-e3-local12-stability-real-results-20261030.md). Embedding1280 Timbre remains the only model with a guaranteed within-pilot advantage over **every** rival on each of the 11 one-more-pair-deleted subsets: its minimum LOO rho 0.674200 exceeds the largest rival maximum 0.633817. Mood Centered Next-Track LOO stays positive 0.687674–0.877186 but the range overlaps several rivals; no universal winner or independent statistical significance. The section below that says full-12 and LOO correlation summaries have not yet been provided is **historical and superseded**. This is one intentionally selected eleven-pair, single-listener diagnostic, not independent model quality validation.
+
+
 ## Provenance and strict scope
 
 The operator executed [the read-only Windows launcher](../scripts/run_wp1_e3_local12_windows.ps1) successfully on the existing research branch, after an origin fast-forward to commit `6084f145`. This document records the **numerical console output supplied by the operator**, **not** a GitHub-verified independent execution of confidential local inputs. The console confirmed **12/12 human-rated pairs**, **60/60 numeric human rating fields** and a sensitivity view excluding **the previously declared nonmusic pair 10**, leaving 11 music pairs. No new votes, audio scans, source DB writes, re-training or external uploads occurred.
