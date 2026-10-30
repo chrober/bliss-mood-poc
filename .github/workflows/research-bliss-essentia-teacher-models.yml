@@ -12,6 +12,8 @@ on:
       - 'scripts/build_wp3_research_db_windows.ps1'
       - 'scripts/analyze_wp3_snapshot_correlations.py'
       - 'scripts/analyze_wp3_snapshot_correlations_windows.ps1'
+      - 'scripts/analyze_wp3_snapshot_stability.py'
+      - 'scripts/analyze_wp3_snapshot_stability_windows.ps1'
       - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
       - 'tests/test_research_bliss_only_teacher_geometry.py'
@@ -19,6 +21,7 @@ on:
       - 'tests/test_derive_lyrion_research_groups.py'
       - 'tests/test_build_wp3_research_db.py'
       - 'tests/test_analyze_wp3_snapshot_correlations.py'
+      - 'tests/test_analyze_wp3_snapshot_stability.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
       - 'research/requirements-wp3-py315.txt'
@@ -94,6 +97,8 @@ jobs:
           if (-not $?) { throw 'New WP3 launcher PowerShell 7 smoke failed.' }
       - name: Descriptive Pearson and tie-aware Spearman on single private research SQLite
         run: python -m unittest discover -s tests -p 'test_analyze_wp3_snapshot_correlations.py' -v
+      - name: Descriptive within-cohort stability and Bliss/Essentia class redundancy
+        run: python -m unittest discover -s tests -p 'test_analyze_wp3_snapshot_stability.py' -v
       - name: Prepare exact-path 64-song synthetic sources for full Windows launcher test
         if: runner.os == 'Windows'
         run: python tests/create_wp3_launcher_ci_fixture.py
@@ -149,6 +154,30 @@ jobs:
           if (-not $?) { throw 'PowerShell 7 correlation runner failed.' }
           $reports = @(Get-ChildItem -LiteralPath $snapshots[0].Directory.FullName -File -Filter 'aggregate-wp3-descriptive-*.json')
           if ($reports.Count -ne 2) { throw 'Expected two new nonoverwriting descriptive reports.' }
+      - name: Investigate same-cohort redundancy under Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $snapshots = @(Get-ChildItem -Path . -Recurse -File -Filter 'wp3-research.sqlite')
+          if ($snapshots.Count -ne 2) { throw 'Expected two synthetic research snapshots.' }
+          $env:LYRION_WP3_RESEARCH_DB = $snapshots[0].FullName
+          & .\scripts\analyze_wp3_snapshot_stability_windows.ps1
+          if (-not $?) { throw 'PowerShell 5.1 robustness runner failed.' }
+          $reports = @(Get-ChildItem -LiteralPath $snapshots[0].Directory.FullName -File -Filter 'aggregate-wp3-stability-*.json')
+          if ($reports.Count -ne 1) { throw 'Expected one new robustness aggregate.' }
+      - name: Investigate same-cohort redundancy under PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $snapshots = @(Get-ChildItem -Path . -Recurse -File -Filter 'wp3-research.sqlite')
+          if ($snapshots.Count -ne 2) { throw 'Expected two synthetic research snapshots.' }
+          $env:LYRION_WP3_RESEARCH_DB = $snapshots[0].FullName
+          & .\scripts\analyze_wp3_snapshot_stability_windows.ps1
+          if (-not $?) { throw 'PowerShell 7 robustness runner failed.' }
+          $reports = @(Get-ChildItem -LiteralPath $snapshots[0].Directory.FullName -File -Filter 'aggregate-wp3-stability-*.json')
+          if ($reports.Count -ne 2) { throw 'Expected two nonoverwriting robustness aggregates.' }
       - name: PowerShell Windows full launcher syntax check
         shell: pwsh
         run: |
@@ -167,5 +196,10 @@ jobs:
           $descriptive = Join-Path (Get-Location).Path 'scripts/analyze_wp3_snapshot_correlations_windows.ps1'
           $null = [System.Management.Automation.Language.Parser]::ParseFile($descriptive, [ref]$tokens, [ref]$errors)
           if ($errors.Count -ne 0) { throw 'The WP3 descriptive correlation launcher has syntax errors.' }
+          $errors = $null
+          $tokens = $null
+          $stability = Join-Path (Get-Location).Path 'scripts/analyze_wp3_snapshot_stability_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($stability, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'The WP3 within-cohort robustness launcher has syntax errors.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
