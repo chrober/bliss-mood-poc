@@ -174,6 +174,66 @@ aggregate-wp3-descriptive-*.json in the same gitignored private run
 directory and never overwrites a prior report. Do not commit or
 upload the private snapshot itself.
 
+## WP3 within-cohort redundancy/sensitivity follow-up — 30 October 2026
+
+The user supplied an *anonymized* aggregate from 100 previously
+analyzed native Essentia/Bliss songs (no private feature DB uploaded).
+All exact 3,289 cross-feature correlations were defined with no
+invalid vectors. The reported Spearman ρ extremes were:
+
+- Genre: Chroma6 to metal +0.723552 and to hard +0.721092;
+  Chroma12 to metal +0.715104; Chroma11 to easylistening −0.707459.
+- MoodTheme: Chroma12 to soft −0.830495, Chroma11 to soft −0.805629,
+  Chroma13 to soft −0.797144, Chroma12 to romantic −0.792559.
+
+These are associations of model outputs on **one 100-song cohort**,
+not evidence that the source Bliss chroma features cause or uniquely
+predict mood, genre, or musical quality. Genre/mood model class
+scores are neither independent artist labels nor ground truth.
+
+**Implemented next executable (no new audio analysis, models, or metadata):**
+
+- scripts/analyze_wp3_snapshot_stability.py (Python 3.15 stdlib);
+- scripts/analyze_wp3_snapshot_stability_windows.ps1
+  (standalone PowerShell launcher);
+- tests/test_analyze_wp3_snapshot_stability.py (synthetic only).
+
+The analysis opens the existing private wp3-research.sqlite in
+read-only SQLite mode. It computes all 23*22/2 = 253 intra-Bliss
+Spearman redundancy pairs, focused correlations among selected
+Chroma components, classifier class redundancy across the original
+Genre and MoodTheme heads, and 16 frozen feature/class pairs
+selected from the **earlier SAME 100-SONG report**.
+
+For each post-selected cross-feature pair, it reports original
+Pearson/Spearman, maximum absolute Spearman difference after
+leaving out any one song, and descriptive p10/median/p90 and sign
+consistency from 200 seeded **80%-without-replacement** subsamples.
+This is *within-original-cohort sensitivity*, NOT a statistical
+confidence interval, true artist/album holdout, independent
+replication or a learned similarity metric. Songs can be dependent
+by artist/recording; selecting the original top 16 out of 3,289
+creates winner's-curse and multiple-comparisons concerns.
+
+After git pull --ff-only on the research branch, launch:
+
+    & .\scripts\analyze_wp3_snapshot_stability_windows.ps1
+
+If there is exactly one WP3 snapshot, it is selected. Otherwise set
+LYRION_WP3_RESEARCH_DB to the explicit known existing SQLite path.
+The script prints anonymized counts and writes a new uniquely named
+aggregate-wp3-stability-*.json in the ignored private research
+folder; it never exports song keys, hashes, individual vectors or
+source DB paths. Each invocation refuses to overwrite old reports.
+
+The next **genuinely independent evaluation** still requires
+verified Lyrion artist/album/recording identities and a group-
+disjoint holdout. BlissMixerLab/RepeatIdentitySnapshot.pm writes
+under the dynamic LMS cache directory, not a verified accessible
+Windows path. Do not manufacture artist metadata from filenames,
+or mistake this report for WP3 teacher learning / WP1-WP2 gains.
+
+
 ## Metadata provenance source discovery
 
 The existing plugin source
