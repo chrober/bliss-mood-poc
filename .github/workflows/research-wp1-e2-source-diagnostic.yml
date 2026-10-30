@@ -6,6 +6,8 @@ on:
     paths:
       - 'scripts/probe_wp1_e2_mtt_source.py'
       - 'tests/test_probe_wp1_e2_mtt_source.py'
+      - 'scripts/probe_wp1_e2_mtt_member.py'
+      - 'tests/test_probe_wp1_e2_mtt_member.py'
       - '.github/workflows/research-wp1-e2-source-diagnostic.yml'
   workflow_dispatch:
 
@@ -27,12 +29,14 @@ jobs:
           python-version: '3.15'
       - name: Verify bounded HTTP protocol and no false quality inference
         run: python -m unittest discover -s tests -p 'test_probe_wp1_e2_mtt_source.py' -v
+      - name: Verify CRC-checked member probe has no audio or private identities
+        run: python -m unittest discover -s tests -p 'test_probe_wp1_e2_mtt_member.py' -v
 
   network_diagnostic:
     name: Public HTTP-206 tiny probes and branch cache LOOKUP ONLY
     needs: synthetic
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -67,9 +71,61 @@ jobs:
               f.write('- Probes: '+', '.join(str(p['part'])+': '+p['status'] for p in r['probes'])+'\n')
               f.write('- Only three 4-KiB ranges checked; 1,019 clips not tested.\n')
           PY
+      - name: Gate further source checks on all three small-range PASS
+        id: tiny_gate
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/wp1-e2-source-availability.json').read_text())
+          print('all_ranges=' + str(all(p['status']=='RANGE_206_PASS'
+                                     for p in r['probes'])).lower())
+          PY
+      - name: Download official metadata and 8-MiB ZIP directory ONLY
+        if: steps.tiny_gate.outputs.all_ranges == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-metadata
+          base=https://mirg.city.ac.uk/datasets/magnatagatune
+          for item in comparisons_final.csv clip_info_final.csv; do
+            curl --fail --location --retry 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 150 --max-filesize 10000000 \
+              --silent --show-error "$base/$item" -o "benchmark-metadata/$item"
+          done
+          http=$(curl --fail --location --retry 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 200 --max-filesize 9000000 \
+            --silent --show-error --header 'Accept-Encoding: identity' \
+            --range -8388608 --dump-header benchmark-metadata/tail.headers \
+            --output benchmark-metadata/zip-tail.bin \
+            --write-out '%{http_code}' "$base/mp3.zip.003")
+          test "$http" = 206 || { echo 'ZIP tail did not return HTTP 206'; exit 1; }
+          test "$(stat -c%s benchmark-metadata/zip-tail.bin)" -eq 8388608
+      - name: Verify exactly ONE official referenced clip via ZIP CRC
+        if: steps.tiny_gate.outputs.all_ranges == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/wp1-e2-source-availability.json').read_text())
+          sizes=[p['part_bytes'] for p in r['probes']]
+          Path('benchmark-metadata/parts.txt').write_text(
+              ' '.join(map(str,sizes))+'\n',encoding='ascii')
+          PY
+          read -r p1 p2 p3 < benchmark-metadata/parts.txt
+          python scripts/probe_wp1_e2_mtt_member.py \
+            --tail benchmark-metadata/zip-tail.bin \
+            --part-sizes "$p1" "$p2" "$p3" \
+            --comparisons benchmark-metadata/comparisons_final.csv \
+            --clips benchmark-metadata/clip_info_final.csv \
+            --out results/wp1-e2-one-clip-access.json
+          # A blocked one-clip result is a diagnostic, NOT a successful benchmark.
       - name: Publish ONLY anonymized access status (no audio, song IDs, vectors)
         uses: actions/upload-artifact@v4
         with:
           name: wp1-e2-public-source-readiness-only
-          path: results/wp1-e2-source-availability.json
+          path: results/wp1-e2-*.json
           retention-days: 14
