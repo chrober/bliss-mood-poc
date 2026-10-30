@@ -116,9 +116,9 @@ jobs:
           LYRION_WP3_METADATA_CI_VALIDATE_ONLY: '1'
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadatalibrary.db'
-          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadataartist-repeat-identities.sqlite'
-          & .scriptsprepare_wp3_lyrion_group_sources_windows.ps1
+          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadata/library.db'
+          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadata/artist-repeat-identities.sqlite'
+          & ./scripts/prepare_wp3_lyrion_group_sources_windows.ps1
           if (-not $?) { throw 'PowerShell 5.1 safe metadata preflight script-file invocation failed' }
       - name: Execute real PowerShell 7 metadata validation WITHOUT SSH
         if: runner.os == 'Windows'
@@ -127,9 +127,9 @@ jobs:
           LYRION_WP3_METADATA_CI_VALIDATE_ONLY: '1'
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadatalibrary.db'
-          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadataartist-repeat-identities.sqlite'
-          & .scriptsprepare_wp3_lyrion_group_sources_windows.ps1
+          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadata/library.db'
+          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadata/artist-repeat-identities.sqlite'
+          & ./scripts/prepare_wp3_lyrion_group_sources_windows.ps1
           if (-not $?) { throw 'PowerShell 7 safe metadata preflight script-file invocation failed' }
       - name: Prepare exact-path 64-song synthetic sources for full Windows launcher test
         if: runner.os == 'Windows'
