@@ -123,7 +123,7 @@ All PRIVATE group keys and any actual personal feature
 data must remain on that machine. Do not commit the private
 JSON or upload it as a GitHub Actions artifact.
 
-## Evidence and verified blockers
+## Historical evidence and blockers before the 30 October 2026 real grouping pass
 
 The available GitHub source tree contains the experimental
 read-only adapters and synthetic testing code, but no
