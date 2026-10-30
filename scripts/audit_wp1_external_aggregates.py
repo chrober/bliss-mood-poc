@@ -47,13 +47,18 @@ def _exact(d, key, expected):
 def _archive_member(path: Path, record: dict) -> dict:
     if not path.is_file() or path.stat().st_size > 10_000_000:
         raise ValueError("Missing/oversized public aggregate ZIP")
-    with zipfile.ZipFile(path) as z:
-        member = record["member"]
-        entries = z.infolist()
-        matching = [i for i in entries if i.filename == member]
-        if len(matching) != 1 or matching[0].file_size > 2_000_000:
-            raise ValueError("Expected exact unique aggregate JSON member")
-        raw = z.read(matching[0])
+    if path.suffix.lower() == ".json":
+        if path.name != Path(record["member"]).name or path.stat().st_size > 2_000_000:
+            raise ValueError("Expected exact extracted aggregate JSON member")
+        raw = path.read_bytes()
+    else:
+        with zipfile.ZipFile(path) as z:
+            member = record["member"]
+            entries = z.infolist()
+            matching = [i for i in entries if i.filename == member]
+            if len(matching) != 1 or matching[0].file_size > 2_000_000:
+                raise ValueError("Expected exact unique aggregate JSON member")
+            raw = z.read(matching[0])
     if hashlib.sha256(raw).hexdigest() != record["member_sha256"]:
         raise ValueError("Frozen GitHub Actions aggregate SHA256 mismatch")
     data = json.loads(raw)
