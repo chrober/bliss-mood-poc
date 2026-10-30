@@ -1,0 +1,67 @@
+name: WP1-E1 verified public external aggregate replay (no audio)
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'research/wp1-e1-external-aggregate-lock-v1.json'
+      - 'scripts/audit_wp1_external_aggregates.py'
+      - 'tests/test_audit_wp1_external_aggregates.py'
+      - '.github/workflows/research-wp1-external-evidence-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: Pure-stdlib synthetic fail-closed report tests
+        run: python -m unittest discover -s tests -p 'test_audit_wp1_external_aggregates.py' -v
+      - name: Download historical MTT result artifact (NOT audio)
+        uses: actions/download-artifact@v4
+        with:
+          name: research-mtt-audio-vs-heads-aggregate-only
+          run-id: 39619708040
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: archive-inputs/mtt
+      - name: Download historical FMA screened validation result artifact (NOT audio)
+        uses: actions/download-artifact@v4
+        with:
+          name: fma-80-embedding-vs-heads-aggregate
+          run-id: 39625087310
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: archive-inputs/fma
+      - name: Download historical DEAM benchmark result artifact (NOT audio)
+        uses: actions/download-artifact@v4
+        with:
+          name: deam-aggregate-similarity-report
+          run-id: 39579552118
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: archive-inputs/deam
+      - name: Reproduce public evidence from SHA256-locked JSON aggregate members
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/audit_wp1_external_aggregates.py \
+            --lock research/wp1-e1-external-aggregate-lock-v1.json \
+            --mtt-zip archive-inputs/mtt/results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json \
+            --fma-zip archive-inputs/fma/fma-80-embedding-vs-heads-aggregate.json \
+            --deam-zip archive-inputs/deam/deam-summary.json \
+            --out results/wp1-e1-verified-external-evidence.json
+          python -c "import json; d=json.load(open('results/wp1-e1-verified-external-evidence.json')); assert not d['unmeasured_global_fusions_imputed']; assert not d['cross_task_score_averaged']; print('Historical public aggregate replay PASS; no global pair-fusion measurements invented.')"
+      - name: Publish anonymized numeric evidence report only
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e1-verified-public-external-evidence
+          path: results/wp1-e1-verified-external-evidence.json
+          if-no-files-found: error
+          retention-days: 30
