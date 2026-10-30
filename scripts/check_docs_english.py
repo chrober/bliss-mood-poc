@@ -31,7 +31,7 @@ GERMAN = re.compile(
 )
 FENCE = re.compile(r"^\s*(?:`{3,}|~{3,})")
 INLINE = re.compile(r"`[^`]*`")
-URL = re.compile(r"https?://\\S+")
+URL = re.compile(r"https?://\S+")
 
 # One intentionally German-language, user-facing operator guide. All
 # other research documentation still obeys the original English-only gate.
