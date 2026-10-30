@@ -86,6 +86,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wp1-e1-e3-verified-public-aggregates-and-sharp-bounds
-          path: results/wp1-e1-verified-external-evidence.json
+          path: |
+            results/wp1-e1-verified-external-evidence.json
+            results/wp1-e3-sharp-matched-bounds.json
           if-no-files-found: error
           retention-days: 30
