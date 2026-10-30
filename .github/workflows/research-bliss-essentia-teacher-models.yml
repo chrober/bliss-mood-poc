@@ -20,6 +20,9 @@ on:
       - 'scripts/prepare_wp3_independent_cohort_windows.ps1'
       - 'scripts/prepare_wp3_blinded_bliss_student_pilot.py'
       - 'scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1'
+      - 'scripts/wp3_r6_native_240.py'
+      - 'scripts/evaluate_wp3_r6_240.py'
+      - 'scripts/run_wp3_r6_native_240_windows.ps1'
       - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
       - 'tests/test_research_bliss_only_teacher_geometry.py'
@@ -31,11 +34,13 @@ on:
       - 'tests/test_verify_wp3_copied_lyrion_sqlite.py'
       - 'tests/test_prepare_wp3_independent_cohort.py'
       - 'tests/test_prepare_wp3_blinded_bliss_student_pilot.py'
+      - 'tests/test_wp3_r6_native_240.py'
       - 'tests/create_wp3_metadata_ci_fixture.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
       - 'research/requirements-wp3-py315.txt'
       - 'research/wp3-moodtheme-student-candidate-v1.json'
+      - 'research/wp3-r6-full-teacher-evaluation-v1.json'
       - '.github/workflows/research-bliss-essentia-teacher-models.yml'
   workflow_dispatch:
 
@@ -115,6 +120,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_prepare_wp3_independent_cohort.py' -v
       - name: Blind source-disjoint NEW 240 Bliss cohort vs fixed student (synthetic only)
         run: python -m unittest discover -s tests -p 'test_prepare_wp3_blinded_bliss_student_pilot.py' -v
+      - name: Verify exact 240 original C++ synthetic native feature/embedding gate and frozen teacher evaluation schema
+        run: python -m unittest discover -s tests -p 'test_wp3_r6_native_240.py' -v
       - name: Validate read-only copied Lyrion metadata SQLite (synthetic)
         run: python -m unittest discover -s tests -p 'test_verify_wp3_copied_lyrion_sqlite.py' -v
       - name: Build synthetic local metadata for Windows 5.1/7 argument smoke
@@ -260,5 +267,10 @@ jobs:
           $pilot = Join-Path (Get-Location).Path 'scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1'
           $null = [System.Management.Automation.Language.Parser]::ParseFile($pilot, [ref]$tokens, [ref]$errors)
           if ($errors.Count -ne 0) { throw 'WP3 blinded student pilot Windows PowerShell wrapper has syntax errors.' }
+          $errors = $null
+          $tokens = $null
+          $native240 = Join-Path (Get-Location).Path 'scripts/run_wp3_r6_native_240_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($native240, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'WP3 R6 240-song native C++ research wrapper has syntax errors.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
