@@ -54,7 +54,8 @@ class Wp1E3AggregateOnlyTests(unittest.TestCase):
         self.assertFalse(result["confidence_interval_or_significance_computed"])
         report=json.dumps(result)
         self.assertNotIn("SECRET_SONG_ID",report)
-        self.assertNotIn("pair_number",report)
+        self.assertNotIn('"pair_number": 2',report)
+        self.assertEqual(result["preserved_original_nonmusic_pair_number"],10)
         self.assertNotIn("largest_rank_disagreements",report)
         for model in p.MODELS:
             for dimension in p.RATINGS:
