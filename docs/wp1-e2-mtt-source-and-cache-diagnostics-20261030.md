@@ -37,6 +37,16 @@ The script reports errors without exposing the selected clip identity or origina
 
 This establishes that a tiny source Range probe works, **not** that 1,019 sparse clip downloads will work. The expanded same-branch CRC one-member test is the next source diagnostic and is separately labelled.
 
+### Verified second diagnostic: 41060333623
+
+[GitHub Actions 41060333623](https://github.com/chrober/bliss-mood-poc/actions/runs/41060333623) **PASS** on Linux/Windows synthetic gates and real network:
+- Current-branch cache again absent, all three official 4-KiB multipart probes PASS.
+- Official comparisons, clip catalog SHA256 and 8-MiB archive tail validated.
+- One deterministically selected member from the registered 1,019 clips fetched with **one** HTTP-206 Range request (116,178 bytes), verified against its ZIP local header, original decompressed member length and CRC.
+- **No new MTT similarity results**: one authenticated clip demonstrates the exact sparse source implementation works, but does not prove 1,019 clips or long-running source availability.
+
+The extended [same-branch 30-clip stress gate](../.github/workflows/research-wp1-e2-source-diagnostic.yml) now selects ten registered clips per each archive part, interleaves them, enforces original 3.5-second request spacing, CRC-checks every individual clip, and reports only counts/failure reason. No audio or per-track identifiers are saved as artifacts. Its success or partial stop must not be described as a full public MTT fusion evaluation.
+
 ## Scientific next action once source is sufficiently reliable
 
 Only when source access (or an independently documented lawful, checksum-verified existing curated cache) is verified should the predeclared [global pair-fusion MTT runner](../.github/workflows/research-global-pair-fusion-mtt.yml) be attempted. Require the identical 1,019 clips and 293 decisive human triplets, same original Genre87/Mood56/Embedding1280, all four fixed globally comparable pairwise fusion scores, complete coverage/tie rates, paired discordance/sensitivity and original baseline replays. No trained weights, no changed metric choices, no fake holdout, no new manual listening. Keep FMA TEST untouched; DEAM and FMA external tasks stay separate.
