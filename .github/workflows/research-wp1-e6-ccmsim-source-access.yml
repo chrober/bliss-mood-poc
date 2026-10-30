@@ -1,0 +1,76 @@
+name: WP1-E6 CCMSim legal-access and source-pair coverage preflight
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/audit_wp1_e4_ccmsim_metadata.py'
+      - 'scripts/audit_wp1_e6_ccmsim_source_coverage.py'
+      - 'tests/test_audit_wp1_e4_ccmsim_metadata.py'
+      - 'tests/test_audit_wp1_e6_ccmsim_source_coverage.py'
+      - '.github/workflows/research-wp1-e6-ccmsim-source-access.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: Synthetic source subset and no-audio-rights tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify no rights inference, no missing pairs and no private output
+        run: python -m unittest discover -s tests -p 'test_audit_wp1_e6_ccmsim_source_coverage.py' -v
+
+  public_annotation_metadata:
+    name: Frozen public aggregate pair source coverage (NOT audio)
+    needs: offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Re-verify upstream pinned two public annotations/mapping and count source subsets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/audit_wp1_e6_ccmsim_source_coverage.py --out results/wp1-e6-source-subset-counts-only.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/wp1-e6-source-subset-counts-only.json")
+          r=json.loads(p.read_text())
+          x=r["fixed_upper_bound_subsets"]
+          assert r["annotated_human_pairs"]==1130
+          assert r["annotated_audio_clips"]==463
+          assert r["source_pair_category_count"]==45
+          assert x["fma_only"]["pair_upper_bound"]==11
+          assert x["mtt_only"]["pair_upper_bound"]==10
+          assert x["fma_plus_mtt"]["pair_upper_bound"]==46
+          assert x["fma_plus_mtt_plus_lyra"]["pair_upper_bound"]==106
+          assert not r["source_probe_or_audio_download_performed"]
+          assert not r["third_party_audio_license_cleared"]
+          assert not r["general_metric_selected"]
+          for forbidden in [b"survey_audio_id", b"audio_file_path",
+                            b"original_music_path", b"participant_id"]:
+              assert forbidden not in p.read_bytes()
+          print("WP1-E6 source upper bounds PASS. No same-song features or rights inferred.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e6-anonymized-source-pair-ceilings-only
+          path: results/wp1-e6-source-subset-counts-only.json
+          retention-days: 30
+          if-no-files-found: error
