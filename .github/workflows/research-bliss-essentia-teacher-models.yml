@@ -35,6 +35,7 @@ on:
       - 'tests/test_prepare_wp3_independent_cohort.py'
       - 'tests/test_prepare_wp3_blinded_bliss_student_pilot.py'
       - 'tests/test_wp3_r6_native_240.py'
+      - 'tests/test_evaluate_wp3_r6_240.py'
       - 'tests/create_wp3_metadata_ci_fixture.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
@@ -122,6 +123,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_prepare_wp3_blinded_bliss_student_pilot.py' -v
       - name: Verify exact 240 original C++ synthetic native feature/embedding gate and frozen teacher evaluation schema
         run: python -m unittest discover -s tests -p 'test_wp3_r6_native_240.py' -v
+      - name: Numerically validate frozen 100-to-240 student/PLS teacher proxy report and tamper gates (synthetic)
+        run: python -m unittest discover -s tests -p 'test_evaluate_wp3_r6_240.py' -v
       - name: Validate read-only copied Lyrion metadata SQLite (synthetic)
         run: python -m unittest discover -s tests -p 'test_verify_wp3_copied_lyrion_sqlite.py' -v
       - name: Build synthetic local metadata for Windows 5.1/7 argument smoke
