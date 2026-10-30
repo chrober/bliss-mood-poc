@@ -1,0 +1,33 @@
+# WP2-P3: fictional grouped Personal Metric Learning curves (30 October 2026)
+
+## Purpose, scope and provenance
+
+This is a research-only **fully synthetic** demonstration of the optional Personal Metric layer in the accepted [General-first / Personal-blend design](similarity-general-personal-blending-architecture.md). It does not select, replace or modify WP1's General Metric, the existing BlissMixerLab `learned_blend`, production Lyrion, or the separate `chrober/bliss-learner` Rust implementation.
+
+Source: [synthetic learner and simulator](../scripts/research_personal_synthetic_metric_learning.py). [Regression tests](../tests/test_research_personal_synthetic_metric_learning.py). The [existing WP2/WP3 isolated Linux/Windows CI](../.github/workflows/research-bliss-personal-contracts.yml) produces an optional non-identifying fictional learning-curve JSON aggregate. No audio, private Bliss database, original artist metadata, real ratings, user identities, original legacy matrix weights, ONNX, or model installation are used. No training on the already-explored private R6 cohort or public MTT human votes.
+
+**Boundary:** it tests implementation capacity, group separation, feature/matrix format and query-wide blend fallback—not whether a person likes the learned songs. All hypothetical results are synthetic and do not establish predictive music quality or an independently validated personal learner.
+
+## Frozen synthetic study
+
+- Two predeclared fictional target regimes: `axis_sparse` with strong diagonal relevance on four of 23 fictional numerical features; `cross_feature` with the same base plus a fictional interaction of dimensions 4 and 5.
+- Deterministic Python stdlib pseudo-random data, seed 20261030; **48 identity groups**, 6 fictional tracks/group, 8 fictional triplet comparisons/group (384 comparisons). Within each synthetic group, artist and album are shared and every recording has a distinct ID. No triplet crosses group boundaries.
+- The existing [strict group/role partition](../scripts/research_grouped_split.py) separates both train and holdout across artist/album/recording/triplet-connected components; exactly the same fixed holdout is used for all methods and all training set sizes. Connected-component overlaps cause a fail-closed error; no random leakage-unsafe triplet split.
+- Fixed learning-curve checkpoints **0, 10, 25, 50, 100** training-only synthetic triplets drawn from a train-only deterministic order; held-out judgments are used for scoring **only**. At 0, every candidate returns the exact identity/General raw-Bliss scorer.
+- **Raw Bliss23:** untrained Euclidean identity matrix; **Diagonal:** 23 strictly positive learned nonnegative weights, L2 prior shrinkage toward identity, projective SGD on pairwise triplet logistic loss; **Diagonal+rank-2:** 23 positive diagonal weights plus two 23-component factors, giving an explicitly PSD (in fact positive-definite) 23×23 Mahalanobis form `M = diag(w) + L.T @ L`.
+- Both learner variants use the same fixed 28 epochs, learning rate 0.12, regularization 0.0015 and logistic margin 0.07, no hyperparameter search on test. The rank-2 variant is a restricted **illustrative 69-parameter capacity**, **not** the unchanged historical Rust full learned 23×23 optimization or its trained coefficients.
+- Triplet success means the designated similar pair has **strictly shorter squared distance than either other pair**. Ties/ambiguities count as incorrect; show common holdout denominator, correct count and accuracy for every method/checkpoint. The figures must not be presented as independent listener evaluation.
+- Fit code exports no 23×23 matrix, song keys or track features. It materializes the fictional matrix temporarily to check exact compatibility with [the existing legacy 23×23 PSD validator](../scripts/research_personal_triplet_protocol.py). Synthetic tests alter held-out labels and assert fitted models do not change.
+- The [existing full-query blend contract](../scripts/general_personal_blend_contract.py) is exercised with **fictional stipulated already-calibrated bounded scores** for settings 0/25/50/75/100; missing or uncertified personal evidence falls back exactly to General for the whole query, regardless of requested setting. The fictional booleans used to exercise successful branches **never** confer real quality or calibration certification.
+
+## How to interpret results
+
+Descriptive correctness on intentionally designed fictional axes does not validate personalization in music. Comparing 10 and 100 training judgments here is an engineering learning-curve exercise, not a threshold for activating personal learning. A flexible low-rank model may overfit or underfit depending on the fictional target and sample size; never tune production weights using these synthetic outcomes.
+
+A real Personal Metric requires a permissioned source of individual *triplet* preferences, verified identity/provenance, independent grouped train/validation/test partitions, score calibration on separate development evidence, repeated-question consistency, and demonstrable held-out incremental gain over an already independently selected General baseline. **The earlier 12 personally rated PAIRS are not fresh independently sampled personal training triplets**; the MTT votes are not personalized user labels. Ineligible/stale/incompatible per-user models must always trigger `alpha_effective = 0` on the whole query. The feature representation and candidate eligibility filters remain governed by the selected General/Bliss/Lyrion integration contracts; no runtime or UI changes are authorized here.
+
+## Concurrent WP1 status and next gate
+
+WP1 remains primary for default music quality. [WP1-E1 real external aggregate audit](wp1-e1-verified-public-benchmark-evidence-20261030.md) passed with different human odd-one-out / coarse genre / VA endpoints; no single General Metric was selected. [WP1-E2 actual publisher diagnostics](wp1-e2-mtt-source-and-cache-diagnostics-20261030.md) verified one original MTT MP3 ZIP member but failed sustained source access after 7 of 30 clips, so all four new global MTT pair-fusion values remain *unmeasured*. Do not run the full 1,019-clip workflow until a reproducibly reliable and legally appropriate input path exists. FMA official TEST remains reserved.
+
+The next WP2 step after synthetic model and fallback CI is **a separate, optional real-data provenance and calibration protocol**, with no compulsory listening, no source DB writes, no PR #16/main or external learner modifications. Actual human quality and deployment stay explicitly unverified.
