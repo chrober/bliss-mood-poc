@@ -1,0 +1,30 @@
+name: Research Lyrion General guidance shadow safety contract
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/research_lyrion_general_shadow_contract.py'
+      - 'tests/test_research_lyrion_general_shadow_contract.py'
+      - '.github/workflows/research-lyrion-general-shadow-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic_shadow_contract:
+    name: No-Lyrion offline shadow contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test full-query fail-closed / no playlist mutations / no song identifiers
+        run: python -m unittest discover -s tests -p 'test_research_lyrion_general_shadow_contract.py' -v
