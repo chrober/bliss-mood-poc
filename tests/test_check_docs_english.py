@@ -29,6 +29,25 @@ class DocumentationLanguageTests(unittest.TestCase):
             self.assertEqual(f[0][0],"docs/a.md")
             self.assertEqual(f[0][1],7)
 
+    def test_only_explicit_operator_guide_is_language_exempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (root / "README.md").write_text("# English research docs\\n", encoding="utf-8")
+            # The pre-existing user-facing export instructions are German.
+            (docs / "chatgpt-single-conversation-console-export.md").write_text(
+                "Diese Anleitung erklärt einen ChatGPT-Export.\\n", encoding="utf-8")
+            (docs / "research-review.md").write_text(
+                "This research note is written in English.\\n", encoding="utf-8")
+            self.assertEqual(failures(root), [])
+            # A German note elsewhere MUST still fail, including adjacent files.
+            (docs / "another-guide.md").write_text(
+                "Diese Anleitung muss überprüft werden.\\n", encoding="utf-8")
+            findings = failures(root)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0][0], "docs/another-guide.md")
+
     def test_current_tree_contains_no_known_german_prose(self):
         self.assertEqual(failures(Path(__file__).resolve().parents[1]), [])
 
