@@ -20,6 +20,23 @@ Source: [synthetic learner and simulator](../scripts/research_personal_synthetic
 - Fit code exports no 23×23 matrix, song keys or track features. It materializes the fictional matrix temporarily to check exact compatibility with [the existing legacy 23×23 PSD validator](../scripts/research_personal_triplet_protocol.py). Synthetic tests alter held-out labels and assert fitted models do not change.
 - The [existing full-query blend contract](../scripts/general_personal_blend_contract.py) is exercised with **fictional stipulated already-calibrated bounded scores** for settings 0/25/50/75/100; missing or uncertified personal evidence falls back exactly to General for the whole query, regardless of requested setting. The fictional booleans used to exercise successful branches **never** confer real quality or calibration certification.
 
+## Completed real execution of the fictional simulator (no music evidence)
+
+The code ran with the specified fictional data on **both Linux and Windows** in [successful WP2/WP3 CI 41062092138](https://github.com/chrober/bliss-mood-poc/actions/runs/41062092138). Exact heldout denominator: **96 fictional triplets**, from 12 identity-disjoint groups; 288 train triplets / 36 train groups. Results are reported with abstentions/ties counted as incorrect, no overlap in artists, albums, recording IDs or triplet families. Each row's training size is the number of *train-only fictional triplet answers*, not source audio tracks.
+
+| Synthetic target | Method | 0 | 10 | 25 | 50 | 100 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Axis-aligned sparse weights | Raw Bliss23 | 46.88% | 46.88% | 46.88% | 46.88% | 46.88% |
+| Axis-aligned sparse weights | Diagonal learned | 46.88% | 53.12% | 60.42% | 69.79% | **83.33%** |
+| Axis-aligned sparse weights | Diagonal + rank2 | 46.88% | 43.75% | 48.96% | 55.21% | 60.42% |
+| Cross-feature interaction | Raw Bliss23 | 50.00% | 50.00% | 50.00% | 50.00% | 50.00% |
+| Cross-feature interaction | Diagonal learned | 50.00% | 47.92% | 56.25% | 58.33% | 62.50% |
+| Cross-feature interaction | Diagonal + rank2 | 50.00% | 46.88% | 68.75% | 57.29% | **75.00%** |
+
+All values come from *intentionally designed artificial answers*. For the axis-aligned oracle, the regularized diagonal model is better suited and produces a smoother learning curve; for the fictional interaction, a rank2 correction can represent structure excluded from a pure diagonal model, though with finite-sample instability (50-answer dip). These comparisons measure software behavior, **not human music relevance**, do not support preferring the rank2 variant in production and do not select hyperparameters.
+
+The original Linux and Windows JSON parsed to the **identical structured numerical object**. Their original serialized bytes differed only in platform newline convention; the following dedicated commit standardized output files to LF to make exact binary reproduction additionally possible. That normalization does not change calculations.
+
 ## How to interpret results
 
 Descriptive correctness on intentionally designed fictional axes does not validate personalization in music. Comparing 10 and 100 training judgments here is an engineering learning-curve exercise, not a threshold for activating personal learning. A flexible low-rank model may overfit or underfit depending on the fictional target and sample size; never tune production weights using these synthetic outcomes.
