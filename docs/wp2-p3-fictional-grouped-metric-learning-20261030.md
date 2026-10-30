@@ -35,7 +35,7 @@ The code ran with the specified fictional data on **both Linux and Windows** in 
 
 All values come from *intentionally designed artificial answers*. For the axis-aligned oracle, the regularized diagonal model is better suited and produces a smoother learning curve; for the fictional interaction, a rank2 correction can represent structure excluded from a pure diagonal model, though with finite-sample instability (50-answer dip). These comparisons measure software behavior, **not human music relevance**, do not support preferring the rank2 variant in production and do not select hyperparameters.
 
-The original Linux and Windows JSON parsed to the **identical structured numerical object**. Their original serialized bytes differed only in platform newline convention; the following dedicated commit standardized output files to LF to make exact binary reproduction additionally possible. That normalization does not change calculations.
+Both platforms' updated [WP2/WP3 CI run 41062367997](https://github.com/chrober/bliss-mood-poc/actions/runs/41062367997) **PASSED**. After making output newline normalization explicit, the two generated aggregate JSON files were checked **byte-for-byte identical**, SHA-256 `f41689fee4765256b30d2671a67fa5b0d08c65e175d545f025fe7dfeda7f9fbe` (same hash independently on Windows and Linux). This is an engineering reproducibility result for fictional data only; numerical values above and all scientific limitations remain unchanged.
 
 ## How to interpret results
 
