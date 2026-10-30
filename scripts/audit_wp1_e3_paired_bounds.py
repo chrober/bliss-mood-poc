@@ -108,9 +108,8 @@ def report_from_verified_e1(e1: dict) -> dict:
     contrasts = {}
     for name in sorted(set(methods) - {REFERENCE}):
         candidate = methods[name]
-        if candidate["scorable"] != n or (
-                candidate["correct"] + candidate["incorrect"]
-                if "incorrect" in candidate else candidate["correct"]) > n:
+        if (candidate["scorable"] != n
+                or not 0 <= candidate["correct"] <= n):
             raise ValueError("Missing/invalid common MTT denominator")
         if (candidate["predicted"] + candidate["metric_ties"]
                 + candidate["undefined"] != n):
