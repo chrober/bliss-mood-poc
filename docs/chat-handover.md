@@ -82,7 +82,7 @@ lifecycle belongs to phase **6**, after all gates.
 4. **WP1 and WP2 remain active and separate:** retain usable General Metric when no personal labels exist; optional user-trained Personal Metric Learning, calibrated 0–100% General/Personal blending and safe full general fallback. Teacher-student WP3 does not replace WP1 or WP2. Avoid mandatory new listening before agreeing a focused evaluation plan.
 5. **Safety:** research branch `feat/general-pairwise-similarity-research` only; user commands complete Windows PowerShell blocks and existing Python 3.15, private feature SQLites/aggregate never uploaded or committed. No music rescans, LMS queue/service changes, external plugin deployment, main merge or PR #16 edit without explicit authority.
 
-## Latest result: human 12-pair pilot completed; ordinal evaluator ready (2026-10-28)
+## Historical result: human 12-pair pilot completed; ordinal evaluator ready (2026-10-28)
 
 **The user has completed all 12/12 human-rated song pairs**:
 24 distinct songs, 60/60 valid numerical values (four 1–5
