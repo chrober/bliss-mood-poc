@@ -22,6 +22,8 @@ on:
       - 'scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1'
       - 'scripts/wp3_r6_native_240.py'
       - 'scripts/evaluate_wp3_r6_240.py'
+      - 'scripts/evaluate_wp3_r7_240.py'
+      - 'scripts/run_wp3_r7_240_windows.ps1'
       - 'scripts/run_wp3_r6_native_240_windows.ps1'
       - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
@@ -36,6 +38,7 @@ on:
       - 'tests/test_prepare_wp3_blinded_bliss_student_pilot.py'
       - 'tests/test_wp3_r6_native_240.py'
       - 'tests/test_evaluate_wp3_r6_240.py'
+      - 'tests/test_evaluate_wp3_r7_240.py'
       - 'tests/create_wp3_metadata_ci_fixture.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
@@ -125,6 +128,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_wp3_r6_native_240.py' -v
       - name: Numerically validate frozen 100-to-240 student/PLS teacher proxy report and tamper gates (synthetic)
         run: python -m unittest discover -s tests -p 'test_evaluate_wp3_r6_240.py' -v
+      - name: Post-R6 group-bootstrap and teacher-neighbor retrieval (synthetic; no user data)
+        run: python -m unittest discover -s tests -p 'test_evaluate_wp3_r7_240.py' -v
       - name: Validate read-only copied Lyrion metadata SQLite (synthetic)
         run: python -m unittest discover -s tests -p 'test_verify_wp3_copied_lyrion_sqlite.py' -v
       - name: Build synthetic local metadata for Windows 5.1/7 argument smoke
@@ -275,5 +280,10 @@ jobs:
           $native240 = Join-Path (Get-Location).Path 'scripts/run_wp3_r6_native_240_windows.ps1'
           $null = [System.Management.Automation.Language.Parser]::ParseFile($native240, [ref]$tokens, [ref]$errors)
           if ($errors.Count -ne 0) { throw 'WP3 R6 240-song native C++ research wrapper has syntax errors.' }
+          $errors = $null
+          $tokens = $null
+          $r7 = Join-Path (Get-Location).Path 'scripts/run_wp3_r7_240_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($r7, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'WP3 R7 no-scan Windows launcher syntax invalid.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
