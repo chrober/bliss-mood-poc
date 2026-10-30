@@ -1,0 +1,53 @@
+name: Standalone Essentia Similarity migration rehearsal
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/bootstrap_essentia_similarity_repository.ps1'
+      - 'research/lyrion-similarity-engine/**'
+      - 'src/feature_lookup.rs'
+      - '.github/workflows/research-essentia-similarity-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare_and_test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: research/lyrion-similarity-engine
+      - name: Prepare independent workspace without GitHub credentials or mutations
+        shell: pwsh
+        env:
+          ESSENTIA_BOOTSTRAP_PREPARE_ONLY: '1'
+          ESSENTIA_BOOTSTRAP_SOURCE: ${{ github.workspace }}
+          ESSENTIA_BOOTSTRAP_OUTPUT: ${{ runner.temp }}/essentia-similarity-output
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/bootstrap_essentia_similarity_repository.ps1
+      - name: Test independent Rust workspace with original scanner SQLite fixtures
+        shell: bash
+        env:
+          BOOTSTRAP_OUTPUT: ${{ runner.temp }}/essentia-similarity-output
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path "$BOOTSTRAP_OUTPUT/Cargo.toml" --workspace --all-targets
+          cargo fmt --manifest-path "$BOOTSTRAP_OUTPUT/Cargo.toml" --all -- --check
+          test -f "$BOOTSTRAP_OUTPUT/crates/essentia-feature-store/src/lib.rs"
+          test -f "$BOOTSTRAP_OUTPUT/apps/essentia-similarity-shadow/src/main.rs"
+          ! grep -Eiq 'bliss_rank|admitted_by_bliss|lyrion_similarity_engine_research|mod feature_lookup' \
+            "$BOOTSTRAP_OUTPUT/crates/essentia-similarity-core/src/lib.rs" \
+            "$BOOTSTRAP_OUTPUT/apps/essentia-similarity-shadow/src/main.rs"
