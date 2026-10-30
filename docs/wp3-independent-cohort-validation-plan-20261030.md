@@ -1,5 +1,8 @@
 # WP3 R5: new independent cohort and frozen perceptual-evaluation protocol (30 October 2026)
 
+> **REAL SOURCE SELECTION COMPLETED — 30 Oct 2026:** Operator executed the Windows R5 planner and obtained 240 new, genuinely source-identity-disjoint Bliss23-valid candidate songs, exactly 15 in each of 16 seeded Tempo/centroid quartile bins. The real stdout confirms old 100 song exclusion, no credited artist/album/MBID overlap with prior research or within selected 240, 77,517 snapshot keys, 10,064 without valid unique Bliss23, 12,374 shared prior identities, 1,186 unverifiable recording MBID, and 725 missing artist metadata. A UNIQUE ignored private manifest was created at `benchmark-wp3-independent-cohort-586d7988747e4087b9cf1315492a34fc/private-independent-cohort.json`; it stays local and must not be shared. No audio analysis, Essentia inference, listening evaluation or production changes occurred. The next *optional* step is a sealed, [research-only 24-pair Bliss versus MoodTheme Ridge blind pilot](wp3-blind-student-validation-pilot-20261030.md), trained on original 100 and applied only to existing 240-song Bliss23; this too is preparatory, not human-quality evidence.
+
+
 ## Decision and source evidence
 
 The **first real 100-song WP3 teacher study is finished**, with 88
