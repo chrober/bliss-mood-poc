@@ -7,6 +7,7 @@ on:
       - 'research/wp1-e1-external-aggregate-lock-v1.json'
       - 'scripts/audit_wp1_external_aggregates.py'
       - 'scripts/audit_wp1_e3_paired_bounds.py'
+      - 'scripts/run_wp1_e3_local12_windows.ps1'
       - 'tests/test_audit_wp1_external_aggregates.py'
       - 'tests/test_audit_wp1_e3_paired_bounds.py'
       - '.github/workflows/research-wp1-external-evidence-replay.yml'
@@ -91,3 +92,20 @@ jobs:
             results/wp1-e3-sharp-matched-bounds.json
           if-no-files-found: error
           retention-days: 30
+
+  local_pilot_parser:
+    name: Windows PowerShell syntax-only check, no human data
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse optional private 12-pair launcher WITHOUT executing it
+        shell: pwsh
+        run: |
+          $Errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path (Get-Location) 'scripts/run_wp1_e3_local12_windows.ps1'),
+              [ref]$null,
+              [ref]$Errors)
+          if ($Errors.Count -ne 0) { throw "Invalid WP1-E3 PowerShell: $Errors" }
+          Write-Host 'WP1-E3 local launcher syntax PASS (no access to user data).'
