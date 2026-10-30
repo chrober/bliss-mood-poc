@@ -1,0 +1,66 @@
+name: WP1-E4 new human similarity reference - CCMSim metadata only
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/audit_wp1_e4_ccmsim_metadata.py'
+      - 'tests/test_audit_wp1_e4_ccmsim_metadata.py'
+      - '.github/workflows/research-wp1-e4-ccmsim-metadata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: Source/rights fail-closed tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Offline synthetic provenance, group-count and privacy gates
+        run: python -m unittest discover -s tests -p 'test_audit_wp1_e4_ccmsim_metadata.py' -v
+
+  public_aggregate_metadata_only:
+    name: Pinned, aggregated human similarity provenance (NOT audio or model)
+    needs: synthetic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Fetch only two CC BY 4.0 upstream CSVs, verify immutable Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/audit_wp1_e4_ccmsim_metadata.py --out results/wp1-e4-ccmsim-human-labels-metadata-only.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("results/wp1-e4-ccmsim-human-labels-metadata-only.json").read_text())
+          assert r["published_unique_annotated_pairs"]==1130
+          assert r["single_annotator_pair_fraction"] > .90
+          assert r["human_rater_ids_or_raw_votes_or_clip_paths_in_output"] is False
+          assert r["general_metric_selected"] is False
+          with open("results/wp1-e4-ccmsim-human-labels-metadata-only.json", "rb") as f:
+              assert b"audio_file_path" not in f.read()
+          print("WP1-E4 metadata-only external human reference PASS; NO acoustic measurement.")
+          PY
+      - name: Publish ONLY aggregate cohort counts, not source CSVs or individual labels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e4-ccmsim-public-human-reference-metadata-only
+          path: results/wp1-e4-ccmsim-human-labels-metadata-only.json
+          retention-days: 30
+          if-no-files-found: error
