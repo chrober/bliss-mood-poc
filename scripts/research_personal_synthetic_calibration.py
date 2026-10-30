@@ -74,11 +74,18 @@ def split_four_ways(triplets, metadata, seed=SEED):
 def group_pairs(triplets, features, metadata, indices, scenario):
     """Every pair once per disjoint six-song group, no duplicate question weights."""
     keys = {track for index in indices for track in triplets[index]}
+    if any(key not in features or key not in metadata for key in keys):
+        raise ValueError("Required synthetic feature/identity missing")
+    included_groups = {metadata[key]["artist_group"] for key in keys}
+    # The held-out unit is a whole source group: include every one of its
+    # six songs, even if one was not sampled into the eight triplets.
     by_group = {}
-    for key in keys:
-        if key not in features or key not in metadata:
-            raise ValueError("Required synthetic feature/identity missing")
-        by_group.setdefault(metadata[key]["artist_group"], []).append(key)
+    for key in sorted(metadata):
+        group = metadata[key]["artist_group"]
+        if group in included_groups:
+            if key not in features:
+                raise ValueError("Complete grouped pair catalog missing feature")
+            by_group.setdefault(group, []).append(key)
     samples = []
     for group in sorted(by_group):
         names = sorted(by_group[group])
