@@ -103,7 +103,9 @@ class IndependentCohortTests(unittest.TestCase):
         self.assertTrue(report["mutually_nonoverlapping_artist_album_recording_identities"])
         self.assertTrue(report["essentia_on_new_songs_available"] is False)
         selected={r["track_file"] for r in man["selected_songs"]}
-        for i in range(7):
+        # Index zero is intentionally an ordinary valid fresh candidate.
+        # Only indices 1..6 exercise exclusion cases.
+        for i in range(1,7):
             self.assertNotIn(self.candidate_names[i],selected)
         artist=set()
         album=set()
