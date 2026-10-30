@@ -1,0 +1,75 @@
+name: WP1-E2 MTT source availability - diagnostic only
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/probe_wp1_e2_mtt_source.py'
+      - 'tests/test_probe_wp1_e2_mtt_source.py'
+      - '.github/workflows/research-wp1-e2-source-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: Metadata-only source-gate tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: Verify bounded HTTP protocol and no false quality inference
+        run: python -m unittest discover -s tests -p 'test_probe_wp1_e2_mtt_source.py' -v
+
+  network_diagnostic:
+    name: Public HTTP-206 tiny probes and branch cache LOOKUP ONLY
+    needs: synthetic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: Lookup this branch's curated cache without downloading or saving it
+        id: clip_cache
+        uses: actions/cache/restore@v4
+        with:
+          lookup-only: true
+          path: benchmark-private/mtt-required-1019-clips.zip
+          key: mtt-1019-clips-v1-cf210e087ed5-cb6108a10d3a-2972769864
+      - name: Three exact bounded HTTP-206 probes; no audio files persisted
+        env:
+          WP1_CACHE_HIT: ${{ steps.clip_cache.outputs.cache-hit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/probe_wp1_e2_mtt_source.py \
+            --cache-hit "$WP1_CACHE_HIT" \
+            --out results/wp1-e2-source-availability.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/wp1-e2-source-availability.json').read_text())
+          import os
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write('### WP1-E2 public source access (diagnostic, NOT fusion results)\n\n')
+              f.write('- Scoped cache lookup: '+r['scoped_cache_lookup']+'\n')
+              f.write('- Source status: '+r['status']+'\n')
+              f.write('- Probes: '+', '.join(str(p['part'])+': '+p['status'] for p in r['probes'])+'\n')
+              f.write('- Only three 4-KiB ranges checked; 1,019 clips not tested.\n')
+          PY
+      - name: Publish ONLY anonymized access status (no audio, song IDs, vectors)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e2-public-source-readiness-only
+          path: results/wp1-e2-source-availability.json
+          retention-days: 14
