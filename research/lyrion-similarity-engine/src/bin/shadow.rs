@@ -12,8 +12,7 @@
 mod feature_lookup;
 
 use lyrion_similarity_engine_research::{
-    compare_full_candidate_pool, geometric_similarity, Metric,
-    RankedCandidate, ShadowRankSummary,
+    compare_full_candidate_pool, geometric_similarity, Metric, RankedCandidate, ShadowRankSummary,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -149,13 +148,19 @@ fn run(request: &Request) -> Result<Report, &'static str> {
         .collect::<Vec<_>>();
 
     let fetched = match feature_lookup::inspect(
-        Path::new(&request.feature_database), &keys, &request.model_id,
+        Path::new(&request.feature_database),
+        &keys,
+        &request.model_id,
         request.experimental_preview_opt_in,
     ) {
         Ok(rows) if rows.len() == n + 1 => rows,
-        _ => return Ok(neutral(n, request.experimental_preview_opt_in, vec![
-            "read_only_sidecar_unavailable_or_schema_mismatch"
-        ])),
+        _ => {
+            return Ok(neutral(
+                n,
+                request.experimental_preview_opt_in,
+                vec!["read_only_sidecar_unavailable_or_schema_mismatch"],
+            ))
+        }
     };
 
     let mut reasons = Vec::new();
@@ -167,8 +172,14 @@ fn run(request: &Request) -> Result<Report, &'static str> {
             continue;
         };
         match head.status {
-            "missing" => { reasons.push("feature_row_missing"); continue; }
-            "invalid" => { reasons.push("invalid_feature_row"); continue; }
+            "missing" => {
+                reasons.push("feature_row_missing");
+                continue;
+            }
+            "invalid" => {
+                reasons.push("invalid_feature_row");
+                continue;
+            }
             "unvalidated" => {
                 reasons.push("essentia_reference_validation_missing");
                 continue;
@@ -178,7 +189,10 @@ fn run(request: &Request) -> Result<Report, &'static str> {
                 continue;
             }
             "validated" | "experimental" => {}
-            _ => { reasons.push("unexpected_feature_status"); continue; }
+            _ => {
+                reasons.push("unexpected_feature_status");
+                continue;
+            }
         }
         if head.model_key.as_deref() != Some(request.expected_model_key.as_str()) {
             reasons.push("feature_model_fingerprint_mismatch");
@@ -210,15 +224,26 @@ fn run(request: &Request) -> Result<Report, &'static str> {
     for (c, vector) in request.candidates.iter().zip(arrays.iter().skip(1)) {
         let score = match geometric_similarity(anchor, vector, metric) {
             Ok(score) => score,
-            Err(_) => return Ok(neutral(n, request.experimental_preview_opt_in,
-                                        vec!["degenerate_or_invalid_geometry"])),
+            Err(_) => {
+                return Ok(neutral(
+                    n,
+                    request.experimental_preview_opt_in,
+                    vec!["degenerate_or_invalid_geometry"],
+                ))
+            }
         };
-        ranked.push(RankedCandidate { bliss_rank: c.bliss_rank, shadow_score: score });
+        ranked.push(RankedCandidate {
+            bliss_rank: c.bliss_rank,
+            shadow_score: score,
+        });
     }
     match compare_full_candidate_pool(&ranked) {
         Ok(summary) => Ok(preview(n, request.experimental_preview_opt_in, summary)),
-        Err(_) => Ok(neutral(n, request.experimental_preview_opt_in,
-                             vec!["invalid_complete_shadow_ranking"])),
+        Err(_) => Ok(neutral(
+            n,
+            request.experimental_preview_opt_in,
+            vec!["invalid_complete_shadow_ranking"],
+        )),
     }
 }
 
@@ -274,9 +299,13 @@ mod tests {
     }
     fn fixture(validated: i64) -> TempSidecar {
         let micros = SystemTime::now()
-            .duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let file = std::env::temp_dir()
-            .join(format!("lyrion-shadow-fictional-{}-{micros}.sqlite", std::process::id()));
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let file = std::env::temp_dir().join(format!(
+            "lyrion-shadow-fictional-{}-{micros}.sqlite",
+            std::process::id()
+        ));
         let conn = Connection::open(&file).unwrap();
         // Compatible with the scanner's real read-only SELECT and v3 version.
         conn.execute_batch(
@@ -291,25 +320,36 @@ mod tests {
                 capability TEXT NOT NULL, model_key TEXT NOT NULL,
                 scores_f32_le BLOB NOT NULL,
                 PRIMARY KEY(track_file, model_id)
-             );"
-        ).unwrap();
+             );",
+        )
+        .unwrap();
         let labels = (0..87).map(|x| format!("label{x:03}")).collect::<Vec<_>>();
         conn.execute(
             "INSERT INTO feature_models VALUES (?1,?2,?3,?4,?5)",
-            params!["fake-pinned-model-key", "fixed-preprocess-v1", "patch-mean",
-                    serde_json::to_string(&labels).unwrap(), validated],
-        ).unwrap();
-        for (track, shift) in [("artist/anchor.flac", 0), ("artist/one.flac", 7),
-                               ("artist/two.flac", 21), ("artist/three.flac", 42)] {
-            let values = (0..87).map(|j| {
-                0.05 + (((j + shift) * 31) % 83) as f32 / 100.0
-            }).collect::<Vec<_>>();
-            let bytes: Vec<u8> = values.iter()
-                .flat_map(|x| x.to_le_bytes()).collect();
+            params![
+                "fake-pinned-model-key",
+                "fixed-preprocess-v1",
+                "patch-mean",
+                serde_json::to_string(&labels).unwrap(),
+                validated
+            ],
+        )
+        .unwrap();
+        for (track, shift) in [
+            ("artist/anchor.flac", 0),
+            ("artist/one.flac", 7),
+            ("artist/two.flac", 21),
+            ("artist/three.flac", 42),
+        ] {
+            let values = (0..87)
+                .map(|j| 0.05 + (((j + shift) * 31) % 83) as f32 / 100.0)
+                .collect::<Vec<_>>();
+            let bytes: Vec<u8> = values.iter().flat_map(|x| x.to_le_bytes()).collect();
             conn.execute(
                 "INSERT INTO feature_tracks VALUES (?1,?2,?3,?4,?5)",
                 params![track, "genre", "genre", "fake-pinned-model-key", bytes],
-            ).unwrap();
+            )
+            .unwrap();
         }
         drop(conn);
         TempSidecar(file)
@@ -326,13 +366,15 @@ mod tests {
             expected_model_key: "fake-pinned-model-key".into(),
             experimental_preview_opt_in: false,
             candidates: ["artist/one.flac", "artist/two.flac", "artist/three.flac"]
-                .into_iter().enumerate()
+                .into_iter()
+                .enumerate()
                 .map(|(i, track_file)| Candidate {
                     candidate_id: format!("anonymous-synthetic-candidate-{i}"),
                     track_file: track_file.to_string(),
                     bliss_rank: i,
                     admitted_by_bliss: true,
-                }).collect(),
+                })
+                .collect(),
         }
     }
 
@@ -352,8 +394,9 @@ mod tests {
         assert!(!report.spi_v2_provider_implemented);
         // Original sidecar remains queryable and unchanged.
         let conn = Connection::open(&fixture.0).unwrap();
-        let n: i64 = conn.query_row("SELECT count(*) FROM feature_tracks",
-                                    [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM feature_tracks", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 4);
     }
 
@@ -369,7 +412,9 @@ mod tests {
         req.candidates[1].track_file = "artist/two.flac".into();
         req.expected_model_key = "wrong-fingerprint".into();
         let res = run(&req).unwrap();
-        assert!(res.neutral_reasons.contains(&"feature_model_fingerprint_mismatch"));
+        assert!(res
+            .neutral_reasons
+            .contains(&"feature_model_fingerprint_mismatch"));
     }
 
     #[test]
@@ -377,7 +422,9 @@ mod tests {
         let f = fixture(0);
         let mut req = request(&f);
         let res = run(&req).unwrap();
-        assert!(res.neutral_reasons.contains(&"essentia_reference_validation_missing"));
+        assert!(res
+            .neutral_reasons
+            .contains(&"essentia_reference_validation_missing"));
         req.experimental_preview_opt_in = true;
         let res = run(&req).unwrap();
         assert!(res.shadow_reranking_eligible);
@@ -391,8 +438,9 @@ mod tests {
         let mut req = request(&f);
         req.feature_database.push_str(".does-not-exist");
         let res = run(&req).unwrap();
-        assert!(res.neutral_reasons.contains(
-            &"read_only_sidecar_unavailable_or_schema_mismatch"));
+        assert!(res
+            .neutral_reasons
+            .contains(&"read_only_sidecar_unavailable_or_schema_mismatch"));
         assert_eq!(res.top5_overlap, None);
     }
 
@@ -401,13 +449,22 @@ mod tests {
         let f = fixture(1);
         let mut req = request(&f);
         req.candidates[0].admitted_by_bliss = false;
-        assert_eq!(run(&req).err(), Some("untrusted_or_duplicate_candidate_pool"));
+        assert_eq!(
+            run(&req).err(),
+            Some("untrusted_or_duplicate_candidate_pool")
+        );
         let mut req = request(&f);
         req.mode = "queue_apply".into();
-        assert_eq!(run(&req).err(), Some("only_versioned_shadow_mode_is_supported"));
+        assert_eq!(
+            run(&req).err(),
+            Some("only_versioned_shadow_mode_is_supported")
+        );
         let mut req = request(&f);
         req.candidates[0].bliss_rank = 1;
-        assert_eq!(run(&req).err(), Some("untrusted_or_duplicate_candidate_pool"));
+        assert_eq!(
+            run(&req).err(),
+            Some("untrusted_or_duplicate_candidate_pool")
+        );
         let mut req = request(&f);
         req.model_id = "embedding".into();
         assert_eq!(run(&req).err(), Some("unsupported_sidecar_head"));
