@@ -73,7 +73,7 @@ def spearman(x,y):
         return None
     return math.fsum((p-ax)*(q-by) for p,q in zip(a,b))/math.sqrt(va*vb)
 
-def replay(mapping_raw,human_raw,combined_raw):
+def replay(mapping_raw,human_raw,combined_raw,*, expected_source_counts=(112,1018)):
     upstream=profile(mapping_raw,human_raw)
     mapping=read_csv(mapping_raw,MAPPING_COLUMNS)
     annotations=read_csv(human_raw,LABEL_COLUMNS)
@@ -110,8 +110,9 @@ def replay(mapping_raw,human_raw,combined_raw):
                 raise ValueError("Invalid original published model score")
         data["all_published_pairs"].append(row)
         data[stratum].append(row)
-    if (len(visited)!=1130 or observed["within_source_only"]!=112
-        or observed["cross_source_only"]!=1018):
+    if (len(visited)!=1130 or observed["within_source_only"]!=expected_source_counts[0]
+        or observed["cross_source_only"]!=expected_source_counts[1]
+        or sum(expected_source_counts)!=1130):
         raise ValueError("Original human-model source coverage changed")
     metrics={}
     for cohort in SAMPLES:
