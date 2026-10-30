@@ -1,0 +1,70 @@
+name: WP1-E5 CCMSim clip-disjoint feasibility (human labels unseen)
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/audit_wp1_e4_ccmsim_metadata.py'
+      - 'scripts/audit_wp1_e5_ccmsim_clip_splits.py'
+      - 'tests/test_audit_wp1_e4_ccmsim_metadata.py'
+      - 'tests/test_audit_wp1_e5_ccmsim_clip_splits.py'
+      - '.github/workflows/research-wp1-e5-ccmsim-splits.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: Strict synthetic clip-source disjoint split tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: No-network provenance, leakage, label-blindness and privacy regression
+        run: python -m unittest discover -s tests -p 'test_audit_wp1_e5_ccmsim_clip_splits.py' -v
+
+  pinned_published_pair_structure:
+    name: Actual pinned public pair graph, no human scores or audio
+    needs: offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify exact aggregated upstream CSV blobs and compute fixed 5-seed partitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/audit_wp1_e5_ccmsim_clip_splits.py --out results/wp1-e5-ccmsim-clip-disjoint-meta-only.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/wp1-e5-ccmsim-clip-disjoint-meta-only.json")
+          r=json.loads(p.read_text())
+          assert r["published_unique_pairs"] == 1130
+          assert r["annotated_distinct_clips"] == 463
+          assert len(r["results"]) == 10
+          assert r["source_clip_ids_or_pair_ids_or_human_labels_exported"] is False
+          assert r["third_party_audio_requested"] is False
+          assert r["any_model_fitted_or_selected"] is False
+          assert b"survey_audio_id" not in p.read_bytes()
+          print("WP1-E5 source-label-blind partition feasibility computed; NOT a score benchmark.")
+          PY
+      - name: Publish aggregate split coverage ONLY (no clip ID/pair/rating/audio)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e5-ccmsim-clip-disjoint-coverage-only
+          path: results/wp1-e5-ccmsim-clip-disjoint-meta-only.json
+          retention-days: 30
+          if-no-files-found: error
