@@ -123,6 +123,20 @@ jobs:
             --clips benchmark-metadata/clip_info_final.csv \
             --out results/wp1-e2-one-clip-access.json
           # A blocked one-clip result is a diagnostic, NOT a successful benchmark.
+      - name: CRC-check 10 immutable member selections per original ZIP part (30 total)
+        if: steps.tiny_gate.outputs.all_ranges == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r p1 p2 p3 < benchmark-metadata/parts.txt
+          python scripts/probe_wp1_e2_mtt_member.py \
+            --tail benchmark-metadata/zip-tail.bin \
+            --part-sizes "$p1" "$p2" "$p3" \
+            --comparisons benchmark-metadata/comparisons_final.csv \
+            --clips benchmark-metadata/clip_info_final.csv \
+            --sample-per-part 10 \
+            --out results/wp1-e2-30clip-crc-sample.json
+          # An incomplete sample remains an explicit negative readiness result.
       - name: Publish ONLY anonymized access status (no audio, song IDs, vectors)
         uses: actions/upload-artifact@v4
         with:
