@@ -202,7 +202,7 @@ def _stored(plan: dict, name: str, path: Path) -> None:
         raise ValueError("Frozen source or tool drift after preparation")
 
 
-def verify(args) -> dict:
+def verify(args, *, require_outputs: bool = True) -> dict:
     folder=args.plan_dir
     plan=_private_json(folder/"private-scan-plan.json")
     if plan.get("schema")!=SCHEMA or plan.get("songs")!=N:
@@ -233,6 +233,11 @@ def verify(args) -> dict:
     for key in keys:
         if _hash(_safe_track(key,args.source_root))!=originals[key]:
             raise ValueError("Audio bytes changed after plan freeze")
+    if not require_outputs:
+        return {"schema":SCHEMA,"status":"FROZEN_PLAN_AND_SOURCE_HASHES_STILL_VALID",
+                "source_audio_sha256_checked":N,
+                "native_scanner_models_worker_unchanged":True,
+                "scan_not_started_by_guard":True}
     dbpath=folder/"native-features.sqlite"
     embeddings=folder/"embeddings"
     if not dbpath.is_file() or not embeddings.is_dir():
@@ -316,7 +321,7 @@ def verify(args) -> dict:
 
 def main() -> int:
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action",choices=("prepare","verify"))
+    p.add_argument("action",choices=("prepare","guard","verify"))
     for opt in ("bliss-db","snapshot","library","old-grouped-db","old-native-db",
                 "r5-manifest","source-root","models-dir","scanner","worker"):
         p.add_argument("--"+opt,required=True,type=Path)
@@ -330,8 +335,8 @@ def main() -> int:
             result=prepare(a)
         else:
             if a.plan_dir is None or a.out_dir is not None:
-                raise ValueError("Verification requires only existing plan-dir")
-            result=verify(a)
+                raise ValueError("Guard/verification requires only existing plan-dir")
+            result=verify(a,require_outputs=a.action=="verify")
         print(json.dumps(result,indent=2,ensure_ascii=False))
     except (OSError,ValueError,TypeError,KeyError,sqlite3.Error,OverflowError,UnicodeError):
         p.exit(2,"WP3 R6 native 240 BLOCKED: source/model/native scan provenance or "
