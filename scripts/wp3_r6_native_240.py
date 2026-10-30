@@ -270,6 +270,10 @@ def verify(args, *, require_outputs: bool = True) -> dict:
             floats=struct.unpack("<"+"f"*DIMS[head],blob)
             if not all(math.isfinite(x) and 0<=x<=1 for x in floats):
                 raise ValueError("Native head has nonfinite/out-of-bounds scores")
+            if head=="voice" and abs(sum(floats)-1.0)>0.001:
+                raise ValueError("Native voice softmax not normalized")
+            if head!="voice" and max(floats)-min(floats)<=1e-10:
+                raise ValueError("Native genre/mood score vector is degenerate")
             hashes=json.loads(raw_sha)
             if (hashes.get(encoder)!=plan["official_model_files_sha256"][encoder]
                     or hashes.get(classifier)!=plan["official_model_files_sha256"][classifier]
