@@ -59,6 +59,47 @@ class MemberProbeTests(unittest.TestCase):
         self.assertFalse(output["global_pairwise_fusion_measured"])
         self.assertNotIn(public_path, json.dumps(output))
 
+    def test_stratified_crc_sample_uses_thirty_original_members_only(self):
+        from types import SimpleNamespace
+        items={}
+        for part in (1,2,3):
+            for i in range(10):
+                name=f"private-artist-{part}-track-{i}"
+                offset=(part-1)*1_100_000_000 + 2048
+                items[name]=SimpleNamespace(header_offset=offset)
+        class Fetcher:
+            def __init__(self, sizes):
+                self.requests=0
+                self.total_bytes=0
+        def fake_extract(info, source):
+            source.requests += 1
+            source.total_bytes += 900
+            return b"fictional"
+        def fake_digest(path):
+            return (p.mtt.REGISTERED_MTT_COMPARISONS_SHA256
+                    if path==self.comparisons
+                    else p.mtt.REGISTERED_MTT_CLIPS_SHA256)
+        with patch.object(p.mtt, "digest", side_effect=fake_digest), \
+             patch.object(p, "zip_member_directory",
+                          return_value=(items, {})), \
+             patch.object(p, "needed_paths",
+                          return_value=(set(items) | {
+                              f"unselected-{i}" for i in range(989)
+                          },533,346)), \
+             patch.object(p, "resolve_members", return_value=items), \
+             patch.object(p.mtt, "RangeFetcher", Fetcher), \
+             patch.object(p.mtt, "extract_mp3", side_effect=fake_extract):
+            out=p.check_sample(self.tail,self.sizes,
+                               self.comparisons,self.clips,per_part=10)
+        self.assertEqual(out["verified_clips"],30)
+        self.assertEqual(out["per_archive_part_verified_counts"],
+                         {"part_001":10,"part_002":10,"part_003":10})
+        self.assertFalse(out["all_1019_clips_accessible_proven"])
+        self.assertNotIn("private-artist",json.dumps(out))
+        with self.assertRaises(ValueError):
+            p.check_sample(self.tail,self.sizes,self.comparisons,self.clips,
+                           per_part=11)
+
     def test_fail_closed_before_download_for_invalid_sources(self):
         with self.assertRaises(ValueError):
             p.check_one(self.tail, [100, 200, 300],
