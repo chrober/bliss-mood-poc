@@ -1,0 +1,45 @@
+# Cross-repository Essentia Similarity and Guidance integration handover — 30 October 2026
+
+## Agreed names, ownership and actual GitHub status
+
+The user created the three **public** repositories and explicitly enabled repository write access. The assistant committed the extraction and design scaffolds through the GitHub connector; no local user shell execution was necessary after this change.
+
+| Repository | Owner and result | Status |
+| --- | --- | --- |
+| [`chrober/essentia-similarity`](https://github.com/chrober/essentia-similarity) | **Player-independent core engine** `essentia-similarity-core`, `essentia-feature-store` read-only exact-key SQLite v3 adapter, standalone aggregate-only research shadow CLI | [Draft PR #1](https://github.com/chrober/essentia-similarity/pull/1), branched `feat/bootstrap-rust-engine`; Rust test CI [41090809405](https://github.com/chrober/essentia-similarity/actions/runs/41090809405) **PASS both Linux and Windows (13 tests per OS + rustfmt)**. An original-MIT-attributed LICENSE was then added to the same branch. **Not merged**. |
+| [`chrober/bliss-guidance-essentia`](https://github.com/chrober/bliss-guidance-essentia) | Future **native Guidance SPI v2 provider**, depends on the independent Rust engine; actual SPI types remain owned by `bliss-playlist-guidance-spi` | [Draft PR #1](https://github.com/chrober/bliss-guidance-essentia/pull/1), `feat/essentia-guidance-integration-design`. **Readme + documented integration contract ONLY**, no native provider implementation, tests or binary. |
+| [`chrober/lms-guidance-essentia`](https://github.com/chrober/lms-guidance-essentia) | Future independently installable Lyrion provider with settings, descriptors, resource plumbing, host discovery, using existing provider kit | [Draft PR #1](https://github.com/chrober/lms-guidance-essentia/pull/1), `feat/essentia-guidance-integration-design`. **Readme + documented plugin requirements ONLY**, no Perl modules/installable plugin, tests or release. |
+| [`chrober/bliss-mood-poc`](https://github.com/chrober/bliss-mood-poc), `feat/general-pairwise-similarity-research` | Original offline Essentia scanner and independent WP1 General / WP2 Personal / WP3 Bliss23↔Essentia feature relationship evidence, initial proof-of-concept `research/lyrion-similarity-engine` | Current research branch; first-slice prototype retained for reproducibility, **successor runtime core is the new `essentia-similarity` repository**. No changes to main or Draft PR #16. |
+
+**Naming:** The reusable `essentia-similarity` engine must be truly independent of Bliss/Lyrion and should not own LMS IDs or playlist policies. `bliss-guidance-essentia` includes Bliss in the name **because it is a Bliss-family SPI integration**, not because the mathematical core needs Bliss. `lms-guidance-essentia` follows existing `lms-guidance-lastfm` / `lms-guidance-library-signals` naming conventions.
+
+## Technical extraction delivered
+
+The new engine has its own Rust workspace (not a copied nested build in `bliss-mood-poc`) with source-level separation:
+
+- `crates/essentia-similarity-core`: `affine_cosine_v1`, `affine_centered_cosine_v1`, finite bounded sigmoid vector guards, nondegenerate dimension condition, symmetry tests, deterministic tie-aware rank comparisons using **baseline_rank** (not `bliss_rank`). Does not depend on `rusqlite`, LMS, source scanner or a music player.
+- `crates/essentia-feature-store`: extracted and renamed the existing scanner `src/feature_lookup.rs` as an independently reusable library crate. Uses real SQLite read-only `SQLITE_OPEN_READ_ONLY`, v3 version check, `feature_models`/`feature_tracks` rows and strict fingerprints/class ordering. The original relative Rust `#[path]` reference is gone; exact sidecar `track_file` keys remain an opaque **caller-owned identity contract**.
+- `apps/essentia-similarity-shadow`: the only executable. Trusted local JSON request `schema=essentia-similarity-sidecar-shadow-v1`, `mode=shadow_only`, full 2–50 admitted candidate set, explicit `baseline_rank`, `admitted_by_host`, pinned model key, explicit experimental preview opt-in. Produces aggregate-only shadow rank stats or **whole-query neutral fallback**. No Lyrion, SPI v2 session, output of candidate paths or raw scores, playlist or queue change.
+- Independent `.github/workflows/rust-ci.yml` Linux and Windows Cargo/test + rustfmt, all passed at [run 41090809405](https://github.com/chrober/essentia-similarity/actions/runs/41090809405) after resolving formatting deviations; unit tests: 3 feature store + 5 core + 5 shadow = **13 per OS**, synthetic but physically using temporary SQLite v3 tables. LICENSE retains the original source MIT attribution.
+
+The standalone first-slice only supports **Genre87 and Mood56** feature heads from the generic SQLite v3 schema. A 1280D embedding head is NOT silently provided by this feature store. No real sound model selection/General Metric calibration, true Personal Metric training or subjective listening quality was achieved simply through extraction. No user music, private paths or model binaries shipped.
+
+## Immediate next work, in order
+
+1. **Review and merge standalone engine PR after independent CI, source/metadata contract inspection and license acknowledgment.** The branch already passed tests, but a follow-up LICENSE commit needs its own CI run and review. Add packaging/reproducible `Cargo.lock` when appropriate. Keep core independent of scanner source path and player policy.
+2. **Host-owned exact track ID join:** native Bliss/LMS candidate IDs and `lms_urlmd5` do not guarantee direct equality to `feature_tracks.track_file`; do not match by artist/title. Test multiple roots, Unicode, case sensitivity, CUE, stale and duplicate identities, old/missing sidecar rows; ensure full-cohort safe fallback.
+3. **Source parity and model-quality gate:** compare actual user-local sidecar metadata with Essentia reference validation, model fingerprints, label ordering and validated flags; a synthetic coverage check is not an actual General Metric listening-quality validation.
+4. **Native SPI provider in `bliss-guidance-essentia`:** use canonical `bliss-playlist-guidance-spi` JSONL v2 `describe → prepare → score → close`, hash-bound trusted candidate artifacts, read-only sidecar path, bounded offline/fast scoring. Start with shadow-neutral output (no active signal without calibrated quality). Tests must use actual SPI schema and existing host.
+5. **Lyrion plugin in `lms-guidance-essentia`:** reference `lms-bliss-guidance-provider-kit` and `lms-guidance-library-signals` for descriptor/defaults/settings native executable discovery, disabled-by-default model and safe resource paths. Don't claim it is installable before writing actual Perl and package contract tests.
+6. **BlissMixerLab first:** same frozen seed, complete candidate cohort and constraints, compare shadow ranking with no queue/playback change. Later user-enabled A/B only on validated General model and human utility uplift. **Better Call Bliss second:** whole valid route and directed transition objective, never only symmetric pairwise fit.
+7. **WP2 Personal and WP3 teacher/Bliss correlations remain separate.** General vs Personal 0–100% calibrated influence is not the current Bliss23 `learnedblend`. Feature-first/hybrid candidate recruitment needs a different host-owned API, outside the current Guidance SPI v2.
+
+### Safety and release boundaries
+
+Do not automatically merge Draft PRs, alter existing `main` branches, modify `bliss.db`, rename Lyrion/Bliss track IDs by heuristic, leak user audio/song lists, vendor model weights, or emit non-neutral production guidance without quality evidence. Native provider / Lyrion integration are **documented only**, not complete. Old CI synthetic tests prove code behavior, not musical utility.
+
+## Historical reproducibility
+
+The original research `research/lyrion-similarity-engine` first-slice remains in the research branch, and an independently test-rehearsed optional local bootstrap script `scripts/bootstrap_essentia_similarity_repository.ps1` is retained as a traceable migration aid. **The actual migration was performed directly via GitHub**; users need not execute that script, and repeated execution would correctly refuse a duplicate branch.
+
+Related [initial product decision](lyrion-research-to-product-integration-decision-20261030.md), [first-slice historical source](lyrion-rust-similarity-engine-shadow-first-slice-20261030.md), and [WP1/WP2/WP3 handover](handover-similarity-three-workstreams-20261029.md).
