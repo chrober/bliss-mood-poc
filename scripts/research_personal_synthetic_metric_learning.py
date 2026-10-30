@@ -319,7 +319,7 @@ def main() -> int:
     if args.out is not None:
         if args.out.exists() or args.out.is_symlink() or not args.out.parent.is_dir():
             parser.error("Cannot overwrite or create output directory")
-        with args.out.open("x", encoding="utf-8") as f:
+        with args.out.open("x", encoding="utf-8", newline="\n") as f:
             json.dump(result, f, indent=2, sort_keys=True, allow_nan=False)
             f.write("\n")
     print(json.dumps({
