@@ -1,5 +1,9 @@
 # Handover: Lyrion General + Personal + Bliss↔Essentia research (29 October 2026)
 
+
+> **CURRENT HANDOVER — real WP3 teacher experiment COMPLETE (30 October 2026):** The user successfully ran `scripts/build_wp3_research_db_windows.ps1` from PowerShell using Python 3.15.0, genuine local copies of LMS `library.db` + BlissMixerLab `artist-repeat-identities.sqlite`, and already computed Bliss23/native Essentia Genre87/MoodTheme56. The new private grouped research SQLite is `benchmark-wp3-research-20261030-091600-8c93d55f/wp3-research.sqlite` with aggregate `aggregate-teacher-research.json`, neither committed. **100/100 source identities verified, 88 artist/album/recording-connected groups, 75 train / 25 group-disjoint holdout, one unknown recording MBID grouped conservatively.** In real heldout teacher-vector prediction, Genre87 PLS improved MAE **6.92%** and MoodTheme56 Ridge **13.04%** relative to training-mean baselines. Bliss-only Ridge distance geometry versus Essentia teacher: Genre Spearman **0.557959 -> 0.569599** (+0.011640), MoodTheme **0.442049 -> 0.540662** (+0.098613). PCA-CCA teacher cross-view Pearson **0.632409** Genre / **0.815130** MoodTheme. All results are **exploratory**: the 100 songs had already been used for 3,289 full-cohort correlations; 25 group-disjoint holdout songs are **not** untouched confirmatory data. Teacher head numeric parity is not validated, cross-analysis audio-byte identity and pretrained-teacher overlap are not certified, there is no independent musical/human similarity gain or deployment. **Next:** freeze the MoodTheme Ridge student *candidate configuration* and protocol, acquire a genuinely NEW artist/album/recording-disjoint diverse cohort with separate human/perceptual similarity reference, compare against original Bliss and WP1 baselines, report group-aware uncertainty, and progress WP2 optional personal/blend separately. Never fit/adjust on the 25 songs and call it an independent test. [Detailed source-grounded results](wp3-real-grouped-teacher-study-results-20261030.md). Earlier dated note blocks below remain historical and do not override this status.
+
+
 > **30 Oct 2026 authentic metadata gate PASS:** Latest user-provided console output from Windows PowerShell shows successful real Lyrion Pi SQLite online backup, SCP, Python 3.15 copied SQLite quick_check and entire exact Bliss/Essentia/LMS grouping preflight. 100/100 tracks with verified actual artist, album, LMS ID and URLMD5; 88 independent connected identity groups; 75 train / 25 group-heldout; only 1 missing recording MBID handled conservatively. `ready_for_grouped_study=true`, `blocking_reason_code=null`. Previous source-provenance blocker is now cleared. No audio scans or trained teacher metric yet. Local private metadata snapshots exist and must not be uploaded/committed. Next run existing `build_wp3_research_db_windows.ps1` with exact private metadata env variables to produce a new versioned grouped research SQLite and exploratory train-only teacher-fit; original group-free snapshot remains intact. Caveat: original whole-100-song correlation exploration exposes holdout to selection bias; group disjoint != untouched confirmatory independent perceptual test, and teacher reconstruction != improved WP1 song similarity. Preserve general/personal/teacher separation and PR #16/main. [WP3 source evidence](wp3-consolidated-research-sqlite-20261029.md).
 
 
@@ -150,7 +154,17 @@ perfect general metric or fresh mandatory personal ratings.
   pre-existing-output policy; never ask the user to manually
   assemble several Git or download fragments.
 
-## Single next assignment
+## Current next assignment (as of 30 October 2026)
+
+**WP3-MOOD-VALIDATION and WP1/WP2 coordination; no re-run of already completed group-source preflight.** The first actual authentic artist/album/recording group-heldout 100-song teacher study is complete. Its empirical evidence is in [WP3 real grouped teacher study](wp3-real-grouped-teacher-study-results-20261030.md), and full input/backup/debug chronology is in [consolidated WP3](wp3-consolidated-research-sqlite-20261029.md).
+
+- Record and freeze the experimental **MoodTheme56 Ridge student** with the run's fixed hyperparameters (Ridge alpha 10, train-only preprocessing), not an unverified production model/learned weight package. Original Bliss23 distance, standardized Bliss, existing Genre/Mood and 1280D/fusion metrics remain necessary independent comparison baselines.
+- Design a **new** preregistered diverse, larger, artist+album+recording-disjoint cohort. Block cross-cohort duplicate recordings and attribution overlap, and avoid selecting/tuning using this future final test. Use genuinely independent listener-rated song similarity (or a justified external benchmark) as the primary outcome; compare teacher reconstruction only as secondary analysis, with uncertainty clustered by song/artist and correction for searching many hypotheses.
+- Maintain explicit uncertainty: this first 25-track group-heldout is still post-hoc with respect to earlier 100-song inspections; 300 holdout pairs share songs and cannot be counted as 300 independent examples. Genre improvement in distance geometry was small; MoodTheme improvement is teacher-proxy, not perceptual.
+- Keep WP1 **General Metric** primary with source-quality/calibration gates and WP2 **optional Personal Metric Learning** active; fully functional 100% General fallback without personal data, optional calibrated 0–100% blend. Do not conflate teacher student, general scorer and user preference learner.
+- No new audio/ONNX rescans, worker tuning, mandatory listening, scanner/BlissMixerLab deployments, or PR #16/main edits. User commands must remain a **single complete Windows PowerShell block** using existing Python 3.15 and explicit private read-only source paths; keep song identities and original research DBs private.
+
+## Historical first assignment (29 October 2026 — completed/superseded)
 
 **Next technical implementation should be WP3-R0 + WP2-P0 contracts,
 in parallel with any resumed WP1 A/B results.** First implement
@@ -160,29 +174,40 @@ personal/blend compatibility and fallback tests using the known
 learner/host formats. No real private read until a separate
 safe, consented, deterministic local procedure exists. No new
 compulsory ratings. No unauthorized edits to the other repos.
+## Copy/paste handover prompt (updated 30 October 2026)
 
-## Copy/paste handover prompt
-
-> Continue the project Lyrion: Mood Analysis on
-> `feat/general-pairwise-similarity-research`, respecting the
-> [unified three-workstream strategy](similarity-three-workstreams-strategy-20261029.md).
-> The binding research goals are **WP1 General Similarity Metric**,
-> **WP2 optional Personal Metric Learning with calibrated 0–100%
-> General/Personal blend and fully functional no-personal-model
-> fallback**, and **WP3 Bliss 23D ↔ Essentia Genre/Mood/Embedding
-> feature relationships with genuine improvements to Bliss-only
-> similarity**, not just additional Essentia signal blending.
-> Start WP3 exact-key read-only feature-join/QC contract and
-> WP2 existing bliss-learner/BlissMixerLab data and scorer
-> interface **now and in parallel** with WP1. Evaluate correlation,
-> partial correlations, clustering, regularized CCA, PLS and
-> teacher/student models with artist/album grouped validation
-> and independent perceptual quality gates. Never interpret
-> Essentia head outputs as ground truth. The 12 user listening
-> ratings and real native same-100 scan are complete; no further
-> mandatory listening, no rescans or worker tuning. MTT full
-> exploratory questions are already explored and latest new
-> replay failed on a publisher range timeout; no real fusion
-> numbers exist yet. Leave PR #16, main and other repositories
-> untouched. Use English docs and full single-block automated
-> PowerShell for any necessary user-local Windows work.
+> Continue project Lyrion: Mood Analysis on branch
+> `feat/general-pairwise-similarity-research`. Read
+> [the three-workstream research strategy](similarity-three-workstreams-strategy-20261029.md),
+> [the current WP3 consolidated provenance/runbook](wp3-consolidated-research-sqlite-20261029.md)
+> and [the FIRST genuine 100-song grouped teacher-study findings](wp3-real-grouped-teacher-study-results-20261030.md)
+> **before planning any work**.
+>
+> The authentic Bliss23 / Essentia Genre87/MoodTheme56 / Lyrion library /
+> BlissMixerLab artist identity join was successfully verified **100/100**,
+> with **88 identity-connected groups** and a **75 train / 25 group-disjoint
+> holdout**. The real Windows Python 3.15 teacher-study is **already completed**.
+> Genre PLS cut classifier-output MAE **6.92%** and MoodTheme Ridge **13.04%**
+> relative to the training-mean baseline. A Bliss-only Ridge student improved
+> MoodTheme teacher-distance Spearman from **0.442049 to 0.540662** versus original
+> Bliss Euclidean on 300 dependent pairs, while Genre changed only from
+> **0.557959 to 0.569599**. This does NOT validate human musical similarity,
+> does NOT certify Essentia head numerical parity / audio-byte identity /
+> teacher-training independence, and the holdout is NOT untouched because
+> the complete same 100-song cohort was explored beforehand.
+>
+> Next: preserve these exploratory findings; freeze *candidate architecture
+> and evaluation protocol only*, design a genuinely NEW, more representative,
+> group-disjoint independent perceptual/listener evaluation against
+> original Bliss and current WP1 Genre/Mood/embedding/fusion baselines,
+> then report group-aware statistical uncertainty. WP1 General Metric
+> remains primary and available with zero personalization. WP2 optional
+> Personal Metric Learning and calibrated 0–100% general/personal blend
+> remain separate active development threads with complete no-model fallback.
+> WP3 is teacher-distilled Bliss representation research, not automatically
+> a new production metric. Do not tune to these 25 songs and call it independent.
+> No audio rescans, Pi restart, worker autotuning, obligatory listening or
+> deployment without explicit authorization. Preserve private music data,
+> use English Markdown docs, and provide one executable complete Windows
+> PowerShell block for any local steps. Leave main, Draft PR #16 and
+> other repositories untouched.
