@@ -365,6 +365,47 @@ by file path guessing, lax splits or claiming teacher improvement.
 No new audio scan, service restart, main merge or PR #16 edits.
 
 
+## 30 October 2026: second real Windows run and BusyBox newline fix
+
+User inspected the previous leftover Pi temp directory. Both
+original SQLite backup files had already been deleted; its
+only remaining files were the temporary companions
+library.db-shm (32768 bytes) and library.db-wal (0 bytes).
+They are NOT the live Cache/library.db. Earlier cleanup failed
+rmdir because these two known SQLite-generated companions
+remained. They can be deleted explicitly from that one known
+UUID directory and then rmdir; never rm -rf or use wildcards.
+
+The user subsequently pulled research branch commit 0218d878
+and ran the corrected Windows launcher. The remote script
+using PowerShell here-string pipeline to SSH sh -s failed
+BEFORE backup operations at its first command with:
+sh: set: line 1: illegal option -
+This is consistent with Windows PowerShell 5.1 native pipeline
+line-ending/CR transfer to BusyBox sh; the exact bytes have not
+been independently captured. The failure boundary is the
+remote multi-line command transport, not the live databases.
+No true 100-song group preflight has run yet.
+
+Subsequent repair on the isolated research branch replaces the
+entire sh -s pipeline with separate single-line ASCII SSH
+commands. The commands use GUID-controlled private /tmp staging
+and literal known SQLite source paths; SQLite online .backup
+runs via echo-to-sqlite3 -readonly -batch -bail, never an unsafe
+raw copy of a live database. Each SSH command checks exit status.
+Cleanup explicitly targets this run's two temporary .db names
+and each -wal/-shm companion, then nonrecursive rmdir.
+The Python 3.15 script-file local validation and original
+artist/album/recording-readiness preflight are unchanged.
+
+Automated CI verifies Windows PS5.1/7 syntax and Python
+arguments on synthetic metadata. CI cannot reach the private
+Pi and cannot certify that the new SSH invocation succeeds
+until the operator runs it. Do not claim grouped metric
+training or artist-independent similarity gains based on
+these engineering checks.
+
+
 ## Metadata provenance source discovery
 
 The existing plugin source
