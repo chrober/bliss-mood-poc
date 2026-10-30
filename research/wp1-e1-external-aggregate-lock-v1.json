@@ -1,0 +1,55 @@
+{
+  "schema": "wp1-e1-external-aggregate-lock-v1",
+  "created": "2026-10-30",
+  "policy": "immutable_GitHub_Actions_aggregate_members_only_no_audio_private_features_or_labels",
+  "artifacts": {
+    "mtt": {
+      "run_id": 39619708040,
+      "artifact_id": 12354537538,
+      "member": "results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json",
+      "member_sha256": "a5367ccb2b43259a56c55aa9fb9dc3f80457969c98d1e592b5c55a5ff5ea2caf",
+      "question_count": 346,
+      "decisive_count": 293,
+      "unique_clips": 1019,
+      "task": "human_odd_one_out_majority",
+      "source_state": "historical_completed_real_exploratory"
+    },
+    "fma": {
+      "run_id": 39625087310,
+      "artifact_id": 12355954718,
+      "member": "fma-80-embedding-vs-heads-aggregate.json",
+      "member_sha256": "dee3fa0ccd5e942d0abc62fb493094cdfef148dc67110ed66af9ce8bc2169e9a",
+      "sample_id_sha256": "f4a7a81c0713db7619efdba6eb3d561aa70d6d3cc812b4884793953d93b58509",
+      "sample_songs": 80,
+      "distinct_artists": 80,
+      "task": "coarse_genre_retrieval_validation",
+      "source_state": "historical_completed_real_exploratory_FMA_TEST_untouched"
+    },
+    "deam": {
+      "run_id": 39579552118,
+      "artifact_id": 12335578980,
+      "member": "deam-summary.json",
+      "member_sha256": "a0032f5ee935fcb7be328daaf4a7a768eb80b02965ea9bb55bafa15f7426e3b3",
+      "sample_id_sha256": "db12c5d2692285638a4c25af442f29fd75391eb86cd7f1ea88d2f565d12630d0",
+      "sample_songs": 240,
+      "task": "human_valence_arousal_proximity_proxy",
+      "source_state": "historical_completed_real_exploratory"
+    }
+  },
+  "unmeasured": {
+    "mtt_global_pairwise_equal_weight_fusions": {
+      "attempted_run_id": 40881326086,
+      "status": "BLOCKED_CACHE_BUILD_HTTP_RANGE_NO_REAL_GLOBAL_FUSION_RESULTS",
+      "method_ids": [
+        "global_genre_mood_equal",
+        "global_genre_audio_equal",
+        "global_mood_audio_equal",
+        "global_genre_mood_audio_equal"
+      ]
+    },
+    "fma_global_pairwise_equal_weight_fusions": "NO_VERIFIED_REAL_RESULTS",
+    "deam_global_pairwise_equal_weight_fusions": "NO_VERIFIED_REAL_RESULTS",
+    "public_mtt_fma_deam_bliss23_paired_features": "NOT_ESTABLISHED_ON_IDENTICAL_PUBLIC_RECORDINGS",
+    "deam_embedding1280_paired_replay": "BLOCKED_PUBLISHER_ACCESS_NO_VERIFIED_REAL_RESULTS"
+  }
+}
