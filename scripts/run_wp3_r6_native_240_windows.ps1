@@ -110,8 +110,21 @@ param(
             '--workers','auto','--threads','1',
             '--max-errors','3','--json'
         )
-        & $Scanner @ScanArgs 1> $Log 2> $Errors
-        if ($LASTEXITCODE -ne 0) {
+        # Windows PowerShell 5.1 can promote *redirected* native stderr
+        # to NativeCommandError if ErrorActionPreference is Stop, even
+        # when the scanner reports success. Capture actual process exit
+        # code; keep both native streams ONLY in private local files.
+        $PriorErrorAction=$ErrorActionPreference
+        $ScannerExit=-1
+        try {
+            $ErrorActionPreference='Continue'
+            & $Scanner @ScanArgs 1> $Log 2> $Errors
+            $ScannerExit=$LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference=$PriorErrorAction
+        }
+        if ($ScannerExit -ne 0) {
             throw 'Native scanner stopped; private logs and partial outputs retained. Do NOT restart blindly.'
         }
     }
