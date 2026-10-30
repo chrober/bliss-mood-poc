@@ -32,8 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --manifest-path research/lyrion-similarity-engine/Cargo.toml --all-targets --verbose
-      - name: Check formatting without changing any files
+      - name: Check only standalone crate formatting (do not reformat reused scanner lookup)
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt --manifest-path research/lyrion-similarity-engine/Cargo.toml --all -- --check
+          cargo fmt --manifest-path research/lyrion-similarity-engine/Cargo.toml --all -- --check --config skip_children=true
