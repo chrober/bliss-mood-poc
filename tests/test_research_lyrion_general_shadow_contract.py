@@ -14,7 +14,7 @@ from research_lyrion_general_shadow_contract import (
 
 
 def fixture(n=6):
-    scores = [0.65, 0.95, 0.30, 0.85, 0.45, 0.10]
+    scores = [0.65, 0.95, 0.30, 0.85, 0.45, 0.90]
     return {
         "schema": SCHEMA,
         "mode": "shadow_only",
@@ -46,9 +46,9 @@ class LyrionShadowContractTests(unittest.TestCase):
         self.assertEqual(source, before)
         self.assertEqual(result["status"], "SHADOW_REORDERING_SUMMARY_ONLY")
         self.assertEqual(result["candidate_pool_size"], 6)
-        self.assertEqual(result["changed_positions"], 6)
+        self.assertEqual(result["changed_positions"], 5)
         self.assertEqual(result["top5_overlap"], 4)
-        self.assertEqual(result["max_absolute_rank_shift"], 3)
+        self.assertEqual(result["max_absolute_rank_shift"], 4)
         self.assertTrue(result["bliss_reference_order_unchanged"])
         self.assertTrue(result["candidate_pool_admission_unchanged"])
         self.assertFalse(result["playlist_queue_or_route_writes"])
