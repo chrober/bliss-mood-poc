@@ -135,6 +135,28 @@ def evaluate(plan_dir: Path, old_db: Path, bliss_db: Path,
             or Xnew.shape!=(N,23) or Ymood.shape!=(N,56)
             or Ygenre.shape!=(N,87) or Emb.shape!=(N,1280)):
         raise ValueError("Frozen feature dimensions not satisfied")
+    # The old Genre87 PLS(2) comparator was also frozen BEFORE R6.
+    old_genre = []
+    with closing(sqlite3.connect(old_db.resolve().as_uri()+"?mode=ro",uri=True)) as c:
+        c.execute("PRAGMA query_only=ON")
+        for key, raw in c.execute(
+                "SELECT track_key,genre_f32_le FROM paired_tracks "
+                "ORDER BY track_key COLLATE BINARY"):
+            if not isinstance(raw,bytes) or len(raw)!=87*4:
+                raise ValueError("Previous 100 Genre teacher output dimensions wrong")
+            old_genre.append((key,struct.unpack("<87f",raw)))
+    if [key for key,_ in old_genre]!=[row[0] for row in old]:
+        raise ValueError("Old development Genre and Bliss order incompatible")
+    Yold_genre=np.asarray([row[1] for row in old_genre],dtype=np.float64)
+    genre_mean=np.mean(Yold_genre,axis=0)
+    genre_constant_mae=float(np.mean(np.abs(Ygenre-genre_mean)))
+    genre_pls=make_pipeline(StandardScaler(),
+         PLSRegression(n_components=2,max_iter=500,scale=True))
+    genre_pls.fit(Xtrain,Yold_genre)
+    genre_pred=genre_pls.predict(Xnew)
+    if genre_pred.shape!=(N,87) or not np.isfinite(genre_pred).all():
+        raise ValueError("Frozen Genre PLS produced invalid new-song outputs")
+    genre_pls_mae=float(np.mean(np.abs(Ygenre-genre_pred)))
     # NO StandardScaler/Ridge fit on the NEW 240, ever.
     scaler=StandardScaler().fit(Xtrain)
     model=Ridge(alpha=10.0).fit(scaler.transform(Xtrain),Ytrain)
@@ -183,6 +205,9 @@ def evaluate(plan_dir: Path, old_db: Path, bliss_db: Path,
             "bliss_only_fixed_ridge":mae,
             "relative_reduction":(baseline-mae)/baseline if baseline>0 else None
         },
+        "genre_teacher_output_mae":{"train_mean_baseline":genre_constant_mae,
+            "old_train_only_pls_2":genre_pls_mae,
+            "relative_reduction":(genre_constant_mae-genre_pls_mae)/genre_constant_mae if genre_constant_mae>0 else None},
         "pairwise_spearman_to_teachers":correlations,
         "new_song_unordered_pairs":N*(N-1)//2,
         "pairwise_observations_statistically_independent":False,
