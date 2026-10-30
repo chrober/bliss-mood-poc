@@ -103,7 +103,7 @@
     # Preserve the real scanner v3 SQL and decoder, but remove Bliss naming.
     $StoreHeader = @'
 //! Exact opaque-key, read-only Mood/Genre feature lookup for SQLite v3.
-//! Independent of LMS, Bliss, playback and runtime audio inference.
+//! Independent of any music player, playback and runtime audio inference.
 '@
     $Store = [regex]::Replace($Store,
         '(?s)\A//! Strict, read-only retrieval.*?\r?\nuse anyhow::',
