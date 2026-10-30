@@ -1,0 +1,39 @@
+name: Research reusable Rust General geometry and read-only Lyrion sidecar shadow
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'research/lyrion-similarity-engine/**'
+      - 'src/feature_lookup.rs'
+      - '.github/workflows/research-lyrion-rust-similarity-engine.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust_core_and_real_sqlite_contract:
+    name: Independent geometry and real SQLite v3 shadow tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: research/lyrion-similarity-engine
+      - name: Test reusable Rust library and read-only v3 lookup shadow CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path research/lyrion-similarity-engine/Cargo.toml --all-targets --verbose
+      - name: Check formatting without changing any files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path research/lyrion-similarity-engine/Cargo.toml --all -- --check
