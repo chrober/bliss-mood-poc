@@ -1,5 +1,8 @@
 # Lyrion General Similarity Engine: first real Rust-to-sidecar research slice (30 October 2026)
 
+> **MIGRATION NOW HAS A SEPARATE OWNER:** This prior first-slice document describes the 30-Oct in-research prototype. Its actively developed successor is [`chrober/essentia-similarity` PR #1](https://github.com/chrober/essentia-similarity/pull/1): host-neutral scorer, independently reusable feature store and CLI; [Linux/Windows CI PASS](https://github.com/chrober/essentia-similarity/actions/runs/41090809405). The prototype remains a reproducibility artifact, **not the target SPI v2 provider or general production runtime**. Separate native and LMS guidance plugin contracts were created as draft [native PR](https://github.com/chrober/bliss-guidance-essentia/pull/1) / [Lyrion PR](https://github.com/chrober/lms-guidance-essentia/pull/1). No actual plugin or active product feature exists. See [cross-repo migration handover](essentia-similarity-cross-repository-migration-20261030.md).
+
+
 **Scope:** Isolated research branch only. [Approved product architecture and owner map](lyrion-research-to-product-integration-decision-20261030.md). This implements a **reusable Rust geometry library** and a genuinely executable **read-only SQLite v3 shadow CLI** sharing the scanner's *existing* strict feature lookup. It is **not** an installed Guidance SPI v2 plugin, candidate retriever, production General Metric, Better Call Bliss optimizer integration or playlist reranker.
 
 ## 1. Artifacts and existing code reused
