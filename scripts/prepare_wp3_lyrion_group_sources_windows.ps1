@@ -61,28 +61,39 @@
     $locallyValidated = $false
     try {
         Write-Host '=== PI: CONSISTENT SQLITE ONLINE BACKUPS ==='
-        # Same transport and sqlite3 -readonly .backup as previous successful step.
-        $backup = @'
-set -eu
-umask 077
-STAGE=__STAGE__
-LIB=/usr/local/slimserver/Cache/library.db
-SNAP=/usr/local/slimserver/Cache/BlissMixerLab/artist-repeat-identities.sqlite
-test -r "$LIB"
-test -r "$SNAP"
-mkdir -m 700 "$STAGE"
-sqlite3 -readonly -batch -bail "$LIB" ".backup '$STAGE/library.db'"
-sqlite3 -readonly -batch -bail "$SNAP" ".backup '$STAGE/artist-repeat-identities.sqlite'"
-test -s "$STAGE/library.db"
-test -s "$STAGE/artist-repeat-identities.sqlite"
-echo WP3_REMOTE_BACKUPS_READY
-'@
-        $backup = $backup.Replace('__STAGE__',$stage)
-        $remoteAttempted = $true
-        $output = @($backup | & ssh -T -o BatchMode=yes -o ConnectTimeout=8 $target sh -s)
-        if ($LASTEXITCODE -ne 0 -or $output -notcontains 'WP3_REMOTE_BACKUPS_READY') {
-            throw 'Remote metadata backup failed.'
+        # NEVER stream a Windows PowerShell here-string to BusyBox sh -s:
+        # PS 5.1 native pipeline encoding can leave CR in the first
+        # "set -eu" line, yielding "sh: set: illegal option -".
+        # Only short ASCII, single-line remote commands are transmitted.
+        # Every token is an invariant literal or a locally generated GUID.
+        if ($stage -cnotmatch '^/tmp/wp3-metadata-[0-9a-f]{32}$') {
+            throw 'Refusing an unexpected remote temporary path.'
         }
+        $remoteLibrary = '/usr/local/slimserver/Cache/library.db'
+        $remoteIdentity = '/usr/local/slimserver/Cache/BlissMixerLab/artist-repeat-identities.sqlite'
+        $remoteCommands = @(
+            "test -r $remoteLibrary",
+            "test -r $remoteIdentity",
+            "mkdir -m 700 $stage",
+            # SQLite CLI dot command does not require shell quotes for
+            # these GUID paths. Source is opened read-only, destination
+            # is created only in the new private /tmp directory.
+            "umask 077; echo .backup $stage/library.db | sqlite3 -readonly -batch -bail $remoteLibrary",
+            "umask 077; echo .backup $stage/artist-repeat-identities.sqlite | sqlite3 -readonly -batch -bail $remoteIdentity",
+            "test -s $stage/library.db",
+            "test -s $stage/artist-repeat-identities.sqlite"
+        )
+        $remoteAttempted = $true
+        foreach ($remoteCommand in $remoteCommands) {
+            if ($remoteCommand -match '[\r\n]') {
+                throw 'Refusing multi-line remote shell command.'
+            }
+            & ssh -T -o BatchMode=yes -o ConnectTimeout=8 $target $remoteCommand
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Pi SQLite backup failed on a bounded remote step; no live databases modified.'
+            }
+        }
+        Write-Host 'PI SQLITE ONLINE BACKUPS READY'
 
         Write-Host '=== SECURE COPY TO UNIQUE PRIVATE WINDOWS DIRECTORY ==='
         New-Item -ItemType Directory -Path $destination -ErrorAction Stop | Out-Null
@@ -115,7 +126,7 @@ echo WP3_REMOTE_BACKUPS_READY
         if ($remoteAttempted) {
             Write-Host '=== REMOVING ONLY NEW TEMPORARY PI COPIES ==='
             # One-line remote command, no multiline fi/end-of-file transport.
-            $cleanup = "if test -d $stage; then rm -f $stage/library.db $stage/artist-repeat-identities.sqlite && rmdir $stage; fi"
+            $cleanup = "if test -d $stage; then rm -f $stage/library.db $stage/library.db-wal $stage/library.db-shm $stage/artist-repeat-identities.sqlite $stage/artist-repeat-identities.sqlite-wal $stage/artist-repeat-identities.sqlite-shm && rmdir $stage; fi"
             & ssh -T -o BatchMode=yes -o ConnectTimeout=8 $target $cleanup
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "Remote cleanup not confirmed: $stage"
