@@ -406,6 +406,70 @@ training or artist-independent similarity gains based on
 these engineering checks.
 
 
+## 30 October 2026: FIRST REAL 100/100 authentic grouped preflight PASS
+
+Operator executed the final read-only Windows PS5.1
+prepare_wp3_lyrion_group_sources_windows.ps1 on the research branch
+commit 4d4da705 after safely removing only the two previously
+observed temporary SQLite WAL/SHM files.
+
+The revised one-line SSH + sqlite3 -readonly online-backup mechanism
+succeeded, both private SQLite files were transferred and locally
+validated with PRAGMA quick_check. Source inventory (from genuine
+private LMS and BlissMixerLab databases, no private tracks uploaded):
+
+- LMS: 79,005 tracks, 6,228 albums;
+- Lab: 77,517 track_identity, 76,870 artist identity rows;
+- Lab schema lyrion-track-identities-v1 and scan_time 1793339060;
+- both SQLite files individually valid, snapshot roots hash shaped;
+- original Lyrion SQLite databases untouched, Pi staging cleanup
+  reported no error.
+
+The actual stdlib-only four-input source-group preflight reported
+status SOURCE_GROUPING_READY_PRIVATE_NO_AUDIO_SCANS, with
+ready_for_grouped_study=true, blocking_reason_code=null,
+sample_seed=20261029, sample_limit=100,
+eligible_essentia_head_population=100, selected_head_pairs=100,
+rejected Essentia provenance=0, missing or invalid Bliss23=0,
+missing/unverified LMS identities=0, missing artist credits=0,
+missing albums=0, paired_tracks_with_verified_lms_artist_album=100.
+One recording MBID was absent and assigned the conservative unknown
+recording group. The joint artist/album/recording grouping yielded
+88 connected components; the fixed split contains 75 train and
+25 group-disjoint holdout songs.
+
+Private local source files reside under the already-ignored folder:
+D:\LMS\bliss-mood-poc\benchmark-wp3-research-20261030-064618-7f8c43a3\lyrion-metadata-eeedcd9630e04da3a3c046db974b33f8 .
+NEVER commit, attach or share either SQLite file. They were created
+by separate SQLite online backups, and the preflight checked selected
+song LMS IDs and URLMD5 equality; cross-DB point-in-time snapshot
+atomicity and live scan/root freshness are not independently proven.
+
+**Important scientific qualification:** This is **source provenance
+and feasible group-disjoint split readiness**, not a finished model
+evaluation. The same 100 songs had already been inspected in 3,289
+exploratory correlations, including selected 16 high-effect pairs.
+Therefore the 25 group-disjoint songs are NOT an untouched
+confirmatory human-similarity test set if any experimental choices
+were made using the preceding whole-cohort results. Teacher scores
+are proxy targets, not verified human musical similarity ratings.
+Do not report an unbiased external test set or an improved General
+Metric merely because the grouped teacher code runs.
+
+Next execution can reuse the *existing* script
+scripts/build_wp3_research_db_windows.ps1 with both explicit
+LYRION_REPEAT_SNAPSHOT_DB and LYRION_LIBRARY_DB pointing at the
+two known private Windows copies, and explicit local Bliss and
+native Essentia feature DB. That script runs a fresh no-write
+preflight, builds a NEW private grouped research SQLite without
+overwriting the previous group-free WP3 DB, and invokes the
+experimental train-only WP3 teacher-study using the existing
+Python 3.15 plus pinned venv, if the grouping still passes.
+No fresh audio decode, ONNX scan, service restart or production
+deployment is involved. Report only the resulting anonymized
+aggregate, not private source SQLite or group identities.
+
+
 ## Metadata provenance source discovery
 
 The existing plugin source
