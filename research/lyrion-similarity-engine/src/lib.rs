@@ -31,21 +31,25 @@ impl Metric {
 /// Return (clipped cosine + 1) / 2, a bounded *geometric* rank proxy; do NOT
 /// infer that this mapping establishes perceptual calibration or permits
 /// raw blending with Bliss, other heads, or personal scores.
-pub fn geometric_similarity(
-    a: &[f32],
-    b: &[f32],
-    metric: Metric,
-) -> Result<f64, &'static str> {
+pub fn geometric_similarity(a: &[f32], b: &[f32], metric: Metric) -> Result<f64, &'static str> {
     if a.len() != b.len() || a.is_empty() {
         return Err("dimension_mismatch");
     }
-    if !a.iter().chain(b).all(|&x| x.is_finite() && (0.0..=1.0).contains(&x)) {
+    if !a
+        .iter()
+        .chain(b)
+        .all(|&x| x.is_finite() && (0.0..=1.0).contains(&x))
+    {
         return Err("invalid_sigmoid_vector");
     }
     fn mean_variance(xs: &[f32]) -> (f64, f64) {
         let n = xs.len() as f64;
         let mean = xs.iter().map(|x| f64::from(*x)).sum::<f64>() / n;
-        let variance = xs.iter().map(|x| (f64::from(*x) - mean).powi(2)).sum::<f64>() / n;
+        let variance = xs
+            .iter()
+            .map(|x| (f64::from(*x) - mean).powi(2))
+            .sum::<f64>()
+            / n;
         (mean, variance)
     }
     let (ma, va) = mean_variance(a);
@@ -134,10 +138,7 @@ pub fn compare_full_candidate_pool(
         max_shift = max_shift.max(index.abs_diff(c.bliss_rank));
     }
     let k = candidates.len().min(5);
-    let top5_overlap = reordered[..k]
-        .iter()
-        .filter(|c| c.bliss_rank < k)
-        .count();
+    let top5_overlap = reordered[..k].iter().filter(|c| c.bliss_rank < k).count();
     Ok(ShadowRankSummary {
         candidate_count: candidates.len(),
         changed_positions: changed,
@@ -153,7 +154,10 @@ mod tests {
     #[test]
     fn versioned_metric_names_are_explicit() {
         assert_eq!(Metric::parse("affine_cosine_v1").unwrap(), Metric::Cosine);
-        assert_eq!(Metric::parse("affine_centered_cosine_v1").unwrap(), Metric::CenteredCosine);
+        assert_eq!(
+            Metric::parse("affine_centered_cosine_v1").unwrap(),
+            Metric::CenteredCosine
+        );
         assert!(Metric::parse("cosine").is_err());
         assert!(Metric::parse("mood_centered_prod").is_err());
     }
@@ -195,24 +199,39 @@ mod tests {
     #[test]
     fn reorders_shadow_only_without_identity_or_raw_score_output() {
         let scores = [0.65, 0.95, 0.30, 0.85, 0.45, 0.90];
-        let source: Vec<_> = scores.into_iter().enumerate()
-            .map(|(rank, s)| RankedCandidate { bliss_rank: rank, shadow_score: s })
+        let source: Vec<_> = scores
+            .into_iter()
+            .enumerate()
+            .map(|(rank, s)| RankedCandidate {
+                bliss_rank: rank,
+                shadow_score: s,
+            })
             .collect();
         let baseline = source.iter().map(|x| x.bliss_rank).collect::<Vec<_>>();
         let report = compare_full_candidate_pool(&source).unwrap();
-        assert_eq!(source.iter().map(|x| x.bliss_rank).collect::<Vec<_>>(), baseline);
-        assert_eq!(report, ShadowRankSummary {
-            candidate_count: 6,
-            changed_positions: 5,
-            top5_overlap: 4,
-            max_absolute_rank_shift: 4,
-        });
+        assert_eq!(
+            source.iter().map(|x| x.bliss_rank).collect::<Vec<_>>(),
+            baseline
+        );
+        assert_eq!(
+            report,
+            ShadowRankSummary {
+                candidate_count: 6,
+                changed_positions: 5,
+                top5_overlap: 4,
+                max_absolute_rank_shift: 4,
+            }
+        );
     }
 
     #[test]
     fn ties_preserve_original_rank_and_partial_queries_are_rejected() {
-        let tied = (0..6).rev()
-            .map(|i| RankedCandidate { bliss_rank: i, shadow_score: 0.5 })
+        let tied = (0..6)
+            .rev()
+            .map(|i| RankedCandidate {
+                bliss_rank: i,
+                shadow_score: 0.5,
+            })
             .collect::<Vec<_>>();
         let r = compare_full_candidate_pool(&tied).unwrap();
         assert_eq!(r.changed_positions, 0);
