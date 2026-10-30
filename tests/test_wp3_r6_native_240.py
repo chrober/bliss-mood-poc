@@ -157,7 +157,9 @@ class NativeR6Tests(unittest.TestCase):
                      json.dumps(model_hash),json.dumps(cls)))
             for key in self.keys:
                 for head,dim in r6.DIMS.items():
-                    scores=struct.pack("<"+"f"*dim,*([0.2]*dim))
+                    values = ([0.5,0.5] if head=="voice" else
+                              [0.05+0.65*(i/max(1,dim-1)) for i in range(dim)])
+                    scores=struct.pack("<"+"f"*dim,*values)
                     db.execute("INSERT INTO feature_tracks VALUES (?,?,?,?,?,?)",
                          (key,head,head,self.plan["private_source_audio_sha256_by_key"][key],
                           1,scores))
