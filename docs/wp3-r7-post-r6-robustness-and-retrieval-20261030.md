@@ -50,7 +50,7 @@ From Windows PowerShell, execute this complete block:
 
 Default input is the operator-confirmed R6 directory benchmark-wp3-r6-native240-f8c65ca449eb40e8ad6b5b3e817c18b2. An explicit -PlanDir can choose another existing verified R6 cohort; paths are never guessed. Private result: aggregate-wp3-r7-song-bootstrap-retrieval.json, in a fresh ignored directory. Only this anonymized aggregate and non-identifying console summary may be shared with the research chat. **Do not upload or commit any individual tracks, manifest, SQLites, embeddings, model weights, audio, logs, DLLs or private learned matrices.**
 
-The dedicated GitHub Actions synthetic-only workflow (research-wp3-r7-synthetic.yml) checks Python 3.15 on Linux/Windows with pinned packages, historical R6 regression and synthetic R7 assertions, plus Windows PowerShell parser. CI does not access the actual private user dataset and is not a real R7 numerical result.
+The established WP3 GitHub Actions synthetic-only workflow (research-bliss-essentia-teacher-models.yml) checks Python 3.15 on Linux/Windows with pinned packages, historical R6 regression and synthetic R7 assertions, plus Windows PowerShell parser. CI does not access the actual private user dataset and is not a real R7 numerical result.
 
 ## Next scientific decision
 
