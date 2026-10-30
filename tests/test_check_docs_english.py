@@ -34,16 +34,16 @@ class DocumentationLanguageTests(unittest.TestCase):
             root = Path(tmp)
             docs = root / "docs"
             docs.mkdir()
-            (root / "README.md").write_text("# English research docs\\n", encoding="utf-8")
+            (root / "README.md").write_text("# English research docs\n", encoding="utf-8")
             # The pre-existing user-facing export instructions are German.
             (docs / "chatgpt-single-conversation-console-export.md").write_text(
-                "Diese Anleitung erklärt einen ChatGPT-Export.\\n", encoding="utf-8")
+                "Diese Anleitung erklärt einen ChatGPT-Export.\n", encoding="utf-8")
             (docs / "research-review.md").write_text(
-                "This research note is written in English.\\n", encoding="utf-8")
+                "This research note is written in English.\n", encoding="utf-8")
             self.assertEqual(failures(root), [])
             # A German note elsewhere MUST still fail, including adjacent files.
             (docs / "another-guide.md").write_text(
-                "Diese Anleitung muss überprüft werden.\\n", encoding="utf-8")
+                "Diese Anleitung muss überprüft werden.\n", encoding="utf-8")
             findings = failures(root)
             self.assertEqual(len(findings), 1)
             self.assertEqual(findings[0][0], "docs/another-guide.md")
