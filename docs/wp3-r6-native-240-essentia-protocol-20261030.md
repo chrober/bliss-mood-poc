@@ -1,5 +1,8 @@
 # WP3-R6: complete original Essentia C++ analysis on frozen 240 NEW songs
 
+> **ACTUAL REAL EXECUTION CONFIRMED — 30 OCT 2026:** The operator ran the entire R6 `-Stage All` successfully. Frozen source/model/native SHA gates and 240/240 Genre87/MoodTheme56/Voice2/1280D normalized embedding validation passed. The private, non-identifying R6 aggregate reports 240 NEW songs, old-100-fit MoodTheme Ridge MAE reduction **15.9474%** and Genre PLS2 **12.3069%**, raw Bliss vs Mood teacher Spearman **0.387956** / frozen Ridge **0.439035**, raw Bliss vs Genre teacher **0.430849** / Ridge **0.478136**. All 28,680 pairs are dependent, and this is **teacher proxy, not human similarity**. The real R6 plan is benchmark-wp3-r6-native240-f8c65ca449eb40e8ad6b5b3e817c18b2. This supersedes historical 'not yet scanned' statements below. [Post-R6 exploratory WP3-R7 study](wp3-r7-post-r6-robustness-and-retrieval-20261030.md) now reuses this exact native cohort **without rescanning audio**. Exact head parity and pretraining non-overlap remain unproven.
+
+
 **Approved research direction, 30 October 2026.** This *supersedes* the former assumption in [the Bliss-only 24-pair blind pilot](wp3-blind-student-validation-pilot-20261030.md) that we should refrain from analyzing the 240 songs with Essentia. The blind pilot remains optional and is **postponed** until after the full-feature analysis and independently evaluated protocols are understood. It was not executed on real user data. The operator's instruction explicitly authorizes planning the 240-song original Essentia C++ analysis, not a production LMS/library scan.
 
 ## Confirmed baseline and external-cohort preparation
