@@ -16,7 +16,6 @@ from contextlib import closing, ExitStack
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -60,12 +59,14 @@ def _load_bliss_valid(db: sqlite3.Connection) -> dict[str, tuple[float, float]]:
     rows = db.execute('SELECT "File",' + fields + ' FROM TracksV2')
     valid = {}
     repeated = set()
+    seen = set()
     for key, *values in rows:
         if not _valid(key):
             continue
-        if key in valid:
+        if key in seen:
             repeated.add(key)
             continue
+        seen.add(key)
         if (len(values) != 23 or any(type(v) not in (float, int)
               or not math.isfinite(v) for v in values)):
             continue
