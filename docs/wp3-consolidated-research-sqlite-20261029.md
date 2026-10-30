@@ -1,5 +1,8 @@
 # WP3: consolidated private research SQLite (29 October 2026)
 
+> **LATEST VERIFIED REAL RESEARCH RESULT — 30 October 2026:** The operator has completed a 100-song, **75 train / 25 artist+album+recording-group-disjoint holdout** WP3 exploratory teacher-study using genuine Lyrion/BlissMixerLab metadata (88 connected groups). All 100 song identities matched authentic LMS IDs/URLMD5, with only one conservatively grouped unknown recording MBID. A new private `benchmark-wp3-research-20261030-091600-8c93d55f/wp3-research.sqlite` and an aggregate-only `aggregate-teacher-research.json` were generated without rescanning audio. On the 25-song holdout: best teacher-output MAE reduction vs train-mean baseline was **6.92% Genre87 (PLS)** and **13.04% MoodTheme56 (Ridge)**. Bliss-only MoodTheme Ridge student's Spearman correlation to Essentia teacher distances improved **0.442049 -> 0.540662** vs original Bliss Euclidean; Genre improved **0.557959 -> 0.569599**. These are **teacher-score/distance reconstruction** signals, NOT verified human-rated musical similarity. The 100 songs had been previously studied (3,289 correlations), so the group holdout is **not untouched confirmatory evidence**. Head parity validation, cross-DB audio-byte identity and teacher pretraining overlap remain unresolved. [Complete detailed experiment and next independent evidence gates](wp3-real-grouped-teacher-study-results-20261030.md).
+
+
 ## Status and purpose
 
 The preferred WP3 local workflow is to create **one new, private,
@@ -37,9 +40,10 @@ For an explicitly known *alternative existing* schema-v3 feature
 SQLite, set environment variable LYRION_FEATURE_DB. No automatic
 recursive folder searching or missing-song audio extraction occurs.
 
-Optional, genuine Lyrion grouping sources can be supplied together as
-LYRION_REPEAT_SNAPSHOT_DB and LYRION_LIBRARY_DB. No verified accessible
-Windows path for either is recorded. This additional source must satisfy
+Authentic Lyrion grouping sources are supplied together as
+LYRION_REPEAT_SNAPSHOT_DB and LYRION_LIBRARY_DB. The operator has now verified
+and privately copied the genuine Pi library and BlissMixerLab snapshot to
+Windows (30 October 2026); see the [successful experiment](wp3-real-grouped-teacher-study-results-20261030.md). This additional source must satisfy
 the BlissMixerLab artist-repeat snapshot and actual Lyrion library
 schemas, plus matching LMS track ID, URLMD5 and artist/album identifiers.
 Never guess artist, album or recording from song filenames.
@@ -226,9 +230,10 @@ aggregate-wp3-stability-*.json in the ignored private research
 folder; it never exports song keys, hashes, individual vectors or
 source DB paths. Each invocation refuses to overwrite old reports.
 
-The next **genuinely independent evaluation** still requires
-verified Lyrion artist/album/recording identities and a group-
-disjoint holdout. BlissMixerLab/RepeatIdentitySnapshot.pm writes
+The next **genuinely confirmatory evaluation** still requires
+a NEW independent cohort and a group-disjoint perceptual/human reference;
+Lyrion artist/album/recording identities for the initial 100 songs are
+now verified, but those 100 were already explored before the split. BlissMixerLab/RepeatIdentitySnapshot.pm writes
 under the dynamic LMS cache directory, not a verified accessible
 Windows path. Do not manufacture artist metadata from filenames,
 or mistake this report for WP3 teacher learning / WP1-WP2 gains.
@@ -300,8 +305,8 @@ as separate active workstreams and PR #16 isolated.
 
 The plugin's identity snapshot path is dynamically derived from the
 Lyrion cache root by BlissMixerLab/RepeatIdentitySnapshot.pm, then
-BlissMixerLab/artist-repeat-identities.sqlite appended. Neither that
-source nor the LMS library.db has been verified accessible on Windows.
+BlissMixerLab/artist-repeat-identities.sqlite appended. Both sources were subsequently transferred as validated, private
+Windows copies on 30 October 2026; see the real grouped-study record.
 Do not fabricate identities from filenames. Before copying a live
 SQLite from a running server, use a consistent snapshot/backup
 procedure rather than risk an incomplete database; keep source
@@ -477,8 +482,9 @@ The existing plugin source
 creates artist-repeat-identities.sqlite under
 Slim::Utils::OSDetect::dirsFor('cache') / BlissMixerLab, conditional
 on the plugin's prepare() routine and a valid LMS last-scan/root
-identity. This is a **dynamic Lyrion cache directory**, not
-a verified Windows-accessible path. The LMS library SQLite
+identity. The Pi cache root and actual snapshot were verified and
+transferred privately on 30 October 2026; this general dynamic-path
+rule still applies on any other host. The LMS library SQLite
 is another genuine external source. Do not guess a Raspberry Pi
 mount, download a live SQLite without a consistent snapshot, or
 substitute song-path-derived artist/album labels to bypass the
