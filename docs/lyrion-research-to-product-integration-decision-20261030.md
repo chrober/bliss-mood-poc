@@ -1,5 +1,8 @@
 # From WP1/WP2/WP3 research to useful Lyrion playlists: cross-repository integration decision (30 October 2026)
 
+> **IMPLEMENTATION UPDATE — 30 OCT 2026:** P1 technical sub-slice is now real code: [standalone Rust geometry + read-only SQLite-v3 shadow CLI](lyrion-rust-similarity-engine-shadow-first-slice-20261030.md) using existing strict `src/feature_lookup.rs`, with [Linux/Windows Cargo tests PASS](https://github.com/chrober/bliss-mood-poc/actions/runs/41085597284). It supports versioned affine cosine/centered cosine for Genre87/Mood56 only and produces anonymous rank-delta aggregates, **never playlists**. Actual model scoring is on fictional, temporary source-compatible SQLite v3 fixtures; real-song audio-feature validation, independent General Metric quality, *LMS urlmd5/candidate ↔ exact `TracksV2.File` resolver*, SPI v2 JSONL service/provider package, real Lyrion shadow UI, Pi performance and personal mode are **not implemented**. Existing P0–P6 go/no-go gates remain binding. This is a safe implementation advance, not P2 delivered or authorization for a shipped plugin. See full [CLI request schema and restrictions](lyrion-rust-similarity-engine-shadow-first-slice-20261030.md).
+
+
 **Status:** Evidence-based product architecture and a small **synthetic shadow-only integration contract**. **NOT** a released Lyrion feature, running SPI v2 plugin, certified General Metric, merged pull request, measurable acoustic improvement or approval to modify production repositories. Applies only to the isolated `feat/general-pairwise-similarity-research` branch.
 
 ## 1. Real, inspected product boundaries (as of 30 Oct 2026)
