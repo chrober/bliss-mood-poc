@@ -1,5 +1,8 @@
 # WP3-R7: post-R6 song-group bootstrap and neighbor retrieval (30 October 2026)
 
+> **REAL R7 RUN COMPLETED — 30 OCT 2026:** User executed the R7 no-scan Windows study successfully with 240/240 source-identity-disjoint songs; frozen R6 numeric report was reproduced. Three exploratory song-group bootstrap deltas and Top-5/10/20 teacher-neighbor overlaps are recorded in the new [real numerical results and next quality gate](wp3-r7-real-results-and-next-quality-gate-20261030.md). Mood Ridge improves global teacher geometry yet gives only a modest Mood Top-5 improvement and actually worsens Genre Top-5, while Genre PLS2 fails to improve local retrieval. No fresh audio/human test or production integration occurred; no further R7 run is required.
+
+
 ## Observed WP3-R6 outcome and scientific status
 
 The operator ran the original Essentia C++ pipeline on all 240 NEW songs and provided a private aggregate (never commit): 240/240 complete Genre87, MoodTheme56, Voice2 and normalized pooled 1280D embeddings; source/model checks passed.
