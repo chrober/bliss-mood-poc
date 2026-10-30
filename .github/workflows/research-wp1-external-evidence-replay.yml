@@ -6,7 +6,9 @@ on:
     paths:
       - 'research/wp1-e1-external-aggregate-lock-v1.json'
       - 'scripts/audit_wp1_external_aggregates.py'
+      - 'scripts/audit_wp1_e3_paired_bounds.py'
       - 'tests/test_audit_wp1_external_aggregates.py'
+      - 'tests/test_audit_wp1_e3_paired_bounds.py'
       - '.github/workflows/research-wp1-external-evidence-replay.yml'
   workflow_dispatch:
 
@@ -25,6 +27,8 @@ jobs:
           python-version: '3.15'
       - name: Pure-stdlib synthetic fail-closed report tests
         run: python -m unittest discover -s tests -p 'test_audit_wp1_external_aggregates.py' -v
+      - name: WP1-E3 exact feasible matched correctness-table tests
+        run: python -m unittest discover -s tests -p 'test_audit_wp1_e3_paired_bounds.py' -v
       - name: Download historical MTT result artifact (NOT audio)
         uses: actions/download-artifact@v4
         with:
@@ -58,10 +62,30 @@ jobs:
             --deam-zip archive-inputs/deam/deam-summary.json \
             --out results/wp1-e1-verified-external-evidence.json
           python -c "import json; d=json.load(open('results/wp1-e1-verified-external-evidence.json')); assert not d['unmeasured_global_fusions_imputed']; assert not d['cross_task_score_averaged']; print('Historical public aggregate replay PASS; no global pair-fusion measurements invented.')"
+      - name: WP1-E3 sharp paired discordance bounds; no actual paired data inferred
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audit_wp1_e3_paired_bounds.py \
+            --lock research/wp1-e1-external-aggregate-lock-v1.json \
+            --mtt-zip archive-inputs/mtt/results/mtt-audio-genre-mood-fixed-rank-fusion-exploratory.json \
+            --fma-zip archive-inputs/fma/fma-80-embedding-vs-heads-aggregate.json \
+            --deam-zip archive-inputs/deam/deam-summary.json \
+            --out results/wp1-e3-sharp-matched-bounds.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('results/wp1-e3-sharp-matched-bounds.json').read_text())
+          assert d['all_question_level_joint_correctness_values_missing']
+          assert d['no_observed_mcnemar_test_or_paired_bootstrap_claimed']
+          assert not d['general_metric_selected']
+          assert len(d['contrasts'])==8
+          print('WP1-E3 PASS: eight possible paired tables bounded, zero observed paired p-values.')
+          PY
       - name: Publish anonymized numeric evidence report only
         uses: actions/upload-artifact@v4
         with:
-          name: wp1-e1-verified-public-external-evidence
+          name: wp1-e1-e3-verified-public-aggregates-and-sharp-bounds
           path: results/wp1-e1-verified-external-evidence.json
           if-no-files-found: error
           retention-days: 30
