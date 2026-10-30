@@ -18,6 +18,8 @@ on:
       - 'scripts/prepare_wp3_lyrion_group_sources_windows.ps1'
       - 'scripts/prepare_wp3_independent_cohort.py'
       - 'scripts/prepare_wp3_independent_cohort_windows.ps1'
+      - 'scripts/prepare_wp3_blinded_bliss_student_pilot.py'
+      - 'scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1'
       - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
       - 'tests/test_research_bliss_only_teacher_geometry.py'
@@ -28,6 +30,7 @@ on:
       - 'tests/test_analyze_wp3_snapshot_stability.py'
       - 'tests/test_verify_wp3_copied_lyrion_sqlite.py'
       - 'tests/test_prepare_wp3_independent_cohort.py'
+      - 'tests/test_prepare_wp3_blinded_bliss_student_pilot.py'
       - 'tests/create_wp3_metadata_ci_fixture.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
@@ -110,6 +113,8 @@ jobs:
 
       - name: Verify NEW artist/album/recording-disjoint future cohort planner (synthetic)
         run: python -m unittest discover -s tests -p 'test_prepare_wp3_independent_cohort.py' -v
+      - name: Blind source-disjoint NEW 240 Bliss cohort vs fixed student (synthetic only)
+        run: python -m unittest discover -s tests -p 'test_prepare_wp3_blinded_bliss_student_pilot.py' -v
       - name: Validate read-only copied Lyrion metadata SQLite (synthetic)
         run: python -m unittest discover -s tests -p 'test_verify_wp3_copied_lyrion_sqlite.py' -v
       - name: Build synthetic local metadata for Windows 5.1/7 argument smoke
@@ -250,5 +255,10 @@ jobs:
           $future = Join-Path (Get-Location).Path 'scripts/prepare_wp3_independent_cohort_windows.ps1'
           $null = [System.Management.Automation.Language.Parser]::ParseFile($future, [ref]$tokens, [ref]$errors)
           if ($errors.Count -ne 0) { throw 'Independent new-cohort Windows PowerShell wrapper has syntax errors.' }
+          $errors = $null
+          $tokens = $null
+          $pilot = Join-Path (Get-Location).Path 'scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($pilot, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'WP3 blinded student pilot Windows PowerShell wrapper has syntax errors.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
