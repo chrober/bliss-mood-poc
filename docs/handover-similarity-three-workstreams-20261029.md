@@ -160,9 +160,33 @@ perfect general metric or fresh mandatory personal ratings.
   pre-existing-output policy; never ask the user to manually
   assemble several Git or download fragments.
 
-## Next substep (R5) — independent NEW cohort *selection*, not rescanning
+## Next substep (R6) — privately fit frozen student and offer optional blinded 24-pair diagnostic
 
-The independent identity-disjoint, 240-song **planning/manifest** implementation is available but has not been executed against the user's actual private databases. After synthetic CI gates pass, operator may run the complete [Windows PowerShell launcher](../scripts/prepare_wp3_independent_cohort_windows.ps1) and report anonymous counts. That is a preparation gate, NOT the independently validated listening-quality metric, an Essentia scan, or new model weights. Freeze candidate, then separately plan any future authorized audio and human validation. [Full protocol](wp3-independent-cohort-validation-plan-20261030.md).
+**WP3-R5 was actually executed successfully**, producing 240 new Bliss23
+songs with no recorded artist/album/recording identities shared with
+the old 100 or mutually within the new selection, exactly 15 in each
+of 16 Tempo/MeanSpectralCentroid quartile bins. No new song has
+Essentia or human similarity labels.
+
+**WP3-R6 is implemented but not run on the user's real data.** The
+[research-only pilot](wp3-blind-student-validation-pilot-20261030.md)
+revalidates the exact private R5 manifest against all original sources,
+fits the frozen MoodTheme Ridge(α=10) student on all 100 old development
+songs only, then proposes 24 optional blind review pairs from 240 NEW
+Bliss23 songs (6 original-Bliss-preferred / 6 student-preferred / 12
+random controls; 48 distinct songs). Private teacher-student weights,
+pair-identity CSV with EMPTY labels, and method-specific SEALED audit
+stay locally ignored. No audio/ONNX scans, no Lyrion queue operations,
+no compulsory listening. Because half the pairs are purposefully
+discordant, this is a diagnostic sample, not unbiased population
+perceptual validation.
+
+After successful CI and branch update, the next optional operator
+step is `& .\scripts\prepare_wp3_blinded_bliss_student_pilot_windows.ps1`
+from Windows PowerShell. The *next actual scientific result* still
+requires volunteered blind human/perceptual judgments from a
+larger independent protocol; do not claim student improvement from
+model-score analysis or prepared pairs alone.
 
 ## Current next assignment (as of 30 October 2026)
 
@@ -184,46 +208,55 @@ personal/blend compatibility and fallback tests using the known
 learner/host formats. No real private read until a separate
 safe, consented, deterministic local procedure exists. No new
 compulsory ratings. No unauthorized edits to the other repos.
-## Copy/paste handover prompt (updated 30 October 2026)
+## Copy/paste handover prompt (updated 30 October 2026, after R5 PASS)
 
-> Continue project Lyrion: Mood Analysis on branch
-> `feat/general-pairwise-similarity-research`. Read
-> [the three-workstream research strategy](similarity-three-workstreams-strategy-20261029.md),
-> [the current WP3 consolidated provenance/runbook](wp3-consolidated-research-sqlite-20261029.md)
-> and [the FIRST genuine 100-song grouped teacher-study findings](wp3-real-grouped-teacher-study-results-20261030.md)
-> **before planning any work**.
+> Continue Lyrion: Mood Analysis in research branch
+> `feat/general-pairwise-similarity-research`. The WP1 General,
+> WP2 optional Personal Metric Learning with calibrated 0–100%
+> General/Personal slider + full General fallback, and WP3
+> Bliss↔Essentia teacher-distilled Bliss representation **all remain
+> distinct and active**. Study
+> [the main strategy](similarity-three-workstreams-strategy-20261029.md),
+> [real 100-song grouped WP3 result](wp3-real-grouped-teacher-study-results-20261030.md),
+> [real R5 240-song source cohort and proposed R6 blind pilot](wp3-blind-student-validation-pilot-20261030.md),
+> and [all provenance and previous work](wp3-consolidated-research-sqlite-20261029.md).
 >
-> The authentic Bliss23 / Essentia Genre87/MoodTheme56 / Lyrion library /
-> BlissMixerLab artist identity join was successfully verified **100/100**,
-> with **88 identity-connected groups** and a **75 train / 25 group-disjoint
-> holdout**. The real Windows Python 3.15 teacher-study is **already completed**.
-> Genre PLS cut classifier-output MAE **6.92%** and MoodTheme Ridge **13.04%**
-> relative to the training-mean baseline. A Bliss-only Ridge student improved
-> MoodTheme teacher-distance Spearman from **0.442049 to 0.540662** versus original
-> Bliss Euclidean on 300 dependent pairs, while Genre changed only from
-> **0.557959 to 0.569599**. This does NOT validate human musical similarity,
-> does NOT certify Essentia head numerical parity / audio-byte identity /
-> teacher-training independence, and the holdout is NOT untouched because
-> the complete same 100-song cohort was explored beforehand.
+> Already completed by the operator:
+> - 100/100 Bliss23/Essentia Genre87/MoodTheme56 exact key and authentic
+>   Lyrion track/artist/album/recording identity join; 88 groups, 75/25
+>   group-disjoint exploratory holdout. Genre PLS 6.92% and MoodTheme
+>   Ridge 13.04% lower classifier-output MAE versus constant train-mean;
+>   MoodTheme teacher-distance Spearman original Bliss 0.442049 versus
+>   Bliss-only student 0.540662. Teacher metrics are NOT human musical
+>   similarity evidence and old 25 are NOT untouched confirmation.
+> - R5 real Windows PowerShell run produced private manifest of exactly
+>   **240 new songs**, 100 prior keys excluded, all 240 unique Bliss23,
+>   no known artist/album/recording overlap with prior 100 or among 240,
+>   and **15 songs per each of 16 Tempo/centroid quartile bins**.
+>   No new Essentia scans and no human ratings exist for new songs.
 >
-> The MoodTheme candidate architecture is now frozen *without fitted weights* in
-> [research/wp3-moodtheme-student-candidate-v1.json](../research/wp3-moodtheme-student-candidate-v1.json).
-> The [WP3 R5 240-song new-cohort selector](wp3-independent-cohort-validation-plan-20261030.md)
-> has been implemented but NOT yet run on real future songs; the next operator
-> step is the source-only Windows PowerShell planner (no audio or listening).
+> New code already committed, **NOT YET RUN on real 240**:
+> WP3-R6 [private blind comparison](wp3-blind-student-validation-pilot-20261030.md)
+> and Windows PowerShell entrypoint
+> `scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1`.
+> It verifies private 240 manifest against real source metadata,
+> refits the frozen MoodTheme Bliss23 StandardScaler + Ridge(alpha 10)
+> using **all old 100 development songs only**, and prepares 24
+> optional method-blind review pairs (6 raw-preferred, 6
+> student-preferred, 12 seeded random; 48 distinct songs), a private
+> fitted model, and an audit to KEEP SEALED until ratings are frozen.
+> Since selection oversamples model disagreements this is a
+> diagnostic, NOT unbiased population generalization. Never auto-play
+> or queue songs, read sealed audit before ratings, or demand ratings.
 >
-> After that: preserve these exploratory findings; freeze *candidate architecture
-> and evaluation protocol only*, design a genuinely NEW, more representative,
-> group-disjoint independent perceptual/listener evaluation against
-> original Bliss and current WP1 Genre/Mood/embedding/fusion baselines,
-> then report group-aware statistical uncertainty. WP1 General Metric
-> remains primary and available with zero personalization. WP2 optional
-> Personal Metric Learning and calibrated 0–100% general/personal blend
-> remain separate active development threads with complete no-model fallback.
-> WP3 is teacher-distilled Bliss representation research, not automatically
-> a new production metric. Do not tune to these 25 songs and call it independent.
-> No audio rescans, Pi restart, worker autotuning, obligatory listening or
-> deployment without explicit authorization. Preserve private music data,
-> use English Markdown docs, and provide one executable complete Windows
-> PowerShell block for any local steps. Leave main, Draft PR #16 and
-> other repositories untouched.
+> Next step: verify CI, pull isolated research branch, optionally
+> run the full R6 PowerShell script on existing Python 3.15 and
+> existing read-only private sources; user should share aggregate-only
+> stdout, NEVER private CSV, manifest, trained weights or SQLites.
+> Any genuine general-metric validation later requires separately
+> consented human/external musical judgments and missing WP1
+> Essentia/embedding outputs on truly independent new songs; do
+> NOT invent those scores or start audio/ONNX scans without approval.
+> Keep no new deployment, workers, LMS changes, main merge, PR #16
+> or other repo edits. Maintain thorough English experiment docs and
+> handover updates after each real experiment.
