@@ -8,8 +8,10 @@ destination, detects CI, and uses 64 synthetic generated TracksV2 keys.
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import shutil
+import sqlite3
 
 from test_run_local_bliss_essentia_teacher_study import LocalPairedStudyTests
 
@@ -28,6 +30,25 @@ def main() -> None:
         native.parent.mkdir(exist_ok=False)
         shutil.copyfile(source.bliss,bliss)
         shutil.copyfile(source.essentia,native)
+        # This CI-only classifier catalog uses the same label spellings as
+        # the post-selected real report. No private user model is involved.
+        named = {
+            "genre": ("metal", "hard", "easylistening", "improvisation"),
+            "moodtheme": ("soft", "romantic", "nature"),
+        }
+        with sqlite3.connect(native) as conn:
+            for head, replacements in named.items():
+                row = conn.execute(
+                    "SELECT classes_json FROM feature_models WHERE model_key=?",
+                    (head,)
+                ).fetchone()
+                labels=json.loads(row[0])
+                labels[:len(replacements)] = replacements
+                conn.execute(
+                    "UPDATE feature_models SET classes_json=? WHERE model_key=?",
+                    (json.dumps(labels),head)
+                )
+            conn.commit()
     finally:
         source.doCleanups()
     print("CI synthetic 64-song Bliss/Essentia paired fixture created; no real audio or track keys")
