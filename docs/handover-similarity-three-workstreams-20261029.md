@@ -1,5 +1,8 @@
 # Handover: Lyrion General + Personal + Bliss↔Essentia research (29 October 2026)
 
+> **30 Oct 2026 NEXT WP3 R5 IMPLEMENTED, REAL EXECUTION PENDING:** The user's authenticated genuine 100-song teacher study remains the last real measurement; its 75/25 group-heldout MoodTheme student teacher-distance Spearman was 0.442049 original Bliss -> 0.540662 student but **no human perceptual lift established**. A machine-readable MoodTheme Ridge(alpha 10) *hypothesis-only* spec is now frozen; [WP3 R5 new-cohort protocol](wp3-independent-cohort-validation-plan-20261030.md) and [single self-contained Windows PowerShell planner](../scripts/prepare_wp3_independent_cohort_windows.ps1) were added on isolated research branch. The planner proposes 240 NEW songs (existing Bliss only) from the operator's Lyrion/Bliss databases, excludes every existing 100-song ID and all shared source-grounded credited artists (incl. collaborations), albums and known recording MBIDs; rejects missing new MBIDs and samples balanced seeded Tempo/MeanSpectralCentroid quartile proxies. It must not run Essentia/audio, request listening labels, reveal private song keys in stdout, or claim validation. Private output manifest is ignored/not shareable. **No real independent cohort has yet been selected**, CI remains synthetic; subsequent human/perceptual comparison and any audio analysis require separate authorization. Next Windows operator step once tests pass: git pull research branch and run `& .\scripts\prepare_wp3_independent_cohort_windows.ps1`. WP1/WP2 remain separate; PR #16/main unchanged.
+
+
 
 > **CURRENT HANDOVER — real WP3 teacher experiment COMPLETE (30 October 2026):** The user successfully ran `scripts/build_wp3_research_db_windows.ps1` from PowerShell using Python 3.15.0, genuine local copies of LMS `library.db` + BlissMixerLab `artist-repeat-identities.sqlite`, and already computed Bliss23/native Essentia Genre87/MoodTheme56. The new private grouped research SQLite is `benchmark-wp3-research-20261030-091600-8c93d55f/wp3-research.sqlite` with aggregate `aggregate-teacher-research.json`, neither committed. **100/100 source identities verified, 88 artist/album/recording-connected groups, 75 train / 25 group-disjoint holdout, one unknown recording MBID grouped conservatively.** In real heldout teacher-vector prediction, Genre87 PLS improved MAE **6.92%** and MoodTheme56 Ridge **13.04%** relative to training-mean baselines. Bliss-only Ridge distance geometry versus Essentia teacher: Genre Spearman **0.557959 -> 0.569599** (+0.011640), MoodTheme **0.442049 -> 0.540662** (+0.098613). PCA-CCA teacher cross-view Pearson **0.632409** Genre / **0.815130** MoodTheme. All results are **exploratory**: the 100 songs had already been used for 3,289 full-cohort correlations; 25 group-disjoint holdout songs are **not** untouched confirmatory data. Teacher head numeric parity is not validated, cross-analysis audio-byte identity and pretrained-teacher overlap are not certified, there is no independent musical/human similarity gain or deployment. **Next:** freeze the MoodTheme Ridge student *candidate configuration* and protocol, acquire a genuinely NEW artist/album/recording-disjoint diverse cohort with separate human/perceptual similarity reference, compare against original Bliss and WP1 baselines, report group-aware uncertainty, and progress WP2 optional personal/blend separately. Never fit/adjust on the 25 songs and call it an independent test. [Detailed source-grounded results](wp3-real-grouped-teacher-study-results-20261030.md). Earlier dated note blocks below remain historical and do not override this status.
 
@@ -154,6 +157,10 @@ perfect general metric or fresh mandatory personal ratings.
   pre-existing-output policy; never ask the user to manually
   assemble several Git or download fragments.
 
+## Next substep (R5) — independent NEW cohort *selection*, not rescanning
+
+The independent identity-disjoint, 240-song **planning/manifest** implementation is available but has not been executed against the user's actual private databases. After synthetic CI gates pass, operator may run the complete [Windows PowerShell launcher](../scripts/prepare_wp3_independent_cohort_windows.ps1) and report anonymous counts. That is a preparation gate, NOT the independently validated listening-quality metric, an Essentia scan, or new model weights. Freeze candidate, then separately plan any future authorized audio and human validation. [Full protocol](wp3-independent-cohort-validation-plan-20261030.md).
+
 ## Current next assignment (as of 30 October 2026)
 
 **WP3-MOOD-VALIDATION and WP1/WP2 coordination; no re-run of already completed group-source preflight.** The first actual authentic artist/album/recording group-heldout 100-song teacher study is complete. Its empirical evidence is in [WP3 real grouped teacher study](wp3-real-grouped-teacher-study-results-20261030.md), and full input/backup/debug chronology is in [consolidated WP3](wp3-consolidated-research-sqlite-20261029.md).
@@ -196,7 +203,13 @@ compulsory ratings. No unauthorized edits to the other repos.
 > teacher-training independence, and the holdout is NOT untouched because
 > the complete same 100-song cohort was explored beforehand.
 >
-> Next: preserve these exploratory findings; freeze *candidate architecture
+> The MoodTheme candidate architecture is now frozen *without fitted weights* in
+> [research/wp3-moodtheme-student-candidate-v1.json](../research/wp3-moodtheme-student-candidate-v1.json).
+> The [WP3 R5 240-song new-cohort selector](wp3-independent-cohort-validation-plan-20261030.md)
+> has been implemented but NOT yet run on real future songs; the next operator
+> step is the source-only Windows PowerShell planner (no audio or listening).
+>
+> After that: preserve these exploratory findings; freeze *candidate architecture
 > and evaluation protocol only*, design a genuinely NEW, more representative,
 > group-disjoint independent perceptual/listener evaluation against
 > original Bliss and current WP1 Genre/Mood/embedding/fusion baselines,
