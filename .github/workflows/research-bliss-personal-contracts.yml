@@ -10,6 +10,7 @@ on:
       - 'scripts/research_feature_relationships.py'
       - 'scripts/research_personal_triplet_protocol.py'
       - 'scripts/research_personal_synthetic_metric_learning.py'
+      - 'scripts/research_personal_synthetic_calibration.py'
       - 'scripts/prepare_bliss_learner_train_only.py'
       - 'scripts/run_verified_bliss_learner.py'
       - 'tests/test_audit_bliss_essentia_join.py'
@@ -18,6 +19,7 @@ on:
       - 'tests/test_research_feature_relationships.py'
       - 'tests/test_research_personal_triplet_protocol.py'
       - 'tests/test_research_personal_synthetic_metric_learning.py'
+      - 'tests/test_research_personal_synthetic_calibration.py'
       - 'tests/test_prepare_bliss_learner_train_only.py'
       - 'tests/test_run_verified_bliss_learner.py'
       - '.github/workflows/research-bliss-personal-contracts.yml'
@@ -40,7 +42,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Compile research contracts
-        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py scripts/research_grouped_split.py scripts/research_feature_relationships.py scripts/research_personal_triplet_protocol.py scripts/research_personal_synthetic_metric_learning.py scripts/prepare_bliss_learner_train_only.py scripts/run_verified_bliss_learner.py
+        run: python -m compileall -q scripts/audit_bliss_essentia_join.py scripts/general_personal_blend_contract.py scripts/research_grouped_split.py scripts/research_feature_relationships.py scripts/research_personal_triplet_protocol.py scripts/research_personal_synthetic_metric_learning.py scripts/research_personal_synthetic_calibration.py scripts/prepare_bliss_learner_train_only.py scripts/run_verified_bliss_learner.py
       - name: WP3 read-only exact-join and private aggregate regression
         run: python -m unittest discover -s tests -p 'test_audit_bliss_essentia_join.py' -v
       - name: WP2 General/Personal model fallback and legacy learner regression
@@ -60,6 +62,16 @@ jobs:
         with:
           name: wp2-p3-fictional-personal-curve-${{ matrix.os }}
           path: wp2-p3-synthetic-only-aggregate.json
+          retention-days: 21
+      - name: WP2-P4 four-way grouped calibration and sealed-test fallback regression
+        run: python -m unittest discover -s tests -p 'test_research_personal_synthetic_calibration.py' -v
+      - name: Publish WP2-P4 fictional calibrated-score aggregate (no identities/weights)
+        run: python scripts/research_personal_synthetic_calibration.py --out wp2-p4-fictional-only-aggregate.json
+      - name: Upload immutable synthetic-only calibration report
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp2-p4-fictional-calibration-${{ matrix.os }}
+          path: wp2-p4-fictional-only-aggregate.json
           retention-days: 21
       - name: WP2 isolate original Rust learner to private train-only input DB and triplets
         run: python -m unittest discover -s tests -p 'test_prepare_bliss_learner_train_only.py' -v
