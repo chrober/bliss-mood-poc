@@ -47,6 +47,32 @@ This establishes that a tiny source Range probe works, **not** that 1,019 sparse
 
 The extended [same-branch 30-clip stress gate](../.github/workflows/research-wp1-e2-source-diagnostic.yml) now selects ten registered clips per each archive part, interleaves them, enforces original 3.5-second request spacing, CRC-checks every individual clip, and reports only counts/failure reason. No audio or per-track identifiers are saved as artifacts. Its success or partial stop must not be described as a full public MTT fusion evaluation.
 
+### Verified extended 30-clip stress gate: 41060669011 — SOURCE RELIABILITY BLOCKED
+
+[GitHub Actions 41060669011](https://github.com/chrober/bliss-mood-poc/actions/runs/41060669011) completed its diagnostic software workflow successfully on 30 October 2026; the **actual HTTP audio-source stress test did NOT pass**. Actual anonymized report:
+
+| Measurement | Result |
+| --- | --- |
+| Original multipart tiny HTTP-206 probes | 3/3 PASS |
+| Scoped curated cache lookup | MISS |
+| One deterministic original ZIP member + CRC | PASS, one range, 116,178 bytes |
+| Requested distributed stress sample | 30 clips, 10 per archive part |
+| Successfully CRC-verified stress sample clips | **7/30** |
+| Per source part successfully verified | Part .001: 3; .002: 2; .003: 2 |
+| Successful sampled range requests | 7 |
+| Sampled transferred bytes | 811,839 |
+| Stress sample completion status | **SAMPLE_STOPPED** |
+| Bounded failure category | **RANGE_TRANSPORT_FAILURE** |
+| New MTT global pairwise fusion results | **NONE** |
+
+The failure occurred while attempting the eighth sampled clip. The sanitized report records a transport failure only; do NOT infer its exact curl exit code, HTTP status or publisher cause without an independently captured diagnostic. The earlier historical full runner *did* report curl 28 / HTTP 000 on another attempt, but that exact code was not exposed by this sample.
+
+The sampler uses the same RangeFetcher pacing and full ZIP member-length/CRC gates as the 1,019-clip pipeline. Even after three small-range passes and one independently CRC-verified clip, repeated source-member access was unreliable in this actual run. **Do not launch the expensive 1,019-clip pipeline merely because the initial HTTP probes passed.** That would consume additional network/Actions runtime without a credible source-availability gate.
+
+The diagnostic's GitHub Actions overall green status means the **diagnostic completed and safely reported its blocked source sample**; it is NOT a 30/30 audio success and NOT a musical-similarity outcome. No MP3 content, track IDs, matrices, individual features, or labels were included in the uploaded JSON artifacts.
+
+Recommended data prerequisite: a stable, original-content SHA/ZIP-CRC compatible publisher serving path or a separately authorized lawful, bounded curated local 1,019-clip source. Do not silently move a sibling-branch GitHub cache, republish licensed clips, accept an unverified mirror, or download the entire multipart archive. Until the data prerequisite is satisfied, continue WP1 work using already verified historical reference reports and WP2 synthetic modeling contracts. Preserve the reserved FMA official TEST split and PR #16/main.
+
 ## Scientific next action once source is sufficiently reliable
 
 Only when source access (or an independently documented lawful, checksum-verified existing curated cache) is verified should the predeclared [global pair-fusion MTT runner](../.github/workflows/research-global-pair-fusion-mtt.yml) be attempted. Require the identical 1,019 clips and 293 decisive human triplets, same original Genre87/Mood56/Embedding1280, all four fixed globally comparable pairwise fusion scores, complete coverage/tie rates, paired discordance/sensitivity and original baseline replays. No trained weights, no changed metric choices, no fake holdout, no new manual listening. Keep FMA TEST untouched; DEAM and FMA external tasks stay separate.
