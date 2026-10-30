@@ -211,55 +211,76 @@ personal/blend compatibility and fallback tests using the known
 learner/host formats. No real private read until a separate
 safe, consented, deterministic local procedure exists. No new
 compulsory ratings. No unauthorized edits to the other repos.
-## Copy/paste handover prompt (updated 30 October 2026, after R5 PASS)
+## Copy/paste handover prompt — 30 October 2026, after approval of full native Essentia 240-song R6
 
-> Continue Lyrion: Mood Analysis in research branch
-> `feat/general-pairwise-similarity-research`. The WP1 General,
-> WP2 optional Personal Metric Learning with calibrated 0–100%
-> General/Personal slider + full General fallback, and WP3
-> Bliss↔Essentia teacher-distilled Bliss representation **all remain
-> distinct and active**. Study
-> [the main strategy](similarity-three-workstreams-strategy-20261029.md),
-> [real 100-song grouped WP3 result](wp3-real-grouped-teacher-study-results-20261030.md),
-> [real R5 240-song source cohort and proposed R6 blind pilot](wp3-blind-student-validation-pilot-20261030.md),
-> and [all provenance and previous work](wp3-consolidated-research-sqlite-20261029.md).
+> Continue Lyrion: Mood Analysis on the isolated research branch
+> `feat/general-pairwise-similarity-research`. Read
+> [the complete WP3-R6 original Essentia C++ 240-song plan](wp3-r6-native-240-essentia-protocol-20261030.md),
+> [predeclared machine-readable evaluation](../research/wp3-r6-full-teacher-evaluation-v1.json),
+> [the genuine 100-song grouped teacher experiment](wp3-real-grouped-teacher-study-results-20261030.md),
+> [the real 240-song R5 source cohort](wp3-independent-cohort-validation-plan-20261030.md)
+> and [the WP1/WP2/WP3 permanent strategy](similarity-three-workstreams-strategy-20261029.md)
+> before continuing.
 >
-> Already completed by the operator:
-> - 100/100 Bliss23/Essentia Genre87/MoodTheme56 exact key and authentic
->   Lyrion track/artist/album/recording identity join; 88 groups, 75/25
->   group-disjoint exploratory holdout. Genre PLS 6.92% and MoodTheme
->   Ridge 13.04% lower classifier-output MAE versus constant train-mean;
->   MoodTheme teacher-distance Spearman original Bliss 0.442049 versus
->   Bliss-only student 0.540662. Teacher metrics are NOT human musical
->   similarity evidence and old 25 are NOT untouched confirmation.
-> - R5 real Windows PowerShell run produced private manifest of exactly
->   **240 new songs**, 100 prior keys excluded, all 240 unique Bliss23,
->   no known artist/album/recording overlap with prior 100 or among 240,
->   and **15 songs per each of 16 Tempo/centroid quartile bins**.
->   No new Essentia scans and no human ratings exist for new songs.
+> ALREADY COMPLETE in the user's Windows environment:
+> 100/100 real exact Bliss23/Essentia Genre87/MoodTheme56 + Lyrion identity
+> source join; 88 artist/album/recording groups, 75 train / 25 group-disjoint
+> exploratory holdout; MoodTheme teacher-distance Spearman raw Bliss 0.442049
+> vs train-only Ridge student 0.540662 (NOT human quality and old 25 not
+> untouched confirmation). R5 metadata-only real operator run also produced
+> a fixed, private 240-song manifest, 15 songs in each of 16 Tempo/centroid
+> bins, with no source-recorded artist/album/recording overlap within 240
+> or with the old 100. No new 240 Essentia scores or human labels exist yet.
 >
-> New code already committed, **NOT YET RUN on real 240**:
-> WP3-R6 [private blind comparison](wp3-blind-student-validation-pilot-20261030.md)
-> and Windows PowerShell entrypoint
-> `scripts/prepare_wp3_blinded_bliss_student_pilot_windows.ps1`.
-> It verifies private 240 manifest against real source metadata,
-> refits the frozen MoodTheme Bliss23 StandardScaler + Ridge(alpha 10)
-> using **all old 100 development songs only**, and prepares 24
-> optional method-blind review pairs (6 raw-preferred, 6
-> student-preferred, 12 seeded random; 48 distinct songs), a private
-> fitted model, and an audit to KEEP SEALED until ratings are frozen.
-> Since selection oversamples model disagreements this is a
-> diagnostic, NOT unbiased population generalization. Never auto-play
-> or queue songs, read sealed audit before ratings, or demand ratings.
+> The user EXPLICITLY AUTHORIZED analyzing ALL 240 with original native
+> Essentia C++ and producing Genre87, MoodTheme56, Voice2 and one normalized
+> pooled 1280D EffNet embedding per song. Do NOT run the previously proposed
+> 24-pair Bliss-only pilot as the immediate next step: it is DEFERRED.
+> New research-only code exists:
+> `scripts/wp3_r6_native_240.py` (R5 source rederivation, frozen SHA/model/
+> scanner/native worker/source audio checks and postscan exact 240 heads/
+> embeddings validation); `scripts/run_wp3_r6_native_240_windows.ps1`
+> (single local Windows PowerShell 5.1/7 wrapper `-Stage Prepare|Scan|Verify|All`);
+> `scripts/evaluate_wp3_r6_240.py` (predeclared out-of-cohort teacher
+> MAE and 28,680 DEPENDENT distance-pair correlations). CI uses synthetic
+> source-shaped data and cannot access private NAS/worker runtime.
 >
-> Next step: verify CI, pull isolated research branch, optionally
-> run the full R6 PowerShell script on existing Python 3.15 and
-> existing read-only private sources; user should share aggregate-only
-> stdout, NEVER private CSV, manifest, trained weights or SQLites.
-> Any genuine general-metric validation later requires separately
-> consented human/external musical judgments and missing WP1
-> Essentia/embedding outputs on truly independent new songs; do
-> NOT invent those scores or start audio/ONNX scans without approval.
-> Keep no new deployment, workers, LMS changes, main merge, PR #16
-> or other repo edits. Maintain thorough English experiment docs and
-> handover updates after each real experiment.
+> The exact previously used Windows binary source SHA is
+> `da8fecee23930c2e52abcb473a62b8178b2d5474`, EXE SHA256
+> `00a41687fd79c53a536b6de6bf865647ef2d6f9ee453419cc69ca00911f5d82d`,
+> verified local binary directory
+> `D:\LMS\bliss-mood-private\verified-scanner-40758319812`,
+> native C++ worker `D:\LMS\essentia-cli-test\essentia-worker\bliss-essentia-worker.exe`,
+> official weights under repo `models`, verified previously reachable
+> NAS audio root `\\192.168.1.100\music`. Any absent or drifted
+> local prerequisite is a BLOCKER, never excuse to use an unknown binary,
+> Rust DSP fallback or public native DLL bundle. Native licensing and
+> distribution remain explicitly BLOCKED for unresolved notices.
+>
+> Next: validate Windows/Linux CI, pull only the research branch, then use
+> the complete Windows PowerShell launcher first in `-Stage Prepare`
+> (no inference); after source/hash PASS, explicitly choose `-Stage Scan`
+> and `-Stage Verify` on the printed private plan, or `-Stage All` only
+> with understanding that it performs actual 240 audio analyses.
+> Do not change scanner worker tuning: native `--workers auto` is
+> fixed-once CPU policy capped at eight, `--threads 1`.
+> Scans write exclusively to private ignored native 240 sidecar and
+> embedding directory, scanner logs remain PRIVATE, no LMS/playlist
+> changes, service restarts or old SQLite overwrites. Request user to
+> provide **only anonymous JSON aggregates**, NEVER private manifest,
+> source audio, embeddings, model weights, track identities or logs.
+>
+> The frozen MoodTheme Ridge(alpha 10) student and Genre PLS2 are fit
+> ONLY on all previous 100 DEVELOPMENT tracks, and then compared
+> on the new source-disjoint 240 teacher results without tuning.
+> 28,680 paired song distances share 240 observations and do not
+> represent 28,680 independent subjects. Essentia heads are
+> pseudo-teachers, not ground truth; they do not show better human
+> music similarity even if WP3 distance reconstruction improves.
+> WP1 General must remain separately validated and functional;
+> WP2 optional Personal learning + calibrated 0–100% blend must
+> retain a complete General fallback. Real human/external similarity
+> quality evidence needs a separate, consented independent gate.
+> Update English research and handover docs with actual findings.
+> No changes to `main`, Draft PR #16, Lyrion, other repos or
+> native worker performance tuning.
