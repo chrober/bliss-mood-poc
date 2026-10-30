@@ -101,6 +101,94 @@ Teacher reconstruction is NOT independent musical-similarity quality
 validation. WP1 General Metric and WP2 optional Personal Metric
 Learning are not replaced by this data-preparation step.
 
+
+## Real Windows source run: successful, 30 October 2026
+
+The operator ran the full Python 3.15 launcher and provided only
+anonymized console output. The private research SQLite was generated
+at an ignored local path under benchmark-wp3-research-20261030-064618-7f8c43a3.
+The existing same-100 source yielded:
+
+- Eligible Genre/Mood head pairs: **100**.
+- Native feature vectors excluded: **0**.
+- Provenance rejections: **0**.
+- Missing, ambiguous or invalid Bliss23: **0**.
+- Exact-key paired Bliss23 + Genre87 + MoodTheme56: **100**.
+- Four original source roles have NOT all been provided: the optional
+  BlissMixerLab snapshot and Lyrion library SQLite are not configured.
+- Group status: **NOT_AVAILABLE**, blocker
+  LYRION_GROUP_SOURCES_NOT_PROVIDED; group-heldout train and teacher
+  metric learning must remain disabled.
+- Source databases reported unchanged. No music-quality winner or
+  cross-source audio-byte identity certification was claimed.
+
+This is a real user-executed local data-build result, **not** a
+GitHub-hosted re-creation of personal library features. Original private
+feature data must remain on that Windows computer; only aggregate counts
+may be shared.
+
+## WP3 next activity: descriptive correlations without group leakage
+
+Because the 100 Bliss23/Essentia87+56 vectors are already paired, an
+additional **descriptive-only** analysis may proceed while artist/album/
+recording metadata is missing. This does not learn a metric, choose
+fusion weights, reconstruct Essentia teacher outputs, or claim
+independent heldout predictive quality.
+
+New files:
+
+- [Python stdlib descriptive script](../scripts/analyze_wp3_snapshot_correlations.py)
+- [Complete one-block PowerShell 5.1/7 entrypoint](../scripts/analyze_wp3_snapshot_correlations_windows.ps1)
+- [Synthetic unit tests](../tests/test_analyze_wp3_snapshot_correlations.py)
+
+On the local research branch, after updating via git pull --ff-only,
+run the PowerShell entrypoint. It finds the **one** existing private
+benchmark-wp3-research-*/wp3-research.sqlite automatically. If more
+than one research DB exists, it **fails closed** until the operator
+selects a specific known input via LYRION_WP3_RESEARCH_DB. It NEVER
+guesses a newest DB or requests the original four SQLite paths again.
+
+The report computes ordinary Pearson and tie-aware Spearman across
+all 23 Bliss dimensions times 87 genre/56 mood classifier dimensions,
+**3289 candidate associations** (23×87 + 23×56). Constant/degenerated
+feature pairs are excluded and counted rather than made zero.
+It provides per-head numbers of defined pairs, median magnitude and
+predefined effect-size thresholds, plus a bounded list of the
+highest absolute Spearman associations, with their original Bliss
+feature/Essentia class labels. No song keys, personal audio hashes,
+song vectors, private DB file paths or listener evaluations are
+printed or saved into the aggregate report.
+
+Selection of the highest correlations from 3289 exploratory tests
+creates a serious multiple-comparison and small-cohort winner's-curse
+risk. Track independence, identity-group overlap, upstream training
+overlap, and generalizability are not established. Therefore report
+no confirmatory p-values and do not infer musical similarity gains.
+The exact same 100 songs cannot serve as both model development
+and independent human-labelled validation.
+
+The analysis is stdlib-only on the existing **Python 3.15** and
+opens the snapshot with mode=ro/query_only; original and private
+snapshot DBs remain unchanged. The report is uniquely named
+aggregate-wp3-descriptive-*.json in the same gitignored private run
+directory and never overwrites a prior report. Do not commit or
+upload the private snapshot itself.
+
+## Metadata provenance source discovery
+
+The existing plugin source
+[BlissMixerLab/RepeatIdentitySnapshot.pm](https://github.com/chrober/lms-blissmixer-lab/blob/main/BlissMixerLab/RepeatIdentitySnapshot.pm)
+creates artist-repeat-identities.sqlite under
+Slim::Utils::OSDetect::dirsFor('cache') / BlissMixerLab, conditional
+on the plugin's prepare() routine and a valid LMS last-scan/root
+identity. This is a **dynamic Lyrion cache directory**, not
+a verified Windows-accessible path. The LMS library SQLite
+is another genuine external source. Do not guess a Raspberry Pi
+mount, download a live SQLite without a consistent snapshot, or
+substitute song-path-derived artist/album labels to bypass the
+independent group holdout gate.
+
+
 ## Verification and constraints
 
 Cross-platform CI runs synthetic SQLite integration tests. Windows CI
