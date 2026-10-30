@@ -234,6 +234,80 @@ Windows path. Do not manufacture artist metadata from filenames,
 or mistake this report for WP3 teacher learning / WP1-WP2 gains.
 
 
+
+## Actual 100-song redundancy and sensitivity results, 30 October 2026
+
+The user successfully ran the new private 100-song robustness analyzer
+on the same Windows WP3 research snapshot and supplied the aggregate
+report only. Schema: wp3-bliss-essentia-within-cohort-stability-v1;
+status POST_SELECTED_WITHIN_COHORT_SENSITIVITY_NOT_EXTERNAL_VALIDATION.
+No artists, raw song features, private file paths or model hashes were
+uploaded. The report uses 200 deterministic 80-song samples (from the
+same original 100), and exhaustive leave-one-track-out influence for
+the 16 already selected feature/class relationships.
+
+Observed within-cohort results:
+
+- Every one of the 253 possible Bliss23-vs-Bliss23 Spearman pairs
+  was defined. 22 had absolute rho at least 0.7; seven at least 0.9.
+- Bliss Zcr vs MeanSpectralRolloff: +0.969277;
+  MeanSpectralCentroid vs MeanSpectralRolloff: +0.968425;
+  MeanSpectralCentroid vs MeanSpectralFlatness: +0.951683.
+- Bliss Chroma11 vs Chroma12: +0.968089;
+  Chroma12 vs Chroma13: +0.957912;
+  Chroma6 vs Chroma12: +0.889901.
+- Genre metal vs hard: +0.832871.
+  MoodTheme soft vs romantic: +0.928557;
+  soft vs nature: +0.894317;
+  romantic vs nature: +0.883300.
+  Cross-head genre metal vs moodtheme soft: -0.701494.
+- All 16 post-selected associations retained their original sign
+  in 200/200 80-song subsamples. The largest absolute change to
+  Spearman rho when omitting exactly one of the 100 songs was
+  0.024519 (MeanSpectralFlatness vs genre hard).
+- Selected Chroma12 vs moodtheme soft: full rho -0.830495;
+  within-cohort 80-song subsample p10/p90 [-0.848720,-0.809526].
+  Chroma6 vs genre metal: full rho +0.723552;
+  subsample p10/p90 [+0.687311,+0.752295].
+
+Interpretation:
+
+(1) The individual correlations are stable against single-record
+deletion and selected random subsamples **within this cohort**.
+(2) The Bliss chroma-derived descriptors and spectral brightness/noise
+descriptors are strongly mutually redundant in this sample.
+(3) Multiple Essentia head labels are also mutually redundant; one
+candidate explanation is a broad hard/intense-versus-soft/romantic
+model-score contrast, rather than 16 independent musical properties.
+This is a hypothesis, not a scientifically established latent factor.
+(4) Intra-cohort resampling cannot correct artist/album/recording
+dependence, training-domain overlap, multiple-comparison selection
+of 16 from 3,289, or the lack of independent human similarity
+validation. p10/p90 are descriptive resampling percentiles, NOT
+confidence intervals. The teacher output classes are not musical
+ground truth or independent listener judgment.
+
+**Research decision: do not fit or deploy data-derived feature weights
+on the current 100-song cohort.** First obtain genuine Lyrion source
+artist/album/recording group information, then study a larger
+representation-diverse cohort with artist/recording-disjoint train and
+holdout. Evaluate whether a Bliss-only candidate adds actual
+independent **human-rated musical similarity** beyond original Bliss
+and existing Genre/Mood/embedding baselines. A teacher-score
+reconstruction result alone does not demonstrate that improvement.
+Keep WP1 General Metric and WP2 optional Personal Metric Learning
+as separate active workstreams and PR #16 isolated.
+
+The plugin's identity snapshot path is dynamically derived from the
+Lyrion cache root by BlissMixerLab/RepeatIdentitySnapshot.pm, then
+BlissMixerLab/artist-repeat-identities.sqlite appended. Neither that
+source nor the LMS library.db has been verified accessible on Windows.
+Do not fabricate identities from filenames. Before copying a live
+SQLite from a running server, use a consistent snapshot/backup
+procedure rather than risk an incomplete database; keep source
+identifiers local, never in GitHub CI or reports.
+
+
 ## Metadata provenance source discovery
 
 The existing plugin source
