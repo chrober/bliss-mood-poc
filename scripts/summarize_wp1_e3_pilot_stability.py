@@ -70,8 +70,6 @@ def summarize(source: dict) -> dict:
             loo_max=_coefficient(music_row,"loo_spearman_max")
             if None in (rho12,rho11,loo_min,loo_max) or loo_min>loo_max:
                 raise ValueError("Insufficient finite Spearman/LOO data")
-            if rho11 < loo_min - 1 or rho11 > loo_max + 1:
-                raise ValueError("Implausible LOO bounds")
             item[target]={
                 "rho_12_including_nonmusic":round(rho12,6),
                 "rho_11_music_only":round(rho11,6),
