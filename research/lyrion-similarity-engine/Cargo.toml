@@ -1,0 +1,21 @@
+[package]
+name = "lyrion-similarity-engine-research"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Research-only reusable Rust similarity geometry and read-only Lyrion shadow integration"
+
+[dependencies]
+anyhow = "1.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lib]
+name = "lyrion_similarity_engine_research"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lyrion-similarity-shadow"
+path = "src/bin/shadow.rs"
