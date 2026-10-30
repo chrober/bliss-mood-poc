@@ -51,6 +51,41 @@ The original evaluator's **locally saved**, anonymized `aggregate-model-comparis
 
 A separate read-only aggregate-only helper, if implemented, may extract just the **20×two-cohort LOO min/max and rank-correlation shifts**, with no original private filenames, song identifiers, comments, source features or numbered private pair diagnostics. Treat even those summaries as post-hoc sensitivity, not population inference. No additional listening needed.
 
+## Implemented next sensitivity check — aggregate only
+
+The tracked, read-only [WP1-E3 stability summarizer](../scripts/summarize_wp1_e3_pilot_stability.py) was added **after** the operator's pilot run. It takes only the existing local `aggregate-model-comparison.json` (not the original ratings, sealed selection audit, or private numbered pair CSV). It validates the frozen 12-versus-11 research schema and extracts, for all five models × four objectives:
+
+- Spearman rho on full 12 (including unchanged pair 10);
+- Spearman rho on 11 music-only pairs;
+- signed rho shift from removing nonmusic pair 10;
+- minimum/maximum music-only leave-one-pair-out Spearman rho;
+- flag indicating whether the LOO extrema span negative and positive values.
+
+No original human rating rows, private artist or track names, raw features, model pair scores, or numbered rank discrepancies are printed or written. The helper cannot produce statistical significance or independent validation. It **does not** rank/select a model or automatically tune weights. [Synthetic privacy/contract tests](../tests/test_summarize_wp1_e3_pilot_stability.py) check source-schema drift and exclusion of extra/private fields; the [WP1 external evidence workflow](../.github/workflows/research-wp1-external-evidence-replay.yml) runs the tests without loading private data.
+
+The operator can run it on the locally generated existing aggregate, after updating the branch, using this exact PowerShell block:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $Repo = 'D:\LMS\bliss-mood-poc'
+    $Aggregate = Join-Path $Repo 'benchmark-wp1-e3-local12-b34b7e62fc5649c19033b0366dcc59f8\aggregate-model-comparison.json'
+    $Analyzer = Join-Path $Repo 'scripts\summarize_wp1_e3_pilot_stability.py'
+    if (!(Test-Path -LiteralPath $Aggregate -PathType Leaf)) {
+        throw 'Original aggregate-only WP1-E3 report is missing.'
+    }
+    if (!(Test-Path -LiteralPath $Analyzer -PathType Leaf)) {
+        throw 'Update the existing research branch before invoking this analyzer.'
+    }
+    & python $Analyzer --aggregate $Aggregate
+    if ($LASTEXITCODE -ne 0) {
+        throw 'WP1-E3 aggregate-only sensitivity check blocked.'
+    }
+}
+```
+
+This requires **no re-listening and no rerun of the original 12-pair evaluator**; it is an optional next read-only local diagnostic. Results from it must not be reported as observed until the user has actually executed it or provided the full aggregate.
+
 ## Decision and WP1 General research continuation
 
 1. Retain Mood Centered Cosine as a **descriptive candidate**, not a decided General winner, and Embedding1280 as a **task-specific candidate** particularly for timbre/acoustic similarity.
