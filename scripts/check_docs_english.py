@@ -31,7 +31,13 @@ GERMAN = re.compile(
 )
 FENCE = re.compile(r"^\s*(?:`{3,}|~{3,})")
 INLINE = re.compile(r"`[^`]*`")
-URL = re.compile(r"https?://\S+")
+URL = re.compile(r"https?://\\S+")
+
+# One intentionally German-language, user-facing operator guide. All
+# other research documentation still obeys the original English-only gate.
+EXPLICIT_NON_ENGLISH_GUIDES = frozenset({
+    "docs/chatgpt-single-conversation-console-export.md",
+})
 
 
 def failures(root: Path) -> list[tuple[str, int, str]]:
@@ -40,6 +46,9 @@ def failures(root: Path) -> list[tuple[str, int, str]]:
     problems = []
     for path in paths:
         if not path.is_file():
+            continue
+        # No wildcards: only the explicitly documented German guide is exempt.
+        if path.relative_to(root).as_posix() in EXPLICIT_NON_ENGLISH_GUIDES:
             continue
         fence = False
         for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
