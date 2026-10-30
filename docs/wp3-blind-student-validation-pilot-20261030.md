@@ -1,5 +1,8 @@
 # WP3-R6: BLINDED original-Bliss versus MoodTheme-student pilot (30 October 2026)
 
+> **SUPERSEDED AS IMMEDIATE NEXT STEP — 30 OCT 2026:** The user explicitly requested that all 240 new songs be analyzed with the **original Essentia C++ backend**, including Genre87/MoodTheme56 and pooled EffNet1280D, before deciding on narrower listening-pair diagnostics. The optional 24-pair Bliss-only student blind pilot documented below remains implemented but has **NOT been executed**; it is now deferred. Follow the [frozen 240-song Essentia source and evaluation protocol](wp3-r6-native-240-essentia-protocol-20261030.md) and use the new staged [Windows PowerShell native 240 launcher](../scripts/run_wp3_r6_native_240_windows.ps1). The new 240 teacher outputs are **NOT** available yet; teacher agreement is NOT human perceptual similarity. Original source-identity validation, private data rules, license restrictions, General/Personal workstream separation still apply. Historical instructions below describe a previous optional pilot, not the current authorization.
+
+
 ## Scientific motivation and original evidence
 
 WP3's **first** authentic 100-song grouped teacher-only experiment
