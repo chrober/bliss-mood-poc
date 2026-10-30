@@ -14,6 +14,8 @@ on:
       - 'scripts/analyze_wp3_snapshot_correlations_windows.ps1'
       - 'scripts/analyze_wp3_snapshot_stability.py'
       - 'scripts/analyze_wp3_snapshot_stability_windows.ps1'
+      - 'scripts/verify_wp3_copied_lyrion_sqlite.py'
+      - 'scripts/prepare_wp3_lyrion_group_sources_windows.ps1'
       - 'scripts/run_grouped_bliss_essentia_research_windows.ps1'
       - 'tests/test_research_bliss_essentia_teacher_models.py'
       - 'tests/test_research_bliss_only_teacher_geometry.py'
@@ -22,6 +24,8 @@ on:
       - 'tests/test_build_wp3_research_db.py'
       - 'tests/test_analyze_wp3_snapshot_correlations.py'
       - 'tests/test_analyze_wp3_snapshot_stability.py'
+      - 'tests/test_verify_wp3_copied_lyrion_sqlite.py'
+      - 'tests/create_wp3_metadata_ci_fixture.py'
       - 'tests/create_wp3_launcher_ci_fixture.py'
       - 'research/requirements-wp3-r2.txt'
       - 'research/requirements-wp3-py315.txt'
@@ -99,6 +103,34 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_analyze_wp3_snapshot_correlations.py' -v
       - name: Descriptive within-cohort stability and Bliss/Essentia class redundancy
         run: python -m unittest discover -s tests -p 'test_analyze_wp3_snapshot_stability.py' -v
+
+      - name: Validate read-only copied Lyrion metadata SQLite (synthetic)
+        run: python -m unittest discover -s tests -p 'test_verify_wp3_copied_lyrion_sqlite.py' -v
+      - name: Build synthetic local metadata for Windows 5.1/7 argument smoke
+        if: runner.os == 'Windows'
+        run: python tests/create_wp3_metadata_ci_fixture.py
+      - name: Execute real PowerShell 5.1 metadata validation WITHOUT SSH
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          LYRION_WP3_METADATA_CI_VALIDATE_ONLY: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadatalibrary.db'
+          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadataartist-repeat-identities.sqlite'
+          & .scriptsprepare_wp3_lyrion_group_sources_windows.ps1
+          if (-not $?) { throw 'PowerShell 5.1 safe metadata preflight script-file invocation failed' }
+      - name: Execute real PowerShell 7 metadata validation WITHOUT SSH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LYRION_WP3_METADATA_CI_VALIDATE_ONLY: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:LYRION_WP3_CI_LIBRARY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadatalibrary.db'
+          $env:LYRION_WP3_CI_IDENTITY_DB = Join-Path $env:RUNNER_TEMP 'wp3-ci-metadataartist-repeat-identities.sqlite'
+          & .scriptsprepare_wp3_lyrion_group_sources_windows.ps1
+          if (-not $?) { throw 'PowerShell 7 safe metadata preflight script-file invocation failed' }
       - name: Prepare exact-path 64-song synthetic sources for full Windows launcher test
         if: runner.os == 'Windows'
         run: python tests/create_wp3_launcher_ci_fixture.py
@@ -200,6 +232,12 @@ jobs:
           $tokens = $null
           $stability = Join-Path (Get-Location).Path 'scripts/analyze_wp3_snapshot_stability_windows.ps1'
           $null = [System.Management.Automation.Language.Parser]::ParseFile($stability, [ref]$tokens, [ref]$errors)
+
           if ($errors.Count -ne 0) { throw 'The WP3 within-cohort robustness launcher has syntax errors.' }
+          $errors = $null
+          $tokens = $null
+          $metadata = Join-Path (Get-Location).Path 'scripts/prepare_wp3_lyrion_group_sources_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($metadata, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'The WP3 metadata backup and Python 3.15 wrapper has syntax errors.' }
       - name: Run grouped regression gates
         run: python -m unittest discover -s tests -p 'test_research_grouped_split.py' -v
