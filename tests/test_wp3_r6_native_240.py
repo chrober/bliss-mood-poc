@@ -83,6 +83,7 @@ class NativeR6Tests(unittest.TestCase):
              patch.object(r6,"_model_evidence",
                           return_value=cls.fake_model_hashes):
             cls.prepared=r6.prepare(a)
+        cls.db_absent_after_prepare=not (cls.root/"new-r6"/"native-features.sqlite").exists()
         cls.plan=_load(cls.root/"new-r6"/"private-scan-plan.json")
         a.plan_dir=a.out_dir
         a.out_dir=None
@@ -98,7 +99,7 @@ class NativeR6Tests(unittest.TestCase):
         self.assertEqual(len(data.splitlines()),240)
         self.assertEqual(len(set(data.splitlines())),240)
         self.assertTrue((self.args.plan_dir/"embeddings").is_dir())
-        self.assertFalse((self.args.plan_dir/"native-features.sqlite").exists())
+        self.assertTrue(self.db_absent_after_prepare)
         self.assertNotIn("Private New Validation",str(self.prepared))
 
     def test_source_hash_guard_fails_closed(self):
