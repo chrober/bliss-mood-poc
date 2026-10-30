@@ -26,7 +26,7 @@ def fictional_tables():
     mappings=[]
     for i,source in enumerate(e4.SOURCES):
         for j in range(54):
-            sid=f"fake-{i:02d}_{j:02d}"
+            sid=f"fake{i:02d}_{j:02d}"
             mappings.append(dict(
                 survey_audio_id=sid,dataset=source,
                 audio_file_path="fictional-unpublished-track.mp3",
@@ -82,7 +82,7 @@ class CcmsimMetadataTests(unittest.TestCase):
             "upstream_readme_claims_52_clips_per_dataset_not_same_as_mapping_54"])
         serialized=json.dumps(report)
         for private in ("fictional-unpublished-track","audio_file_path",
-                        "survey_audio_id","fake-00_00","participant_id"):
+                        "survey_audio_id","fake00_00","participant_id"):
             self.assertNotIn(private,serialized)
 
     def test_fail_closed_on_duplicate_pair_and_missing_clip_mapping(self):
