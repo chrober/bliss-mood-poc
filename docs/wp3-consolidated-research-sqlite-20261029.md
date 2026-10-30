@@ -308,6 +308,63 @@ procedure rather than risk an incomplete database; keep source
 identifiers local, never in GitHub CI or reports.
 
 
+## 30 October 2026: real Pi metadata discovery and PowerShell transfer repair
+
+User authenticated to piCorePlayer (tc at 192.168.1.111), and read-only
+diagnostics confirmed that /usr/local/slimserver/Cache resolves to
+/mnt/mmcblk0p2/tce/slimserver/Cache. Source databases:
+
+- /usr/local/slimserver/Cache/library.db (194.9 MB, 79,005
+  tracks, 6,228 albums), last file write 30 October 2026 06:43.
+- /usr/local/slimserver/Cache/BlissMixerLab/artist-repeat-identities.sqlite
+  (59.2 MB, 77,517 track_identity rows, 76,870 artist identity
+  rows), last file write 30 October 2026 07:32.
+
+Read-only SQLite 3.32.1 schema inspection found the required
+library tracks/album columns, snapshot identity/artist columns,
+schema_identity lyrion-track-identities-v1,
+lms_scan_time 1793339060 and a 64-character media root
+fingerprint. Neither exact 100-song joins nor current scan
+freshness are thereby independently established.
+
+The first one-off Windows PowerShell copy script actually succeeded
+at creating ONLINE SQLite backups on Pi and SCP transferring both
+files, but FAILED at local Python validation before source-grouping
+preflight: PowerShell native Python -c argument quote stripping
+yielded SyntaxError on the SQLite URI expression. Its multiline
+remote sh-s cleanup separately failed with unexpected EOF
+(expecting fi), so the source copies might still exist in
+/tmp/wp3-metadata-f15ad4f9c54340818830fcb14c08eeca. The
+incomplete NEW Windows staging folder was then removed by the
+caller. Original live SQLite files were not modified.
+
+Permanent code repair:
+
+- scripts/verify_wp3_copied_lyrion_sqlite.py is a standalone
+  stdlib-only Python 3.15 CLI, using SQLite read-only quick_check,
+  required columns and snapshot metadata shapes. No -c quoting.
+- scripts/prepare_wp3_lyrion_group_sources_windows.ps1 reuses
+  the already-successful remote read-only sqlite3 .backup/SCP
+  sequence, creates an exclusive ignored local metadata folder,
+  calls the Python CLI via explicit argument array, then uses the
+  pre-existing derive_lyrion_research_groups.py --preflight with
+  fixed seed 20261029, limit 100, read-only to verify LMS track IDs
+  / URLMD5 and available genuine group components. It does NOT
+  train or export group keys.
+- Remote cleanup uses a ONE-LINE SSH shell command targeting only
+  the two new /tmp metadata backup copies and rmdir of their
+  UUID folder. No recursive deletion, no live DB modification.
+- tests/test_verify_wp3_copied_lyrion_sqlite.py and
+  tests/create_wp3_metadata_ci_fixture.py cover synthetic SQLite,
+  privacy, and the actual Windows PS5.1/PS7 Python-file invocation
+  without any SSH. Real remote execution is not CI tested.
+
+Keep private copies private; share only anonymized aggregate output.
+A blocked group-disjoint holdout is valid and must not be bypassed
+by file path guessing, lax splits or claiming teacher improvement.
+No new audio scan, service restart, main merge or PR #16 edits.
+
+
 ## Metadata provenance source discovery
 
 The existing plugin source
