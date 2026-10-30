@@ -1,0 +1,70 @@
+name: WP1-E7 replay published CCMSim human vs third-party model scores
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/replay_wp1_e7_ccmsim_published_baselines.py'
+      - 'tests/test_replay_wp1_e7_ccmsim_published_baselines.py'
+      - '.github/workflows/research-wp1-e7-ccmsim-published-baselines.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: Fictional pair/stratum and no-song-output checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Offline tests (no audio, source datasets or individual human responses)
+        run: python -m unittest discover -s tests -p 'test_replay_wp1_e7_ccmsim_published_baselines.py' -v
+
+  public:
+    name: Replay exact pinned published third-party 11-score baselines (NO inference)
+    needs: synthetic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Download only three pinned public aggregated CSVs, validate and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python scripts/replay_wp1_e7_ccmsim_published_baselines.py --out results/wp1-e7-published-model-aggregate-spearman.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/wp1-e7-published-model-aggregate-spearman.json")
+          d=json.loads(p.read_text())
+          assert d["model_count"] == 11
+          assert d["published_original_human_pair_count"] == 1130
+          assert d["source_strata"]["within_source_only"]["pair_count"] == 112
+          assert d["source_strata"]["cross_source_only"]["pair_count"] == 1018
+          assert d["global_pairwise_lyrion_general_metric_tested"] is False
+          assert d["musical_metric_winner_selected"] is False
+          assert d["source_audio_or_participant_responses_fetched"] is False
+          for forbidden in (b"survey_audio_id",b"audio_pair",b"audio_file_path"):
+              assert forbidden not in p.read_bytes()
+          print("WP1-E7 11 published third-party model baselines verified, not a Lyrion benchmark.")
+          PY
+      - name: Publish anonymized 11-model x 3-target x 3-stratum summary ONLY
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp1-e7-third-party-published-aggregate-correlation-only
+          path: results/wp1-e7-published-model-aggregate-spearman.json
+          retention-days: 30
+          if-no-files-found: error
