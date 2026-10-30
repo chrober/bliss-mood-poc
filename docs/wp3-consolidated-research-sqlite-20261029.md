@@ -131,7 +131,7 @@ GitHub-hosted re-creation of personal library features. Original private
 feature data must remain on that Windows computer; only aggregate counts
 may be shared.
 
-## WP3 next activity: descriptive correlations without group leakage
+## Historical WP3 next activity (completed): descriptive correlations without group leakage
 
 Because the 100 Bliss23/Essentia87+56 vectors are already paired, an
 additional **descriptive-only** analysis may proceed while artist/album/
