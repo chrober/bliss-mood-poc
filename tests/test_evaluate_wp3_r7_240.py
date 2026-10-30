@@ -55,8 +55,9 @@ class PostR6ExploratoryTests(unittest.TestCase):
                     "top_10_mean_teacher_neighbor_overlap",
                     "top_20_mean_teacher_neighbor_overlap"):
             self.assertEqual(overlap[key], 1.0)
-        reversed_teacher = teacher[::-1, ::-1].copy()
-        mismatch = r7._retrieval(np, reversed_teacher, teacher)
+        permutation = np.roll(idx, 7)
+        shuffled_teacher = teacher[np.ix_(permutation, permutation)]
+        mismatch = r7._retrieval(np, shuffled_teacher, teacher)
         self.assertLess(mismatch["top_5_mean_teacher_neighbor_overlap"], 1.0)
 
     def test_bootstrap_resamples_song_groups_not_28680_pairs(self):
