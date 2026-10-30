@@ -1,0 +1,53 @@
+{
+  "schema": "wp3-frozen-hypothesis-spec-v1",
+  "status": "EXPLORATORY_ARCHITECTURE_ONLY_NOT_TRAINED_MODEL",
+  "frozen_on": "2026-10-30",
+  "origin": "docs/wp3-real-grouped-teacher-study-results-20261030.md",
+  "evidence_cohort": {
+    "songs": 100,
+    "artist_album_recording_connected_groups": 88,
+    "train_songs": 75,
+    "group_holdout_songs": 25,
+    "warning": "all 100 songs had already been inspected in whole-cohort exploratory correlations; 25 tracks not untouched confirmatory holdout"
+  },
+  "candidate": {
+    "name": "Bliss23-to-MoodTheme56 Ridge student",
+    "input_feature_count": 23,
+    "source_feature_order": "audit_bliss_essentia_join.BLISS_COLUMNS; original Bliss TracksV2 exact order",
+    "teacher_head": "moodtheme",
+    "teacher_dimensions": 56,
+    "teacher_outputs_are_pseudo_targets_not_ground_truth": true,
+    "scaler": "scikit-learn StandardScaler, fitted on training input ONLY",
+    "predictor": "sklearn.linear_model.Ridge",
+    "ridge_alpha": 10,
+    "predictor_training": "train-only on 23D Bliss to 56D teacher outputs",
+    "inference": "Bliss23 -> train-fitted scaler -> train-fitted Ridge predicts 56D -> Euclidean distance",
+    "teacher_not_required_at_student_inference": true,
+    "model_parameters_saved": false,
+    "no_production_model": true
+  },
+  "baselines": [
+    "original unstandardized Bliss23 Euclidean",
+    "train-standardized Bliss23 Euclidean",
+    "current WP1 Genre87/MoodTheme56 metrics",
+    "1280D song embedding and justified prespecified fusion"
+  ],
+  "previous_group_holdout_diagnostics": {
+    "mood_original_bliss_to_teacher_distance_spearman": 0.44204891165457394,
+    "mood_student_to_teacher_distance_spearman": 0.5406615629062546,
+    "genre_original_bliss_to_teacher_distance_spearman": 0.557959088434316,
+    "genre_student_to_teacher_distance_spearman": 0.5695987733197035,
+    "not_perceptual_quality": true
+  },
+  "next_evaluation": {
+    "require_new_source_cohort": true,
+    "separate_from_old_100_tracks_and_collaborating_artist_album_recording_identifiers": true,
+    "lock_protocol_before_future_results": true,
+    "primary_evidence": "independent human-rated musical similarity or justified external perceptual reference, measured blind",
+    "secondary_evidence": "student reconstruction of Essentia teacher distances and outputs",
+    "avoid_leakage": "all preprocessing and student fitting on established development songs; no new-cohort labels or teacher results used for tuning",
+    "uncertainty": "resampling at disjoint artist/album/recording component level; song pairs share tracks",
+    "must_not_claim": "improved production Lyrion recommendations without independent perceptual validation"
+  },
+  "version_note": "This only fixes a research HYPOTHESIS and does not include trained weights, calibration, or an executable production scorer."
+}
