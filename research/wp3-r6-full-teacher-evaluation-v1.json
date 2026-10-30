@@ -1,0 +1,47 @@
+{
+  "schema": "wp3-r6-frozen-external-teacher-proxy-protocol-v1",
+  "locked_on": "2026-10-30",
+  "locked_before_new_240_essentia_inference": true,
+  "status": "PREDECLARED_CANDIDATE_AND_EVALUATION_NOT_AN_EXECUTED_RESULT",
+  "development_songs": 100,
+  "source_identity_group_disjoint_future_songs": 240,
+  "fixed_r5_manifest_seed": 20261030,
+  "previous_development_split_reuse": "All 100 old songs used to fit final fixed candidate. Original 25 are not a holdout for this refit.",
+  "hyperparameters": {
+    "bliss_student_teacher_head": "moodtheme",
+    "bliss_feature_dimensions": 23,
+    "bliss_standardization": "sklearn.StandardScaler fitted on OLD 100 songs only",
+    "moodtheme_student_model": "sklearn.Ridge(alpha=10.0) fitted on OLD 100-song native MoodTheme56",
+    "moodtheme_teacher_dimensions": 56,
+    "genre_teacher_comparator": "sklearn.PLSRegression(n_components=2,max_iter=500,scale=True) with StandardScaler; fitted OLD 100 only",
+    "inference_output": "56D pseudo-teacher predictions, L2 Euclidean pairwise distances",
+    "no_tuning_on_new_teacher_or_human_labels": true
+  },
+  "frozen_baselines": [
+    "mean OLD 100 teacher per-class (constant MAE baseline)",
+    "raw 23D Bliss Euclidean",
+    "train-fitted StandardScaler Bliss23 Euclidean",
+    "Essentia Genre87 cosine similarity",
+    "Essentia MoodTheme56 cosine similarity",
+    "Essentia MoodTheme56 train-centered cosine similarity",
+    "Essentia pooled-normalized 1280D embedding cosine similarity"
+  ],
+  "metrics": [
+    "out-of-cohort MAE of MoodTheme Ridge and Genre PLS against OLD-train-mean baseline",
+    "Spearman across all 28680 dependent song pairs: MoodTheme teacher Euclidean versus original Bliss Euclidean",
+    "Spearman across same 28680: MoodTheme teacher Euclidean versus train-only Ridge Bliss-student Euclidean",
+    "Spearman against Genre teacher Euclidean: original Bliss and student proxies (secondary, not self-target)",
+    "Spearman between pairwise original Bliss/student distances and Genre/Mood centered/embedding baseline dissimilarities (descriptive only)"
+  ],
+  "inferential_limits": [
+    "No musical similarity ground truth: Essentia teacher outputs are pseudo labels",
+    "No independent numeric Essentia parity certification; results are experimental",
+    "28680 pair distances share 240 songs and are not independent trials",
+    "New 240 tracks are artist/album/recording-disjoint only according to available LMS/Lab source identities",
+    "Unknown pretrained model overlap and mismatched audio or missing credits may remain",
+    "Do not tune or pick final metric based on this external teacher-proxy outcome; then claim untouched test",
+    "No new human ratings, queue changes, server or plugin changes",
+    "WP1 General Metric and WP2 optional Personal Metric are separate; neither is selected by pseudo teacher agreement"
+  ],
+  "next_quality_gate": "Separately consented preregistered blind human/external music-similarity comparison on a truly untouched cohort."
+}
