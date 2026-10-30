@@ -1,0 +1,54 @@
+name: WP3-R7 post-R6 bootstrap and retrieval (synthetic only)
+
+on:
+  push:
+    branches: [feat/general-pairwise-similarity-research]
+    paths:
+      - 'scripts/evaluate_wp3_r7_240.py'
+      - 'scripts/run_wp3_r7_240_windows.ps1'
+      - 'tests/test_evaluate_wp3_r7_240.py'
+      - '.github/workflows/research-wp3-r7-synthetic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    name: Python 3.15 synthetic group-bootstrap and retrieval (\${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: \${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: Install pinned private-study-compatible numerical packages
+        run: python -m pip install --disable-pip-version-check --only-binary=:all: -r research/requirements-wp3-py315.txt
+      - name: Compile R7 and R6 sources
+        run: python -m compileall -q scripts/evaluate_wp3_r7_240.py scripts/evaluate_wp3_r6_240.py
+      - name: Execute synthetic R7 gates; NO real song data, audio or model downloads
+        run: python -m unittest discover -s tests -p 'test_evaluate_wp3_r7_240.py' -v
+      - name: R6 frozen-protocol regression gate
+        run: python -m unittest discover -s tests -p 'test_evaluate_wp3_r6_240.py' -v
+      - name: PowerShell launcher syntax (Windows 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $file = Join-Path (Get-Location).Path 'scripts/run_wp3_r7_240_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) { throw 'WP3 R7 Windows 5.1 script parser failed.' }
+      - name: PowerShell launcher syntax (7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $file = Join-Path (Get-Location).Path 'scripts/run_wp3_r7_240_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) { throw 'WP3 R7 PowerShell 7 script parser failed.' }
