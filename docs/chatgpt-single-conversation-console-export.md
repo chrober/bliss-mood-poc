@@ -221,7 +221,7 @@ ChatGPT-Session auszuwerten und eine unvollständige Druck-PDF zu vermeiden.
         new Blob([json], { type: "application/json;charset=utf-8" })
     );
     const safeName = expectedTitle
-        .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+        .replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_")
         .trim() || "chatgpt-conversation";
 
     const link = document.createElement("a");
