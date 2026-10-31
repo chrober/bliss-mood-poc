@@ -1,6 +1,15 @@
 name: ONNX model smoke test
 on:
   push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/verify_manifest_batch_smoke.py'
+      - 'scripts/benchmark_manifest_fixed_workers.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/model-smoke.yml'
+  pull_request:
     paths:
       - 'src/**'
       - 'scripts/verify_manifest_batch_smoke.py'
