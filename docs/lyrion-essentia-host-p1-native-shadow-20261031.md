@@ -1,0 +1,26 @@
+# Lyrion Essentia P1: verified host identity and native frozen-shadow first slice (31 October 2026)
+
+## Verified implementation
+
+- Main implementation: [lms-blissmixer-lab Draft PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3), branch feat/essentia-exact-identity-proof, current verified tip 2bcd8bcbcda16b0b964eee077ec63908cfd1d0ea.
+- Canonical offline feature writer remains in essentia-analyser; independent geometry and read-only feature decoder remain in essentia-similarity. No repository merge or scanner migration.
+- Native JSONL process comes from bliss-guidance-essentia Draft PR #1, pinned revision de72433d9c690e1aa46e973bbcca63691e959df8. The Lyrion install/setting project lms-guidance-essentia remains separate and documentation-only.
+- Host-side EssentiaExactIdentity.pm verifies exact binary Bliss TracksV2.File and Essentia SQLite-v3 feature_tracks.track_file keys, one anchor and complete 2–50 already-admitted candidates, then writes bounded SHA256 job-bound essentia-exact-track-keys-v1 metadata.
+- Explicit opt-in only EssentiaShadowProbe.pm opens both source DBs with actual SQLITE_OPEN_READONLY, makes private WAL-aware SQLite Online Backup snapshots, then verifies and provides the frozen sidecar to the native provider. It runs real describe/prepare/score/close requests with verified manifest and response semantics.
+- All outputs remain anonymous status/aggregate only; empty provider signals are enforced as a safety gate. Original SQLite bytes, playback, queues, route plans and Bliss ranking stay unchanged.
+
+## Tested evidence
+
+- [Native integration GitHub Actions 41184700040](https://github.com/chrober/lms-blissmixer-lab/actions/runs/41184700040): SUCCESS on 31 October 2026, includes actual Cargobuilt Rust provider, true temporary SQLite files, strict BLOB Float32LE model head, raw source vs frozen copy equivalence, model mismatch fallback, and complete-cohort safety.
+- [Regular CI 41184700041](https://github.com/chrober/lms-blissmixer-lab/actions/runs/41184700041): SUCCESS, retained old Lab Perl/Python regressions. Full P1 branch CI passes. Experimental shadow opt-in only literal scalar 1; string false does not enable.
+- Technical integration details, failure contracts and synthetic fixtures are maintained at [Lab P1 implementation notes](https://github.com/chrober/lms-blissmixer-lab/blob/feat/essentia-exact-identity-proof/docs/essentia-exact-identity-proof-20261031.md).
+
+## Interpretation and explicit no-go
+
+This is an isolated, manually called **research P1 proof**, not a live Lab SPI host integration, supported Lyrion plugin, production General Metric or user-visible Shadow UI. Native provider still emits zero active signals. No routing/playback changes have been shipped.
+
+SQLite online backup captures each source independently, **not one atomic common snapshot** across Bliss and Essentia generations. Distinct physical media roots remain rejected without a trustworthy root/source-generation identity contract. The full-database temporary copy is bounded to 256 MiB per source and is **not** a scalable Raspberry Pi or large-library runtime approach. Native package licensing, source-feature parity, model rights, actual general/personal musical quality and low-power timings remain open.
+
+## Recommended next experiment
+
+Introduce a read-only host-controlled source-generation manifest and lightweight, bounded, zero-playback-change candidate snapshot interface. Confirm exact root identity, rescan consistency, one explicit seed and entire admitted pool. Then evaluate a gated Lab Shadow report that records only anonymous coverage, fallback rate, p95/p99 latency and ranking-delta aggregates. Only after external musical validation may an actual ranking influence be proposed. WP1, WP2, WP3 and FMA TEST embargo remain unaffected.
