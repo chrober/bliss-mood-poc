@@ -1,4 +1,4 @@
-# Einzelnen ChatGPT-Chat per vollständiger URL als JSON exportieren
+# Aktuell geöffneten ChatGPT-Chat ohne manuelle Eingaben als JSON exportieren
 
 > **Stand: 31. Oktober 2026; in Firefox praktisch bestätigt.**  
 > **Inoffizielles Verfahren mit nicht dokumentierten ChatGPT-Backend-Endpunkten.**
@@ -6,33 +6,34 @@
 
 ## Kurzfassung: Der funktionierende Weg
 
-Dieses Verfahren exportiert **einen bestimmten Original-Chat** aus dem angemeldeten Browser, nicht den gesamten Chatverlauf des Kontos. Die Auswahl erfolgt anhand der **Conversation-ID aus der vollständigen Chat-URL**, nicht anhand des möglicherweise mehrfach vergebenen Chat-Titels. Auch Projekt-URLs mit dem Pfad /g/.../c/... werden unterstützt.
+Dieses Verfahren exportiert **genau den aktuell geöffneten Original-Chat** aus dem angemeldeten Browser, nicht den gesamten Chatverlauf des Kontos. Das Script liest die **URL automatisch aus der aktuellen Browserseite** und ermittelt daraus die eindeutige Conversation-ID. Eine manuelle URL-Eingabe oder ein (potenziell mehrfach vorhandener) Chat-Titel ist **nicht** erforderlich. Auch Projekt-URLs mit dem Pfad `/g/.../c/...` werden unterstützt.
 
 **Voraussetzungen:** Zugriff auf den Original-Chat in der eigenen ChatGPT-Sitzung, Firefox/Chrome/Edge mit Browser-Konsole und ausreichender freier Arbeitsspeicher/Plattenplatz. Ein öffentlicher Share-Link ist kein Original-Chat und funktioniert hier nicht.
 
 **Schritt für Schritt:**
 
-1. Gewünschten **Original-Chat** in chatgpt.com öffnen (die Adresszeile enthält /c/ mit der Chat-ID).
+1. Gewünschten **Original-Chat** auf `chatgpt.com` öffnen. Die Adresszeile muss `/c/<conversation-id>` enthalten; innerhalb eines Projekts ist auch `/g/.../c/<conversation-id>` korrekt. **Keine** öffentliche `/share/...`-Seite verwenden.
 2. **F12 → Konsole / Console** öffnen.
-3. Im folgenden **vollständigen Code genau die Konstante CHAT_URL** durch die URL aus der Adresszeile ersetzen; der Titel ist **nicht** nötig. Die Projektpfad-Komponente darf enthalten sein. Außerhalb des angemeldeten Original-Chats ist ein bloßes Einfügen einer fremden URL nicht ausreichend.
-4. Gesamten Code in die Konsole kopieren und mit Enter ausführen. Nur selbst geprüften Konsolencode ausführen; Browser können vor dem Einfügen eine Freigabe verlangen.
-5. Die Seite **nicht neu laden**. Bis **=== EXPORT ABGESCHLOSSEN ===** laufen lassen. Ein zunächst angezeigtes Promise mit Zustand pending ist normal.
-6. Im Browser-Downloadverzeichnis die Datei **chatgpt-conversation-<conversation-id>.json** finden; Dateigröße, JSON-Inhalt und Audit-Werte kontrollieren.
+3. Den **vollständigen, unveränderten** JavaScript-Code unten kopieren und mit Enter ausführen. **Keine Konfiguration erforderlich**: `CHAT_URL` wird aus `window.location.origin + window.location.pathname` übernommen. Nur selbst geprüften Konsolencode ausführen; Browser können vor dem Einfügen eine Freigabe verlangen.
+4. Die Seite **nicht neu laden**. Bis **=== EXPORT ABGESCHLOSSEN ===** laufen lassen. Ein zunächst angezeigtes Promise mit Zustand pending ist normal.
+5. Im Browser-Downloadverzeichnis die Datei **chatgpt-conversation-<conversation-id>.json** finden; Dateigröße, JSON-Inhalt und Audit-Werte kontrollieren.
 
-**Nur eine Zeile konfigurieren:** Die beispielhafte URL mit Nullen ist ein nicht-personenbezogener Platzhalter und **muss** vor der Ausführung gegen eine echte URL ausgetauscht werden.
+**Ohne Eingabe verwendbar:** Derselbe Code funktioniert in jedem geöffneten Original-Chat. Er übernimmt den aktuellen Origin und Pfad, ohne Query-Parameter oder URL-Fragment in den Export zu übernehmen.
 
 ## Vollständiges, praxiserprobtes JavaScript (V2)
 
-Der Code basiert auf dem am **31.10.2026 erfolgreich ausgeführten URL-basierten V2-Exporter**. Das Abruf-, Validierungs-, Wiederanlauf- und Downloadverfahren ist unverändert; lediglich die Beispiel-URL ist anonymisiert. Das gesamte Snippet kann direkt in die Browser-Konsole kopiert werden.
+Der Code basiert auf dem am **31.10.2026 erfolgreich ausgeführten URL-basierten V2-Exporter**. Zusätzlich wurde anschließend die **automatische Übernahme der aktuellen Seiten-URL erfolgreich im Browser bestätigt**. Die übrige Abruf-, Validierungs-, Wiederanlauf- und Downloadlogik bleibt unverändert. Das gesamte Snippet kann ohne Änderungen direkt in die Browser-Konsole kopiert werden.
 
 ```javascript
 (async function chatgptSingleConversationExport() {
     "use strict";
 
     // ============================================================
-    // KONFIGURATION: NUR DIESE URL ERSETZEN
+    // KONFIGURATION: KEINE MANUELLE CHAT-URL ERFORDERLICH
     // ============================================================
-    const CHAT_URL = "https://chatgpt.com/c/00000000-0000-0000-0000-000000000000";
+    // Identifiziert den aktuell geöffneten Original-Chat automatisch.
+    // Query-Parameter und URL-Fragmente bleiben außen vor.
+    const CHAT_URL = window.location.origin + window.location.pathname;
 
     const NUM_TURNS = 1;
     const MAX_PAGES = 5000;
@@ -375,7 +376,7 @@ Der Code basiert auf dem am **31.10.2026 erfolgreich ausgeführten URL-basierten
 
 ## Was der Exporter technisch macht
 
-- Prüft, ob CHAT_URL auf den HTTPS-Origin chatgpt.com zeigt, und vergleicht die dortige Conversation-ID mit der ID des **aktuell geöffneten** Original-Chats. Eine Projekt-ID ist zum Abruf nicht erforderlich.
+- Ermittelt `CHAT_URL` **automatisch** aus `window.location.origin + window.location.pathname` des gerade geöffneten Tabs (ohne Query und Fragment). Prüft den HTTPS-Origin `chatgpt.com`, extrahiert die Conversation-ID und vergleicht sie mit der ID des **aktuell geöffneten** Original-Chats. Eine Projekt-ID ist zum Abruf nicht erforderlich.
 - Verwendet die vorhandene Browser-Sitzung (Session-Endpunkt /api/auth/session), ohne den Sitzungstoken zu protokollieren oder in die Datei aufzunehmen.
 - Ruft **nicht** zuerst die gesamte Unterhaltung ab, sondern direkt den bei langen Chats funktionierenden Endpunkt:
   `/backend-api/conversations/{conversation-id}/messages?include_has_versions=true&num_turns=1`.
@@ -395,7 +396,7 @@ Die Reihenfolge der API-Seiten wird vor dem Zusammenführen umgekehrt. Die Nachr
 
 Bei einer sehr langen technischen ChatGPT-Projekt-Unterhaltung schlug der Standardabruf von `/backend-api/conversations/{id}` nach ungefähr 30 Sekunden mit `HTTP 500 {"detail":"Request timeout"}` fehl. Auch der nicht-paginierte Messages-Abruf mit großer Seitenanforderung war ungeeignet. Der gezielte Abruf mit `num_turns=1` lieferte dagegen HTTP 200. Auffälligkeit: `num_turns=1` begrenzt **Turns**, nicht die Anzahl einzelner API-Datensätze; aufeinanderfolgende Seiten hatten beispielsweise 366, 1, 144 und 1 Datensätze.
 
-Der **explizit URL-basierte V2-Exporter** wurde anschließend mit einer vollständigen Projekt-Chat-URL erfolgreich erneut ausgeführt:
+Der **URL-basierte V2-Exporter** wurde mit einer vollständigen Projekt-Chat-URL erfolgreich erneut ausgeführt. Anschließend wurde auch die Ermittlung der URL aus der aktuell geöffneten Seite anstelle einer manuell eingetragenen Konstante erfolgreich bestätigt:
 
 | Prüfkriterium | Bestätigter Wert |
 | --- | ---: |
@@ -420,7 +421,7 @@ Diese Zahlen sind **Testbeobachtungen, keine für andere Chats zu erwartenden So
 | `HTTP 500 / Request timeout` auf dem gesamten Conversation-Endpunkt | Bei sehr langen Chats beobachtet. Der V2-Exporter verwendet **direkt den paginierten Messages-Endpunkt**. |
 | `EXPORT UNTERBROCHEN` | Fehler ansehen; im **gleichen unveränderten Tab** denselben Code erneut ausführen, um ab der zuletzt validierten Seite fortzufahren. |
 | Wiederholter Cursor / leere Seite / fehlende ID | Export wird absichtlich abgebrochen, statt eine möglicherweise unvollständige Datei als Erfolg auszugeben. |
-| Ungültige Chat-ID / falscher geöffneter Chat | CHAT_URL mit der Adresszeile des **Original-Chats** abgleichen. |
+| Ungültige Chat-ID / keine passende URL | Sicherstellen, dass die **aktuell geöffnete Seite** ein Original-Chat mit `/c/<conversation-id>` ist, kein `/share/...`-Link, keine Chat-Übersicht und keine andere Domain. Die URL wird automatisch gelesen; nicht im Script eintragen. |
 | Große Datei, Browser speichert nicht | Download-Berechtigung, freien Platz und Browser-RAM kontrollieren; bei erfolgreicher Konsole zusätzlich Datei prüfen. |
 | Firefox `WEBGL_debug_renderer_info is deprecated` | Eine unabhängige Browser-/Grafik-Warnung, **kein Fehler des Export-Scripts**. |
 | Öffentliche `/share/...`-URL | Nicht geeignet; dieser Exporter benötigt Zugriff auf den Original-Chat. |
@@ -429,4 +430,4 @@ Diese Zahlen sind **Testbeobachtungen, keine für andere Chats zu erwartenden So
 
 ## Warum die ältere Anleitung ersetzt wurde
 
-Der alte Ansatz rief zuerst `/backend-api/conversations/{id}` auf und fiel erst **nach erfolgreicher Antwort** auf den separaten Messages-Endpunkt zurück. Bei `HTTP 500 Request timeout` trat dieser Fallback daher nie in Kraft. Außerdem erforderte er einen unter Umständen nicht eindeutigen `expectedTitle`. Die bestätigte V2-Fassung löst **beide** Probleme: eindeutige URL/Conversation-ID und direkter, paginierter Nachrichtenabruf.
+Der alte Ansatz rief zuerst `/backend-api/conversations/{id}` auf und fiel erst **nach erfolgreicher Antwort** auf den separaten Messages-Endpunkt zurück. Bei `HTTP 500 Request timeout` trat dieser Fallback daher nie in Kraft. Außerdem erforderte er einen unter Umständen nicht eindeutigen `expectedTitle`. Die bestätigte V2-Fassung löst **beide** Probleme: eindeutige Conversation-ID statt Titel und direkter, paginierter Nachrichtenabruf. Die anschließende Vereinfachung macht auch das **manuelle Eintragen einer URL überflüssig**.
