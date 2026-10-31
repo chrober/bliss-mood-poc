@@ -1,5 +1,40 @@
 # Lyrion Essentia host/SPI migration record (31 October 2026)
 
+## 31 October follow-up: per-file content provenance without Lab changes
+
+- [Lab PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3)
+  is now **closed without merge**. `main` is unchanged. Earlier Lab
+  code/proofs in this document remain historical only.
+- [Lyrion provider Draft PR #1](https://github.com/chrober/lms-guidance-essentia/pull/1)
+  now contains a normal SPI-v2 provider discovery facade that
+  **always reports unavailable** until genuine host/scanner provenance
+  is established. All Essentia-specific work remains here, not in Lab.
+- New `SourceProvenance.pm` attests an offline seed plus 2–50 candidates
+  by streaming SHA-256 over the actual file bytes and comparing against
+  existing scanner SQLite-v3 `feature_tracks.audio_sha256`, exact
+  `TracksV2.File`, model key and scan-state file size. With multiple
+  configured music roots, each path must have one unique owning root,
+  and all relative-key collisions are rejected.
+- The content-audited identities and <=4 MiB selected-feature projection
+  are passed in the **unchanged** native `bliss-playlist-guidance-spi`
+  v2 artifact/resource shape. The existing Rust provider still emits
+  **only `signals=[]`** and has not been connected to running LMS.
+- [Real native process CI PASS, 113 Perl + 15 native assertions]
+  (https://github.com/chrober/lms-guidance-essentia/actions/runs/41197901541):
+  two physical roots and all current file bytes are checked before
+  `describe -> prepare -> score -> close` on a synthetic fixture.
+- **Do not conflate per-track content proof with common catalogue
+  generation.** The current scanner has no host generation or root-map
+  attestation, and its source SHA is computed after decoding without
+  a before/after source stability proof. That scanner race and portable
+  generation provenance remain explicit blockers. Full-file hashing
+  would also exceed live-mixer latency budgets on many systems.
+
+See [specific offline proof and limitations]
+(https://github.com/chrober/lms-guidance-essentia/blob/feat/essentia-guidance-integration-design/docs/audio-content-provenance-20261031.md).
+
+---
+
 ## AUTHORITATIVE ARCHITECTURE DECISION: SPI-only integration
 
 The previous Lab-local Essentia identity, bounded snapshot and direct
