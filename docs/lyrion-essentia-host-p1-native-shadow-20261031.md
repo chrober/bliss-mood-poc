@@ -1,5 +1,30 @@
 # Lyrion Essentia host/SPI migration record (31 October 2026)
 
+## 31 October update: upstream scan lifecycle and fresh full-catalog fingerprint
+
+- Confirmed from upstream [Lyrion scanner](https://github.com/LMS-Community/slimserver/blob/public/9.2/scanner.pl)
+  that `lastscan` is not an immutable generation: timestamp changes are
+  conditional, scan commits can occur incrementally, and `rescan done`
+  / `library changed` are notifications. Do not derive a trusted shared
+  scanner/host generation merely from them.
+- In [lms-guidance-essentia Draft PR #1](https://github.com/chrober/lms-guidance-essentia/pull/1)
+  `CatalogFingerprint.pm` now computes a bounded deterministic SHA-256 of
+  **all eligible** Bliss `TracksV2.File` rows plus caller-declared host
+  root IDs/canonical paths under a readonly pinned SQLite snapshot.
+- A new independent readonly WAL transaction is used for freshness
+  checks. Optional offline `catalog_roots` binding into the SHA-audited
+  resource bundle rechecks before SPI prepare and can recheck after score.
+  The real native SPI remains unchanged; `signals=[]`.
+- [CI PASS: 136 Perl + 20 actual native JSONL process assertions]
+  (https://github.com/chrober/lms-guidance-essentia/actions/runs/41200038531).
+  Native fixture deliberately changes Bliss after scoring and confirms
+  the older catalog fingerprint is rejected.
+- **Important:** A fingerprint is not an authenticated Lyrion scan
+  epoch, roots are still caller-declared, and the scanner has no
+  durable root-qualified analysis receipt. The producer/host must
+  close those gaps before activating the provider. No changes to
+  BlissMixerLab, its closed PR #3, or the public SPI.
+
 ## 31 October follow-up: per-file content provenance without Lab changes
 
 - [Lab PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3)
