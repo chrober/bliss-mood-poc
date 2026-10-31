@@ -12,7 +12,6 @@ on:
       - "src/audio_decode.rs"
       - "src/preprocess.rs"
       - ".github/workflows/native-essentia-windows.yml"
-      - "docs/essentia-cpp-windows-native-build.md"
       - "scripts/package_essentia_worker_windows.py"
       - "scripts/test_native_essentia_protocol.py"
       - "scripts/generate_audio_fixtures.py"
