@@ -1,5 +1,35 @@
 # Lyrion Essentia host/SPI migration record (31 October 2026)
 
+## 31 October update: manual Windows SQLite sidecar native SPI pilot
+
+- User decision: analyze 65k+ songs manually/offline on the
+  Windows workstation; the Pi 4B remains an LMS and **read-only
+  feature consumer**, with no rescan-triggered Essentia jobs.
+- In [provider Draft PR #1](https://github.com/chrober/lms-guidance-essentia/pull/1)
+  `ImportedSidecarPilot.pm` stages a **manually transferred**
+  Windows SQLite-v3 feature snapshot into a bounded seed+2–50
+  candidate SPI-v2 resource for an offline research-only pilot.
+  It verifies exact Bliss and scanner keys, Pi source file size
+  and pinned model metadata, but does not hash/encode audio on Pi
+  or claim same-size-content, multi-root, catalog generation proof.
+- The native provider's existing `experimental_preview_opt_in`
+  allows unvalidated Windows ONNX model rows only with explicit
+  research opt-in; metadata is not relabeled. No active signals.
+- [Provider CI](https://github.com/chrober/lms-guidance-essentia/actions/runs/41202318933)
+  verified a separate Windows/Pi sidecar-file fixture and native
+  `describe -> prepare -> score -> close`. This is **not yet**
+  a real running Lyrion plugin integration.
+- **New generic host blocker:**
+  `lms-bliss-guidance-host/Plugins/BlissGuidance/Runtime.pm`
+  currently transmits `prepare.anchors=[]` unconditionally.
+  Standard SPI v2 already supports anchors; generic forwarding
+  is required for a native Essentia seed, along with a reviewed
+  provider-neutral seed/candidate path. The current GitHub
+  connection cannot write to the shared host repo (403).
+  No Essentia-special host logic or protocol change is proposed.
+- [Detailed pilot gates and compatibility finding]
+  (https://github.com/chrober/lms-guidance-essentia/blob/feat/essentia-guidance-integration-design/docs/manual-windows-sidecar-passive-pilot-20261031.md).
+
 ## 31 October update: upstream scan lifecycle and fresh full-catalog fingerprint
 
 - Confirmed from upstream [Lyrion scanner](https://github.com/LMS-Community/slimserver/blob/public/9.2/scanner.pl)
