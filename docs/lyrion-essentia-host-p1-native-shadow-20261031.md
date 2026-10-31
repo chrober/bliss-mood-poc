@@ -1,3 +1,43 @@
+# Lyrion Essentia host/SPI migration record (31 October 2026)
+
+## AUTHORITATIVE ARCHITECTURE DECISION: SPI-only integration
+
+The previous Lab-local Essentia identity, bounded snapshot and direct
+native `EssentiaShadowProbe` integration was **removed** from the
+[Lab Draft PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3)
+after review: **BlissMixerLab must be completely provider-neutral**.
+The new Lab draft contains only a generic, manually opted-in passive
+observation helper implemented on top of the already existing native
+Guidance SPI callbacks. It is not connected to live DSTM or playback.
+
+The reusable exact-key verifier and <=4 MiB bounded SQLite-v3 projection
+were relocated to the separate
+[Lyrion Essentia provider Draft PR #1](https://github.com/chrober/lms-guidance-essentia/pull/1).
+That plugin branch is still **not installable or registered**. The native
+[Essentia SPI v2 provider Draft PR #1](https://github.com/chrober/bliss-guidance-essentia/pull/1)
+is unchanged at the wire-contract level and continues to return `signals=[]`.
+Only the existing SPI `describe / prepare / score / close` mechanism may
+invoke it; no provider-specific direct subprocess path belongs in Lab.
+
+Host/source-generation equality, multiple-root provenance and exact
+audio-file identity are **not yet proven**; matching relative keys and
+separately frozen databases are insufficient. The current provider plugin
+must therefore remain inactive until trusted evidence and real-host
+fail-closed tests are implemented. The generic Lab does not own these
+provider-specific validators.
+
+Verified CI:
+- [Provider helper tests](https://github.com/chrober/lms-guidance-essentia/actions) are green.
+- Generic Lab SPI tests are in [Lab Draft PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3).
+- [Provider-owned SPI plan](https://github.com/chrober/lms-guidance-essentia/blob/feat/essentia-guidance-integration-design/docs/provider-owned-spi-shadow-20261031.md).
+
+## Superseded historical research notes
+
+The following chronology documents what **was** tested in the abandoned
+Lab-local proof. It is retained for reproducibility only and must not
+be mistaken for currently present Lab modules or active integration.
+
+---
 # Lyrion Essentia P1: verified host identity and native frozen-shadow first slice (31 October 2026)
 
 ## P1.5 update: scalable bounded native shadow probe (31 October 2026)
