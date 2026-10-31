@@ -1,5 +1,40 @@
 # Lyrion Essentia P1: verified host identity and native frozen-shadow first slice (31 October 2026)
 
+## P1.5 update: scalable bounded native shadow probe (31 October 2026)
+
+The isolated Lab Draft PR #3 has moved from *full SQLite online backup*
+to a **read-only, per-cohort feature projection**:
+
+- `EssentiaBoundedSnapshot.pm` opens each source with actual SQLite
+  `OPEN_READONLY` and pins separate read transactions (including WAL).
+- Exact Bliss/Essentia identity validation still runs against the original
+  sources; only one seed, 2–50 admitted candidates, and one requested
+  model are exported to a private sealed SQLite-v3 file (max 4 MiB).
+- The native SPI v2 `describe` / `prepare` / `score` / `close` flow is
+  unchanged. All `signals=[]`; no run-time Lab integration or player effect.
+- Concurrent WAL changes cannot alter already pinned feature rows. Missing
+  keys, invalid model fingerprints, non-BLOB feature data and incomplete
+  cohorts fail neutrally.
+- New [Lab bounded-shadow and provenance contract]
+  (https://github.com/chrober/lms-blissmixer-lab/blob/feat/essentia-exact-identity-proof/docs/essentia-host-provenance-and-bounded-shadow-20261031.md).
+- [Initial bounded native CI](https://github.com/chrober/lms-blissmixer-lab/actions/runs/41189833771)
+  PASS: 69 assertions across four Perl suites and actual pinned Rust provider.
+  [General CI](https://github.com/chrober/lms-blissmixer-lab/actions/runs/41189833767)
+  PASS: 329 regression assertions. Later hardening CI must also pass.
+
+**P2 remains blocked** on independently verifiable host-owned scan-generation
+attestation, provenance for multiple media roots and physical file identity,
+plus end-to-end real host smoke/performance measurements. The SQLite
+transactions are individually consistent, **not an atomic cross-database
+generation**. V3 exact relative file keys alone cannot disambiguate
+same-named files from distinct roots. Existing scanner and Bliss databases
+must not be silently modified to fabricate a generation witness.
+
+All information below describes the historical earlier P1 full-copy proof;
+its SQLite online-backup implementation has been replaced.
+
+---
+
 ## Verified implementation
 
 - Main implementation: [lms-blissmixer-lab Draft PR #3](https://github.com/chrober/lms-blissmixer-lab/pull/3), branch feat/essentia-exact-identity-proof, current verified tip 2bcd8bcbcda16b0b964eee077ec63908cfd1d0ea.
